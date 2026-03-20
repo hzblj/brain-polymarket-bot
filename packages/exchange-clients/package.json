@@ -1,0 +1,25 @@
+{
+  "name": "@brain/exchange-clients",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@brain/logger": "workspace:*",
+    "@brain/types": "workspace:*",
+    "@nestjs/common": "^10.3.0",
+    "axios": "^1.6.0",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.0"
+  },
+  "peerDependencies": {
+    "reflect-metadata": "^0.1.13 || ^0.2.0",
+    "rxjs": "^7.0.0"
+  }
+}

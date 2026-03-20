@@ -1,0 +1,39 @@
+{
+  "name": "brain-service",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "yarn workspaces foreach -A run build",
+    "dev:market-discovery": "yarn workspace @brain/market-discovery-service dev",
+    "dev:price-feed": "yarn workspace @brain/price-feed-service dev",
+    "dev:orderbook": "yarn workspace @brain/orderbook-service dev",
+    "dev:feature-engine": "yarn workspace @brain/feature-engine-service dev",
+    "dev:agent-gateway": "yarn workspace @brain/agent-gateway-service dev",
+    "dev:risk": "yarn workspace @brain/risk-service dev",
+    "dev:execution": "yarn workspace @brain/execution-service dev",
+    "dev:replay": "yarn workspace @brain/replay-service dev",
+    "dev:config": "yarn workspace @brain/config-service dev",
+    "dev:api-gateway": "yarn workspace @brain/api-gateway dev",
+    "lint": "eslint . --ext .ts",
+    "test": "yarn workspaces foreach -A run test",
+    "db:generate": "yarn workspace @brain/database generate",
+    "db:migrate": "yarn workspace @brain/database migrate",
+    "db:studio": "yarn workspace @brain/database studio"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.56.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.2.0"
+  },
+  "packageManager": "yarn@4.13.0",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

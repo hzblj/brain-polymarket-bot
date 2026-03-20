@@ -1,0 +1,22 @@
+{
+  "name": "@brain/llm-clients",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@brain/logger": "workspace:*",
+    "@nestjs/common": "^10.3.0",
+    "openai": "^4.25.0",
+    "zod": "^3.22.0"
+  },
+  "peerDependencies": {
+    "reflect-metadata": "^0.1.13 || ^0.2.0",
+    "rxjs": "^7.0.0"
+  }
+}
