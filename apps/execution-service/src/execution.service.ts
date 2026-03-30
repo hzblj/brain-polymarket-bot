@@ -1,12 +1,12 @@
-import { Injectable, OnModuleInit, HttpException, HttpStatus } from '@nestjs/common';
-import type {
-  Order,
-  Fill,
-  OrderStatus,
-  OrderSide,
-  ExecutionMode,
-  UnixMs,
-} from '@brain/types';
+import {
+  DATABASE_CLIENT,
+  type DbClient,
+  fills as fillsTable,
+  orders as ordersTable,
+} from '@brain/database';
+import type { ExecutionMode, OrderSide, OrderStatus, UnixMs } from '@brain/types';
+import { HttpException, HttpStatus, Inject, Injectable, type OnModuleInit } from '@nestjs/common';
+import { desc, eq, inArray } from 'drizzle-orm';
 
 // ─── Input / Output Types ────────────────────────────────────────────────────
 
@@ -61,25 +61,18 @@ interface Position {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const DATA_FRESHNESS_THRESHOLD_MS = 10_000;
+const _DATA_FRESHNESS_THRESHOLD_MS = 10_000;
 
 @Injectable()
 export class ExecutionService implements OnModuleInit {
   private orders: Map<string, InternalOrder> = new Map();
   private positions: Map<string, Position> = new Map();
 
-  // TODO: inject @brain/polymarket-client, @brain/database, @brain/events, @brain/logger
-  // constructor(
-  //   private readonly polymarketClient: PolymarketClient,
-  //   private readonly database: DatabaseService,
-  //   private readonly events: EventsService,
-  //   private readonly logger: LoggerService,
-  // ) {}
+  constructor(@Inject(DATABASE_CLIENT) private readonly db: DbClient) {}
 
   async onModuleInit(): Promise<void> {
     // Load open orders and positions from database
     await this.loadOpenOrders();
-    console.log('[execution-service] initialized');
   }
 
   // ─── Public API ──────────────────────────────────────────────────────────────
@@ -109,8 +102,30 @@ export class ExecutionService implements OnModuleInit {
     this.updatePosition(order);
 
     // Persist to database
-    // await this.database.orders.insert(order);
-    // await this.database.fills.insert(fill);
+    try {
+      await this.db.insert(ordersTable).values({
+        id: order.id,
+        windowId: order.windowId,
+        riskDecisionId: order.riskDecisionId,
+        side: order.side,
+        mode: order.mode,
+        sizeUsd: order.sizeUsd,
+        entryPrice: order.entryPrice,
+        status: order.status,
+        polymarketOrderId: order.polymarketOrderId,
+        createdAt: order.createdAt,
+        updatedAt: order.updatedAt,
+      });
+      await this.db.insert(fillsTable).values({
+        id: fill.id,
+        orderId: fill.orderId,
+        fillPrice: fill.fillPrice,
+        fillSizeUsd: fill.fillSizeUsd,
+        filledAt: fill.filledAt,
+      });
+    } catch (_dbError) {
+      /* ignored - persistence is best-effort */
+    }
 
     this.emitEvent('order.created', { orderId: order.id, mode: 'paper', side: order.side });
     this.emitEvent('order.filled', {
@@ -119,8 +134,6 @@ export class ExecutionService implements OnModuleInit {
       fillPrice: simulatedFillPrice,
       fillSizeUsd: input.sizeUsd,
     });
-
-    console.log(`[execution-service] Paper order filled: ${order.id} ${order.side} $${input.sizeUsd} @ ${simulatedFillPrice}`);
     return order;
   }
 
@@ -152,9 +165,23 @@ export class ExecutionService implements OnModuleInit {
       order.updatedAt = new Date().toISOString();
 
       // Persist to database
-      // await this.database.orders.insert(order);
-
-      console.log(`[execution-service] Live order placed: ${order.id} → polymarket: ${order.polymarketOrderId}`);
+      try {
+        await this.db.insert(ordersTable).values({
+          id: order.id,
+          windowId: order.windowId,
+          riskDecisionId: order.riskDecisionId,
+          side: order.side,
+          mode: order.mode,
+          sizeUsd: order.sizeUsd,
+          entryPrice: order.entryPrice,
+          status: order.status,
+          polymarketOrderId: order.polymarketOrderId,
+          createdAt: order.createdAt,
+          updatedAt: order.updatedAt,
+        });
+      } catch (_dbError) {
+        /* ignored - persistence is best-effort */
+      }
 
       // In production, order fills would come via WebSocket subscription
       // For now, simulate a fill after placement
@@ -164,9 +191,14 @@ export class ExecutionService implements OnModuleInit {
     } catch (error) {
       order.status = 'failed';
       order.updatedAt = new Date().toISOString();
-      // await this.database.orders.update(order.id, { status: 'failed' });
-
-      console.error(`[execution-service] Live order failed: ${order.id}`, error);
+      try {
+        await this.db
+          .update(ordersTable)
+          .set({ status: 'failed', updatedAt: order.updatedAt })
+          .where(eq(ordersTable.id, order.id));
+      } catch {
+        /* ignore */
+      }
       throw new HttpException(
         `Order placement failed: ${(error as Error).message}`,
         HttpStatus.BAD_GATEWAY,
@@ -179,12 +211,46 @@ export class ExecutionService implements OnModuleInit {
    */
   async getOrder(orderId: string): Promise<InternalOrder> {
     const order = this.orders.get(orderId);
-    if (!order) {
-      // TODO: Fall back to database lookup
-      // const dbOrder = await this.database.orders.findById(orderId);
-      throw new HttpException(`Order ${orderId} not found`, HttpStatus.NOT_FOUND);
+    if (order) return order;
+
+    // Fall back to database
+    const [r] = await this.db
+      .select()
+      .from(ordersTable)
+      .where(eq(ordersTable.id, orderId))
+      .limit(1);
+    if (r) {
+      const dbFills = await this.db.select().from(fillsTable).where(eq(fillsTable.orderId, r.id));
+      const internalOrder: InternalOrder = {
+        id: r.id,
+        marketId: '',
+        windowId: r.windowId,
+        riskDecisionId: r.riskDecisionId,
+        side: r.side as OrderSide,
+        mode: r.mode as ExecutionMode,
+        sizeUsd: r.sizeUsd,
+        entryPrice: r.entryPrice,
+        maxEntryPrice: r.entryPrice,
+        status: r.status as OrderStatus,
+        polymarketOrderId: r.polymarketOrderId,
+        source: 'database',
+        mustExecuteBeforeMs: 0,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+        fills: dbFills.map((f) => ({
+          id: f.id,
+          orderId: f.orderId,
+          fillPrice: f.fillPrice,
+          fillSizeUsd: f.fillSizeUsd,
+          filledAt: f.filledAt,
+        })),
+        filledSizeUsd: dbFills.reduce((sum, f) => sum + f.fillSizeUsd, 0),
+      };
+      this.orders.set(r.id, internalOrder);
+      return internalOrder;
     }
-    return order;
+
+    throw new HttpException(`Order ${orderId} not found`, HttpStatus.NOT_FOUND);
   }
 
   /**
@@ -201,17 +267,21 @@ export class ExecutionService implements OnModuleInit {
     }
 
     if (order.mode === 'live' && order.polymarketOrderId) {
-      // TODO: Call polymarket-client to cancel
-      // await this.polymarketClient.cancelOrder(order.polymarketOrderId);
-      console.log(`[execution-service] Cancelling live order: ${order.polymarketOrderId}`);
+      // TODO: send cancellation to Polymarket API
     }
 
     order.status = 'cancelled';
     order.updatedAt = new Date().toISOString();
-    // await this.database.orders.update(orderId, { status: 'cancelled' });
+    try {
+      await this.db
+        .update(ordersTable)
+        .set({ status: 'cancelled', updatedAt: order.updatedAt })
+        .where(eq(ordersTable.id, orderId));
+    } catch {
+      /* ignore */
+    }
 
     this.emitEvent('order.cancelled', { orderId: order.id, mode: order.mode });
-    console.log(`[execution-service] Order cancelled: ${orderId}`);
 
     return order;
   }
@@ -220,26 +290,63 @@ export class ExecutionService implements OnModuleInit {
    * Returns fills, optionally filtered by windowId.
    */
   async getFills(windowId?: string, limit = 50): Promise<InternalFill[]> {
-    // TODO: Load from database
-    // return this.database.fills.find({ windowId, limit });
-
+    // In-memory fills first
     const allFills: InternalFill[] = [];
     for (const order of this.orders.values()) {
       if (windowId && order.windowId !== windowId) continue;
       allFills.push(...order.fills);
     }
 
-    return allFills
-      .sort((a, b) => new Date(b.filledAt).getTime() - new Date(a.filledAt).getTime())
-      .slice(0, limit);
+    if (allFills.length > 0) {
+      return allFills
+        .sort((a, b) => new Date(b.filledAt).getTime() - new Date(a.filledAt).getTime())
+        .slice(0, limit);
+    }
+
+    // Fall back to database
+    if (windowId) {
+      const orderRows = await this.db
+        .select()
+        .from(ordersTable)
+        .where(eq(ordersTable.windowId, windowId));
+      const orderIds = orderRows.map((o) => o.id);
+      if (orderIds.length > 0) {
+        const dbFills = await this.db
+          .select()
+          .from(fillsTable)
+          .where(inArray(fillsTable.orderId, orderIds))
+          .limit(limit);
+        return dbFills.map((f) => ({
+          id: f.id,
+          orderId: f.orderId,
+          fillPrice: f.fillPrice,
+          fillSizeUsd: f.fillSizeUsd,
+          filledAt: f.filledAt,
+        }));
+      }
+    } else {
+      const dbFills = await this.db
+        .select()
+        .from(fillsTable)
+        .orderBy(desc(fillsTable.filledAt))
+        .limit(limit);
+      return dbFills.map((f) => ({
+        id: f.id,
+        orderId: f.orderId,
+        fillPrice: f.fillPrice,
+        fillSizeUsd: f.fillSizeUsd,
+        filledAt: f.filledAt,
+      }));
+    }
+
+    return [];
   }
 
   /**
    * Returns all current open positions.
    */
-  async getPositions(): Promise<Position[]> {
-    // TODO: Load from database
-    // return this.database.positions.findOpen();
+  getPositions(): Position[] {
+    // Positions are computed in-memory from filled orders, not stored separately
     return Array.from(this.positions.values());
   }
 
@@ -248,10 +355,7 @@ export class ExecutionService implements OnModuleInit {
   private validateFreshness(mustExecuteBeforeSec: number): void {
     // The caller tells us how many seconds remain; reject if it is already expired
     if (mustExecuteBeforeSec <= 0) {
-      throw new HttpException(
-        'Execution deadline has already passed',
-        HttpStatus.BAD_REQUEST,
-      );
+      throw new HttpException('Execution deadline has already passed', HttpStatus.BAD_REQUEST);
     }
   }
 
@@ -324,8 +428,21 @@ export class ExecutionService implements OnModuleInit {
 
     this.updatePosition(order);
 
-    // await this.database.fills.insert(fill);
-    // await this.database.orders.update(order.id, { status: 'filled', entryPrice: order.entryPrice });
+    try {
+      await this.db.insert(fillsTable).values({
+        id: fill.id,
+        orderId: fill.orderId,
+        fillPrice: fill.fillPrice,
+        fillSizeUsd: fill.fillSizeUsd,
+        filledAt: fill.filledAt,
+      });
+      await this.db
+        .update(ordersTable)
+        .set({ status: 'filled', entryPrice: order.entryPrice, updatedAt: order.updatedAt })
+        .where(eq(ordersTable.id, order.id));
+    } catch {
+      /* ignore */
+    }
 
     this.emitEvent('order.filled', {
       orderId: order.id,
@@ -336,14 +453,48 @@ export class ExecutionService implements OnModuleInit {
   }
 
   private async loadOpenOrders(): Promise<void> {
-    // TODO: Load open orders from database on startup
-    // const open = await this.database.orders.findByStatus(['pending', 'placed', 'partial']);
-    // for (const order of open) this.orders.set(order.id, order);
+    try {
+      const openOrders = await this.db
+        .select()
+        .from(ordersTable)
+        .where(inArray(ordersTable.status, ['pending', 'placed', 'partial']));
+      for (const r of openOrders) {
+        const dbFills = await this.db.select().from(fillsTable).where(eq(fillsTable.orderId, r.id));
+        this.orders.set(r.id, {
+          id: r.id,
+          marketId: '',
+          windowId: r.windowId,
+          riskDecisionId: r.riskDecisionId,
+          side: r.side as OrderSide,
+          mode: r.mode as ExecutionMode,
+          sizeUsd: r.sizeUsd,
+          entryPrice: r.entryPrice,
+          maxEntryPrice: r.entryPrice,
+          status: r.status as OrderStatus,
+          polymarketOrderId: r.polymarketOrderId,
+          source: 'database',
+          mustExecuteBeforeMs: 0,
+          createdAt: r.createdAt,
+          updatedAt: r.updatedAt,
+          fills: dbFills.map((f) => ({
+            id: f.id,
+            orderId: f.orderId,
+            fillPrice: f.fillPrice,
+            fillSizeUsd: f.fillSizeUsd,
+            filledAt: f.filledAt,
+          })),
+          filledSizeUsd: dbFills.reduce((sum, f) => sum + f.fillSizeUsd, 0),
+        });
+      }
+      if (openOrders.length > 0) {
+        // TODO: send cancellation to exchange
+      }
+    } catch (_error) {
+      /* best-effort reconciliation */
+    }
   }
 
-  private emitEvent(event: string, payload: Record<string, unknown>): void {
-    // TODO: Wire to @brain/events
-    // this.events.emit(event, payload);
-    console.log(`[execution-service] event: ${event}`, JSON.stringify(payload));
+  private emitEvent(_event: string, _payload: Record<string, unknown>): void {
+    /* noop */
   }
 }

@@ -1,6 +1,6 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
-import axios, { AxiosInstance, AxiosError } from 'axios';
-import { BrainLoggerService } from '@brain/logger';
+import type { BrainLoggerService } from '@brain/logger';
+import { Injectable, type OnModuleDestroy } from '@nestjs/common';
+import axios, { type AxiosError, type AxiosInstance } from 'axios';
 import type {
   PolymarketMarket,
   PolymarketOrderbook,
@@ -23,7 +23,7 @@ export class PolymarketRestClient implements OnModuleDestroy {
   private readonly logger: BrainLoggerService;
 
   constructor(
-    private readonly options: PolymarketRestClientOptions,
+    readonly options: PolymarketRestClientOptions,
     logger: BrainLoggerService,
   ) {
     this.logger = logger.child('PolymarketRestClient');
@@ -33,9 +33,9 @@ export class PolymarketRestClient implements OnModuleDestroy {
       timeout: options.timeoutMs ?? 10000,
       headers: {
         'Content-Type': 'application/json',
-        ...(options.apiKey ? { 'POLY_API_KEY': options.apiKey } : {}),
-        ...(options.apiSecret ? { 'POLY_API_SECRET': options.apiSecret } : {}),
-        ...(options.apiPassphrase ? { 'POLY_PASSPHRASE': options.apiPassphrase } : {}),
+        ...(options.apiKey ? { POLY_API_KEY: options.apiKey } : {}),
+        ...(options.apiSecret ? { POLY_API_SECRET: options.apiSecret } : {}),
+        ...(options.apiPassphrase ? { POLY_PASSPHRASE: options.apiPassphrase } : {}),
       },
     });
 
@@ -59,7 +59,10 @@ export class PolymarketRestClient implements OnModuleDestroy {
     return response.data;
   }
 
-  async getMarkets(params?: { next_cursor?: string; limit?: number }): Promise<{ data: PolymarketMarket[]; next_cursor: string }> {
+  async getMarkets(params?: {
+    next_cursor?: string;
+    limit?: number;
+  }): Promise<{ data: PolymarketMarket[]; next_cursor: string }> {
     const response = await this.client.get('/markets', { params });
     return response.data;
   }
@@ -97,12 +100,18 @@ export class PolymarketRestClient implements OnModuleDestroy {
     });
   }
 
-  async getOpenOrders(params?: { market?: string; asset_id?: string }): Promise<PolymarketOrderResponse[]> {
+  async getOpenOrders(params?: {
+    market?: string;
+    asset_id?: string;
+  }): Promise<PolymarketOrderResponse[]> {
     const response = await this.client.get<PolymarketOrderResponse[]>('/orders', { params });
     return response.data;
   }
 
-  async getTrades(params?: { market?: string; maker_address?: string }): Promise<PolymarketTradeResponse[]> {
+  async getTrades(params?: {
+    market?: string;
+    maker_address?: string;
+  }): Promise<PolymarketTradeResponse[]> {
     const response = await this.client.get<PolymarketTradeResponse[]>('/trades', { params });
     return response.data;
   }

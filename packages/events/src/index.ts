@@ -1,17 +1,16 @@
-import { Global, Injectable, Module, OnModuleDestroy } from '@nestjs/common';
-import { EventEmitter } from 'events';
+import { EventEmitter } from 'node:events';
 import type {
+  AgentDecision,
+  BookSnapshot,
+  FeaturePayload,
+  Fill,
   Market,
   MarketWindow,
-  BookSnapshot,
-  BookMetrics,
-  PriceTick,
-  FeaturePayload,
-  AgentDecision,
-  RiskEvaluation,
   Order,
-  Fill,
+  PriceTick,
+  RiskEvaluation,
 } from '@brain/types';
+import { Global, Injectable, Module, type OnModuleDestroy } from '@nestjs/common';
 
 // ─── Event Map ──────────────────────────────────────────────────────────────
 

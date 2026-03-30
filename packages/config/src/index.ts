@@ -1,7 +1,7 @@
-import { DynamicModule, Module } from '@nestjs/common';
+import type { ExecutionMode } from '@brain/types';
+import { type DynamicModule, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { z } from 'zod';
-import type { ExecutionMode } from '@brain/types';
 
 // ─── Config Schemas ─────────────────────────────────────────────────────────
 
@@ -12,17 +12,7 @@ export const AppConfigSchema = z.object({
 });
 
 export const DatabaseConfigSchema = z.object({
-  DATABASE_HOST: z.string().min(1).default('localhost'),
-  DATABASE_PORT: z.coerce.number().int().min(1).max(65535).default(5432),
-  DATABASE_USER: z.string().min(1).default('postgres'),
-  DATABASE_PASSWORD: z.string().min(1).default('postgres'),
-  DATABASE_NAME: z.string().min(1).default('brain'),
-  DATABASE_SSL: z
-    .string()
-    .transform((v) => v === 'true')
-    .default('false'),
-  DATABASE_POOL_SIZE: z.coerce.number().int().min(1).max(100).default(10),
-  DATABASE_URL: z.string().optional(),
+  DATABASE_PATH: z.string().default('./data/brain.sqlite'),
 });
 
 export const PolymarketConfigSchema = z.object({
@@ -76,14 +66,7 @@ export interface AppConfig {
 }
 
 export interface DatabaseConfig {
-  host: string;
-  port: number;
-  user: string;
-  password: string;
-  database: string;
-  ssl: boolean;
-  poolSize: number;
-  connectionString: string;
+  path: string;
 }
 
 export interface PolymarketConfig {
@@ -131,19 +114,8 @@ function buildAppConfig(env: FullEnv): AppConfig {
 }
 
 function buildDatabaseConfig(env: FullEnv): DatabaseConfig {
-  const connectionString =
-    env.DATABASE_URL ??
-    `postgresql://${env.DATABASE_USER}:${env.DATABASE_PASSWORD}@${env.DATABASE_HOST}:${env.DATABASE_PORT}/${env.DATABASE_NAME}${env.DATABASE_SSL ? '?sslmode=require' : ''}`;
-
   return {
-    host: env.DATABASE_HOST,
-    port: env.DATABASE_PORT,
-    user: env.DATABASE_USER,
-    password: env.DATABASE_PASSWORD,
-    database: env.DATABASE_NAME,
-    ssl: env.DATABASE_SSL,
-    poolSize: env.DATABASE_POOL_SIZE,
-    connectionString,
+    path: env.DATABASE_PATH,
   };
 }
 
@@ -272,7 +244,14 @@ export class BrainConfigModule {
           },
         },
       ],
-      exports: [APP_CONFIG, DATABASE_CONFIG, POLYMARKET_CONFIG, PRICE_FEED_CONFIG, AGENT_CONFIG, RISK_CONFIG],
+      exports: [
+        APP_CONFIG,
+        DATABASE_CONFIG,
+        POLYMARKET_CONFIG,
+        PRICE_FEED_CONFIG,
+        AGENT_CONFIG,
+        RISK_CONFIG,
+      ],
     };
   }
 }

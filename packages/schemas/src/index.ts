@@ -6,12 +6,25 @@ export const MarketStatusSchema = z.enum(['active', 'paused', 'resolved', 'expir
 export const WindowOutcomeSchema = z.enum(['up', 'down', 'flat', 'unknown']);
 export const PriceSourceSchema = z.enum(['binance', 'coinbase', 'polymarket']);
 export const AgentTypeSchema = z.enum(['regime', 'edge', 'supervisor']);
-export const RegimeSchema = z.enum(['trending_up', 'trending_down', 'mean_reverting', 'volatile', 'quiet']);
+export const RegimeSchema = z.enum([
+  'trending_up',
+  'trending_down',
+  'mean_reverting',
+  'volatile',
+  'quiet',
+]);
 export const EdgeDirectionSchema = z.enum(['up', 'down', 'none']);
 export const SupervisorActionSchema = z.enum(['buy_up', 'buy_down', 'hold']);
 export const ExecutionModeSchema = z.enum(['disabled', 'paper', 'live']);
 export const OrderSideSchema = z.enum(['buy_up', 'buy_down']);
-export const OrderStatusSchema = z.enum(['pending', 'placed', 'partial', 'filled', 'cancelled', 'failed']);
+export const OrderStatusSchema = z.enum([
+  'pending',
+  'placed',
+  'partial',
+  'filled',
+  'cancelled',
+  'failed',
+]);
 export const VolatilityRegimeSchema = z.enum(['low', 'medium', 'high']);
 export const BookPressureSchema = z.enum(['bid', 'ask', 'neutral']);
 export const BasisSignalSchema = z.enum(['long', 'short', 'neutral']);
@@ -141,6 +154,83 @@ export const ExecutionRequestSchema = z.object({
   mode: ExecutionModeSchema,
 });
 
+// ─── Strategy Schemas ───────────────────────────────────────────────────
+
+export const StrategyStatusSchema = z.enum(['active', 'inactive', 'archived']);
+
+export const MarketSelectorSchema = z.object({
+  asset: z.string().min(1),
+  marketType: z.string().min(1),
+  windowSec: z.number().int().positive(),
+});
+
+export const AgentProfileSchema = z.object({
+  regimeAgentProfile: z.string().min(1),
+  edgeAgentProfile: z.string().min(1),
+  supervisorAgentProfile: z.string().min(1),
+});
+
+export const DecisionPolicySchema = z.object({
+  allowedDecisions: z.array(z.string().min(1)).min(1),
+  minConfidence: z.number().min(0).max(1),
+});
+
+export const StrategyFiltersSchema = z.object({
+  maxSpreadBps: z.number().positive(),
+  minDepthScore: z.number().nonnegative(),
+  minTimeToCloseSec: z.number().nonnegative(),
+  maxTimeToCloseSec: z.number().positive(),
+});
+
+export const StrategyRiskProfileSchema = z.object({
+  maxSizeUsd: z.number().positive(),
+  dailyLossLimitUsd: z.number().positive(),
+  maxTradesPerWindow: z.number().int().positive(),
+});
+
+export const StrategyExecutionPolicySchema = z.object({
+  entryWindowStartSec: z.number().positive(),
+  entryWindowEndSec: z.number().nonnegative(),
+  mode: ExecutionModeSchema,
+});
+
+export const StrategyVersionConfigSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  marketSelector: MarketSelectorSchema,
+  agentProfile: AgentProfileSchema,
+  decisionPolicy: DecisionPolicySchema,
+  filters: StrategyFiltersSchema,
+  riskProfile: StrategyRiskProfileSchema,
+  executionPolicy: StrategyExecutionPolicySchema,
+});
+
+export const StrategyIdentitySchema = z.object({
+  key: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().min(1),
+  status: StrategyStatusSchema,
+  isDefault: z.boolean(),
+});
+
+export const MarketConfigSchema = z.object({
+  label: z.string().min(1),
+  asset: z.string().min(1),
+  marketType: z.string().min(1),
+  windowSec: z.number().int().positive(),
+  resolverType: z.string().min(1),
+  resolverSymbol: z.string().min(1),
+  defaultEnabled: z.boolean(),
+  isActive: z.boolean(),
+});
+
+export const StrategyAssignmentSchema = z.object({
+  marketConfigId: z.string().uuid(),
+  strategyVersionId: z.string().uuid(),
+  priority: z.number().int().nonnegative().default(0),
+  isActive: z.boolean().default(true),
+});
+
 // ─── Config Schemas ─────────────────────────────────────────────────────────
 
 export const AppConfigSchema = z.object({
@@ -197,6 +287,10 @@ export type PolymarketConfigParsed = z.infer<typeof PolymarketConfigSchema>;
 export type PriceFeedConfigParsed = z.infer<typeof PriceFeedConfigSchema>;
 export type AgentConfigParsed = z.infer<typeof AgentConfigSchema>;
 export type RiskConfigParsed = z.infer<typeof RiskConfigSchema>;
+export type StrategyVersionConfigParsed = z.infer<typeof StrategyVersionConfigSchema>;
+export type StrategyIdentityParsed = z.infer<typeof StrategyIdentitySchema>;
+export type MarketConfigParsed = z.infer<typeof MarketConfigSchema>;
+export type StrategyAssignmentParsed = z.infer<typeof StrategyAssignmentSchema>;
 
 // ─── Validation Helpers ─────────────────────────────────────────────────────
 
@@ -224,7 +318,14 @@ export function validateExecutionRequest(data: unknown) {
   return ExecutionRequestSchema.parse(data);
 }
 
-export function safeValidate<T>(schema: z.ZodSchema<T>, data: unknown): { success: true; data: T } | { success: false; error: z.ZodError } {
+export function validateStrategyVersionConfig(data: unknown) {
+  return StrategyVersionConfigSchema.parse(data);
+}
+
+export function safeValidate<T>(
+  schema: z.ZodSchema<T>,
+  data: unknown,
+): { success: true; data: T } | { success: false; error: z.ZodError } {
   const result = schema.safeParse(data);
   if (result.success) {
     return { success: true, data: result.data };

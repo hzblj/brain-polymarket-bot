@@ -1,6 +1,6 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { ModuleMetadata } from '@nestjs/common';
+import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
+import { Test, type TestingModule } from '@nestjs/testing';
 
 export interface TestAppResult {
   app: NestFastifyApplication;
@@ -16,9 +16,7 @@ export async function createTestApp(metadata: ModuleMetadata): Promise<TestAppRe
   const moduleBuilder = Test.createTestingModule(metadata);
   const module = await moduleBuilder.compile();
 
-  const app = module.createNestApplication<NestFastifyApplication>(
-    new FastifyAdapter(),
-  );
+  const app = module.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
 
   await app.init();
   await app.getHttpAdapter().getInstance().ready();

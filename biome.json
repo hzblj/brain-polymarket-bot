@@ -1,0 +1,93 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.8/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": true,
+    "includes": ["apps/**/*.ts", "packages/**/*.ts"]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "complexity": {
+        "recommended": true,
+        "noExcessiveCognitiveComplexity": "error",
+        "noStaticOnlyClass": "off",
+        "noVoid": "error",
+        "useSimplifiedLogicExpression": "error"
+      },
+      "correctness": {
+        "recommended": true,
+        "noUndeclaredDependencies": "warn",
+        "noUnusedImports": "error",
+        "noUnusedVariables": "error",
+        "noUnusedFunctionParameters": "error"
+      },
+      "performance": {
+        "recommended": true
+      },
+      "security": {
+        "recommended": true
+      },
+      "style": {
+        "recommended": true,
+        "noDefaultExport": "error",
+        "noNamespace": "error",
+        "noNegationElse": "error",
+        "noParameterAssign": "error",
+        "useCollapsedElseIf": "error",
+        "useConsistentArrayType": {
+          "level": "error",
+          "options": { "syntax": "shorthand" }
+        },
+        "useExplicitLengthCheck": "error",
+        "useForOf": "error",
+        "useFragmentSyntax": "error",
+        "useShorthandAssign": "error",
+        "useThrowOnlyError": "error",
+        "useImportType": "off"
+      },
+      "suspicious": {
+        "recommended": true,
+        "noConsole": "warn",
+        "noEmptyBlockStatements": "warn",
+        "noExplicitAny": "warn",
+        "noEvolvingTypes": "error",
+        "useAwait": "warn"
+      },
+      "nursery": {
+        "recommended": true
+      }
+    }
+  },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": {
+          "level": "on"
+        }
+      }
+    }
+  },
+  "javascript": {
+    "parser": {
+      "unsafeParameterDecoratorsEnabled": true
+    },
+    "formatter": {
+      "quoteStyle": "single",
+      "trailingCommas": "all",
+      "semicolons": "always"
+    }
+  }
+}

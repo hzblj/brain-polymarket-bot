@@ -1,4 +1,4 @@
-import type { UnixMs, PriceSource } from '@brain/types';
+import type { PriceSource, UnixMs } from '@brain/types';
 
 // ─── Mock EventBus ──────────────────────────────────────────────────────────
 
@@ -108,11 +108,18 @@ export class MockLlmClient {
     this.responses = responses;
   }
 
-  async evaluate<T>(
+  evaluate<T>(
     _systemPrompt: string,
     _userPrompt: string,
     _schema: unknown,
-  ): Promise<{ data: T; model: string; provider: string; latencyMs: number; inputTokens: number; outputTokens: number }> {
+  ): Promise<{
+    data: T;
+    model: string;
+    provider: string;
+    latencyMs: number;
+    inputTokens: number;
+    outputTokens: number;
+  }> {
     const responseIndex = Math.min(this.callCount, this.responses.length - 1);
     const response = this.responses[responseIndex];
     this.callCount++;
@@ -121,14 +128,14 @@ export class MockLlmClient {
       throw new Error('MockLlmClient: no response configured');
     }
 
-    return {
+    return Promise.resolve({
       data: response as T,
       model: 'mock-model',
       provider: 'mock',
       latencyMs: 100,
       inputTokens: 500,
       outputTokens: 200,
-    };
+    });
   }
 
   getCallCount(): number {
@@ -146,7 +153,15 @@ export class MockLlmClient {
 export class MockPriceFeedClient {
   readonly source: PriceSource;
   private connected = false;
-  private handlers = new Set<(tick: { source: PriceSource; price: number; bid: number; ask: number; eventTime: UnixMs }) => void>();
+  private handlers = new Set<
+    (tick: {
+      source: PriceSource;
+      price: number;
+      bid: number;
+      ask: number;
+      eventTime: UnixMs;
+    }) => void
+  >();
 
   constructor(source: PriceSource = 'binance') {
     this.source = source;
@@ -156,7 +171,7 @@ export class MockPriceFeedClient {
     return this.connected;
   }
 
-  async connect(): Promise<void> {
+  connect(): void {
     this.connected = true;
   }
 
@@ -165,7 +180,15 @@ export class MockPriceFeedClient {
     this.handlers.clear();
   }
 
-  onTick(handler: (tick: { source: PriceSource; price: number; bid: number; ask: number; eventTime: UnixMs }) => void): () => void {
+  onTick(
+    handler: (tick: {
+      source: PriceSource;
+      price: number;
+      bid: number;
+      ask: number;
+      eventTime: UnixMs;
+    }) => void,
+  ): () => void {
     this.handlers.add(handler);
     return () => {
       this.handlers.delete(handler);

@@ -1,5 +1,7 @@
-import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
+import { Module } from '@nestjs/common';
+import { DashboardController } from './dashboard.controller';
+import { DashboardService } from './dashboard.service';
 import { GatewayController } from './gateway.controller';
 import { GatewayService } from './gateway.service';
 
@@ -10,8 +12,8 @@ import { GatewayService } from './gateway.service';
       maxRedirects: 3,
     }),
   ],
-  controllers: [GatewayController],
-  providers: [GatewayService],
+  controllers: [GatewayController, DashboardController],
+  providers: [GatewayService, DashboardService],
   exports: [GatewayService],
 })
 export class GatewayModule {}

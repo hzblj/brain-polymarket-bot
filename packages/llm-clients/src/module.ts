@@ -1,8 +1,8 @@
-import { DynamicModule, Module } from '@nestjs/common';
 import { BrainLoggerService } from '@brain/logger';
+import { type DynamicModule, Module } from '@nestjs/common';
 import { ClaudeClient } from './claude-client';
-import { OpenAIClient } from './openai-client';
 import type { LlmClientOptions } from './interface';
+import { OpenAIClient } from './openai-client';
 
 export interface LlmClientsModuleOptions {
   anthropic?: {

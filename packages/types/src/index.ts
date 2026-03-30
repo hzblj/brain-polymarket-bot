@@ -268,6 +268,121 @@ export interface Fill {
   filledAt: ISOTimestamp;
 }
 
+// ─── Strategy Types ─────────────────────────────────────────────────────
+
+export type StrategyStatus = 'active' | 'inactive' | 'archived';
+
+export interface MarketConfig {
+  id: string;
+  label: string;
+  asset: string;
+  marketType: string;
+  windowSec: number;
+  resolverType: string;
+  resolverSymbol: string;
+  defaultEnabled: boolean;
+  isActive: boolean;
+  createdAt: ISOTimestamp;
+  updatedAt: ISOTimestamp;
+}
+
+export interface Strategy {
+  id: string;
+  key: string;
+  name: string;
+  description: string;
+  status: StrategyStatus;
+  isDefault: boolean;
+  createdAt: ISOTimestamp;
+  updatedAt: ISOTimestamp;
+}
+
+export interface MarketSelector {
+  asset: string;
+  marketType: string;
+  windowSec: number;
+}
+
+export interface AgentProfile {
+  regimeAgentProfile: string;
+  edgeAgentProfile: string;
+  supervisorAgentProfile: string;
+}
+
+export interface DecisionPolicy {
+  allowedDecisions: string[];
+  minConfidence: number;
+}
+
+export interface StrategyFilters {
+  maxSpreadBps: number;
+  minDepthScore: number;
+  minTimeToCloseSec: number;
+  maxTimeToCloseSec: number;
+}
+
+export interface StrategyRiskProfile {
+  maxSizeUsd: number;
+  dailyLossLimitUsd: number;
+  maxTradesPerWindow: number;
+}
+
+export interface StrategyExecutionPolicy {
+  entryWindowStartSec: number;
+  entryWindowEndSec: number;
+  mode: ExecutionMode;
+}
+
+export interface StrategyVersionConfig {
+  id: string;
+  label: string;
+  marketSelector: MarketSelector;
+  agentProfile: AgentProfile;
+  decisionPolicy: DecisionPolicy;
+  filters: StrategyFilters;
+  riskProfile: StrategyRiskProfile;
+  executionPolicy: StrategyExecutionPolicy;
+}
+
+export interface StrategyVersion {
+  id: string;
+  strategyId: string;
+  version: number;
+  configJson: StrategyVersionConfig;
+  checksum: string;
+  createdAt: ISOTimestamp;
+}
+
+export interface StrategyAssignment {
+  id: string;
+  marketConfigId: string;
+  strategyVersionId: string;
+  priority: number;
+  isActive: boolean;
+  createdAt: ISOTimestamp;
+  updatedAt: ISOTimestamp;
+}
+
+export interface StrategyRun {
+  id: string;
+  strategyVersionId: string;
+  marketConfigId: string;
+  decisionId: string | null;
+  replayId: string | null;
+  mode: ExecutionMode;
+  createdAt: ISOTimestamp;
+}
+
+export interface ActiveStrategyContext {
+  strategyKey: string;
+  version: number;
+  decisionPolicy: DecisionPolicy;
+  filters: StrategyFilters;
+  riskProfile: StrategyRiskProfile;
+  executionPolicy: StrategyExecutionPolicy;
+  agentProfile: AgentProfile;
+}
+
 // ─── Service Health ──────────────────────────────────────────────────────────
 
 export type ServiceName =

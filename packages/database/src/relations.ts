@@ -1,14 +1,19 @@
 import { relations } from 'drizzle-orm';
 import {
-  markets,
-  marketWindows,
-  priceTicks,
+  agentDecisions,
   bookSnapshots,
   featureSnapshots,
-  agentDecisions,
-  riskDecisions,
-  orders,
   fills,
+  marketConfigs,
+  markets,
+  marketWindows,
+  orders,
+  priceTicks,
+  riskDecisions,
+  strategies,
+  strategyAssignments,
+  strategyRuns,
+  strategyVersions,
 } from './schema';
 
 export const marketsRelations = relations(markets, ({ many }) => ({
@@ -85,5 +90,47 @@ export const fillsRelations = relations(fills, ({ one }) => ({
   order: one(orders, {
     fields: [fills.orderId],
     references: [orders.id],
+  }),
+}));
+
+// ─── Strategy Relations ─────────────────────────────────────────────────────
+
+export const marketConfigsRelations = relations(marketConfigs, ({ many }) => ({
+  strategyAssignments: many(strategyAssignments),
+  strategyRuns: many(strategyRuns),
+}));
+
+export const strategiesRelations = relations(strategies, ({ many }) => ({
+  versions: many(strategyVersions),
+}));
+
+export const strategyVersionsRelations = relations(strategyVersions, ({ one, many }) => ({
+  strategy: one(strategies, {
+    fields: [strategyVersions.strategyId],
+    references: [strategies.id],
+  }),
+  assignments: many(strategyAssignments),
+  runs: many(strategyRuns),
+}));
+
+export const strategyAssignmentsRelations = relations(strategyAssignments, ({ one }) => ({
+  marketConfig: one(marketConfigs, {
+    fields: [strategyAssignments.marketConfigId],
+    references: [marketConfigs.id],
+  }),
+  strategyVersion: one(strategyVersions, {
+    fields: [strategyAssignments.strategyVersionId],
+    references: [strategyVersions.id],
+  }),
+}));
+
+export const strategyRunsRelations = relations(strategyRuns, ({ one }) => ({
+  strategyVersion: one(strategyVersions, {
+    fields: [strategyRuns.strategyVersionId],
+    references: [strategyVersions.id],
+  }),
+  marketConfig: one(marketConfigs, {
+    fields: [strategyRuns.marketConfigId],
+    references: [marketConfigs.id],
   }),
 }));

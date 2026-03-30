@@ -1,4 +1,4 @@
-export { PolymarketRestClient } from './rest-client';
-export { PolymarketWsClient } from './ws-client';
 export { PolymarketClientModule, type PolymarketClientModuleOptions } from './module';
+export { PolymarketRestClient } from './rest-client';
 export * from './types';
+export { PolymarketWsClient } from './ws-client';

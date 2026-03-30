@@ -1,0 +1,160 @@
+x-service-base: &service-base
+  build:
+    context: .
+    target: dev
+  volumes:
+    - ./packages:/app/packages
+    - ./apps:/app/apps
+    - ./tsconfig.json:/app/tsconfig.json
+    - brain-data:/app/data
+  env_file: .env
+  restart: unless-stopped
+  networks:
+    - brain
+
+services:
+  api-gateway:
+    <<: *service-base
+    container_name: brain-api-gateway
+    command: yarn tsx watch apps/api-gateway/src/main.ts
+    ports:
+      - '3000:3000'
+    environment:
+      - DATABASE_PATH=./data/api-gateway.sqlite
+      - MARKET_DISCOVERY_HOST=market-discovery
+      - PRICE_FEED_HOST=price-feed
+      - ORDERBOOK_HOST=orderbook
+      - FEATURE_ENGINE_HOST=feature-engine
+      - RISK_HOST=risk
+      - EXECUTION_HOST=execution
+      - CONFIG_HOST=config
+      - AGENT_GATEWAY_HOST=agent-gateway
+      - REPLAY_HOST=replay
+    depends_on:
+      - market-discovery
+      - price-feed
+      - orderbook
+      - feature-engine
+      - agent-gateway
+      - risk
+      - execution
+      - config
+      - replay
+
+  market-discovery:
+    <<: *service-base
+    container_name: brain-market-discovery
+    command: yarn tsx watch apps/market-discovery-service/src/main.ts
+    ports:
+      - '3001:3001'
+    environment:
+      - DATABASE_PATH=./data/market-discovery.sqlite
+    depends_on:
+      - config
+
+  price-feed:
+    <<: *service-base
+    container_name: brain-price-feed
+    command: yarn tsx watch apps/price-feed-service/src/main.ts
+    ports:
+      - '3002:3002'
+    environment:
+      - DATABASE_PATH=./data/price-feed.sqlite
+
+  orderbook:
+    <<: *service-base
+    container_name: brain-orderbook
+    command: yarn tsx watch apps/orderbook-service/src/main.ts
+    ports:
+      - '3003:3003'
+    environment:
+      - DATABASE_PATH=./data/orderbook.sqlite
+      - MARKET_DISCOVERY_HOST=market-discovery
+    depends_on:
+      - market-discovery
+
+  feature-engine:
+    <<: *service-base
+    container_name: brain-feature-engine
+    command: yarn tsx watch apps/feature-engine-service/src/main.ts
+    ports:
+      - '3004:3004'
+    environment:
+      - DATABASE_PATH=./data/feature-engine.sqlite
+      - MARKET_SERVICE_URL=http://market-discovery:3001
+      - PRICE_SERVICE_URL=http://price-feed:3002
+      - BOOK_SERVICE_URL=http://orderbook:3003
+    depends_on:
+      - market-discovery
+      - price-feed
+      - orderbook
+
+  agent-gateway:
+    <<: *service-base
+    container_name: brain-agent-gateway
+    command: yarn tsx watch apps/agent-gateway-service/src/main.ts
+    ports:
+      - '3008:3008'
+    environment:
+      - DATABASE_PATH=./data/agent-gateway.sqlite
+
+  risk:
+    <<: *service-base
+    container_name: brain-risk
+    command: yarn tsx watch apps/risk-service/src/main.ts
+    ports:
+      - '3005:3005'
+    environment:
+      - DATABASE_PATH=./data/risk.sqlite
+
+  execution:
+    <<: *service-base
+    container_name: brain-execution
+    command: yarn tsx watch apps/execution-service/src/main.ts
+    ports:
+      - '3006:3006'
+    environment:
+      - DATABASE_PATH=./data/execution.sqlite
+
+  config:
+    <<: *service-base
+    container_name: brain-config
+    command: yarn tsx watch apps/config-service/src/main.ts
+    ports:
+      - '3007:3007'
+    environment:
+      - DATABASE_PATH=./data/config.sqlite
+
+  replay:
+    <<: *service-base
+    container_name: brain-replay
+    command: yarn tsx watch apps/replay-service/src/main.ts
+    ports:
+      - '3009:3009'
+    environment:
+      - DATABASE_PATH=./data/replay.sqlite
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: apps/dashboard/Dockerfile
+    container_name: brain-dashboard
+    volumes:
+      - ./apps/dashboard/src:/app/apps/dashboard/src
+      - ./packages/types/src:/app/packages/types/src
+    ports:
+      - '3100:3100'
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:3000
+    depends_on:
+      - api-gateway
+    restart: unless-stopped
+    networks:
+      - brain
+
+volumes:
+  brain-data:
+
+networks:
+  brain:
+    driver: bridge

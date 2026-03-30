@@ -1,10 +1,10 @@
-import { Controller, Get, Post, Body, Param, HttpCode } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Param, Post } from '@nestjs/common';
 import { ReplayService } from './replay.service';
 import type { ReplayRunRequest, ReplayWindowRequest } from './replay.service';
 
 @Controller('api/v1/replay')
 export class ReplayController {
-  constructor(private readonly replayService: ReplayService) {}
+  constructor(@Inject(ReplayService) private readonly replayService: ReplayService) {}
 
   /**
    * POST /api/v1/replay/run

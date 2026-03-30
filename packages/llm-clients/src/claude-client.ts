@@ -1,9 +1,9 @@
-import { Injectable } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
+import type { BrainLoggerService } from '@brain/logger';
+import { Injectable } from '@nestjs/common';
 import type { z } from 'zod';
-import { zodToJsonSchema } from './zod-to-json';
-import { BrainLoggerService } from '@brain/logger';
 import type { LlmClient, LlmClientOptions, LlmResponse } from './interface';
+import { zodToJsonSchema } from './zod-to-json';
 
 @Injectable()
 export class ClaudeClient implements LlmClient {
@@ -89,12 +89,14 @@ export class ClaudeClient implements LlmClient {
         this.logger.error('Claude evaluation error', lastError.message, { attempt });
 
         if (attempt < this.maxRetries) {
-          const backoffMs = Math.min(1000 * Math.pow(2, attempt), 10000);
+          const backoffMs = Math.min(1000 * 2 ** attempt, 10000);
           await new Promise((resolve) => setTimeout(resolve, backoffMs));
         }
       }
     }
 
-    throw new Error(`Claude evaluation failed after ${this.maxRetries + 1} attempts: ${lastError?.message}`);
+    throw new Error(
+      `Claude evaluation failed after ${this.maxRetries + 1} attempts: ${lastError?.message}`,
+    );
   }
 }

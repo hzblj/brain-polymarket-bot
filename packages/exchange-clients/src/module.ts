@@ -1,5 +1,5 @@
-import { DynamicModule, Module } from '@nestjs/common';
 import { BrainLoggerService } from '@brain/logger';
+import { type DynamicModule, Module } from '@nestjs/common';
 import { BinanceClient, type BinanceClientOptions } from './binance-client';
 import { CoinbaseClient, type CoinbaseClientOptions } from './coinbase-client';
 

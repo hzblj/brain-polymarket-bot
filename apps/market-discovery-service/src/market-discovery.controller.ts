@@ -1,9 +1,9 @@
-import { Controller, Get, Post, HttpCode } from '@nestjs/common';
+import { Controller, Get, HttpCode, Inject, Post } from '@nestjs/common';
 import { MarketDiscoveryService } from './market-discovery.service';
 
 @Controller('api/v1/market')
 export class MarketDiscoveryController {
-  constructor(private readonly marketDiscoveryService: MarketDiscoveryService) {}
+  constructor(@Inject(MarketDiscoveryService) private readonly marketDiscoveryService: MarketDiscoveryService) {}
 
   /**
    * GET /api/v1/market/active
@@ -23,6 +23,16 @@ export class MarketDiscoveryController {
   async getCurrentWindow() {
     const window = await this.marketDiscoveryService.getCurrentWindow();
     return { ok: true, data: window };
+  }
+
+  /**
+   * GET /api/v1/market/tokens
+   * Returns the UP/DOWN token IDs for the current active market.
+   */
+  @Get('tokens')
+  getTokenIds() {
+    const tokens = this.marketDiscoveryService.getTokenIds();
+    return { ok: true, data: tokens };
   }
 
   /**

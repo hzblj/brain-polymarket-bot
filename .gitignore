@@ -8,6 +8,10 @@ dist/
 .vscode/
 coverage/
 *.log
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
 .yarn/*
 !.yarn/patches
 !.yarn/plugins

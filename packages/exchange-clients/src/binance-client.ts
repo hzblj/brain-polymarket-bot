@@ -1,16 +1,16 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import type { BrainLoggerService } from '@brain/logger';
+import { Injectable, type OnModuleDestroy } from '@nestjs/common';
 import WebSocket from 'ws';
-import { BrainLoggerService } from '@brain/logger';
 import type { PriceFeedClient, PriceFeedTick, PriceTickHandler } from './interface';
 
 interface BinanceTickerMessage {
-  e: string;  // event type
-  E: number;  // event time
-  s: string;  // symbol
-  b: string;  // best bid price
-  B: string;  // best bid qty
-  a: string;  // best ask price
-  A: string;  // best ask qty
+  e: string; // event type
+  E: number; // event time
+  s: string; // symbol
+  b: string; // best bid price
+  B: string; // best bid qty
+  a: string; // best ask price
+  A: string; // best ask qty
 }
 
 export interface BinanceClientOptions {
@@ -48,8 +48,8 @@ export class BinanceClient implements PriceFeedClient, OnModuleDestroy {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
-  async connect(): Promise<void> {
-    if (this.isConnected) return;
+  connect(): Promise<void> {
+    if (this.isConnected) return Promise.resolve();
     this.shouldReconnect = true;
 
     const streamUrl = `${this.wsUrl}/${this.symbol}@bookTicker`;

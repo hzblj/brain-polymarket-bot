@@ -1,18 +1,24 @@
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
 import type {
-  Market,
-  MarketWindow,
-  PriceTick,
-  BookSnapshot,
-  FeaturePayload,
-  RegimeOutput,
-  EdgeOutput,
-  SupervisorOutput,
+  ActiveStrategyContext,
   AgentDecision,
-  RiskEvaluation,
+  BookSnapshot,
+  EdgeOutput,
   ExecutionRequest,
-  Order,
+  FeaturePayload,
   Fill,
+  Market,
+  MarketConfig,
+  MarketWindow,
+  Order,
+  PriceTick,
+  RegimeOutput,
+  RiskEvaluation,
+  Strategy,
+  StrategyAssignment,
+  StrategyVersion,
+  StrategyVersionConfig,
+  SupervisorOutput,
   UnixMs,
 } from '@brain/types';
 
@@ -133,7 +139,8 @@ export function createTestRegimeOutput(overrides: Partial<RegimeOutput> = {}): R
   return {
     regime: 'trending_up',
     confidence: 0.75,
-    reasoning: 'BTC showing sustained upward momentum with increasing volume and positive microstructure signals.',
+    reasoning:
+      'BTC showing sustained upward momentum with increasing volume and positive microstructure signals.',
     ...overrides,
   };
 }
@@ -148,12 +155,15 @@ export function createTestEdgeOutput(overrides: Partial<EdgeOutput> = {}): EdgeO
   };
 }
 
-export function createTestSupervisorOutput(overrides: Partial<SupervisorOutput> = {}): SupervisorOutput {
+export function createTestSupervisorOutput(
+  overrides: Partial<SupervisorOutput> = {},
+): SupervisorOutput {
   return {
     action: 'buy_up',
     sizeUsd: 25,
     confidence: 0.65,
-    reasoning: 'Regime and edge analysis agree on upward direction with moderate confidence. Sizing conservatively given spread.',
+    reasoning:
+      'Regime and edge analysis agree on upward direction with moderate confidence. Sizing conservatively given spread.',
     regimeSummary: 'Trending up with 0.75 confidence',
     edgeSummary: 'Up edge at 0.6 magnitude with 0.7 confidence',
     ...overrides,
@@ -190,7 +200,9 @@ export function createTestRiskEvaluation(overrides: Partial<RiskEvaluation> = {}
   };
 }
 
-export function createTestExecutionRequest(overrides: Partial<ExecutionRequest> = {}): ExecutionRequest {
+export function createTestExecutionRequest(
+  overrides: Partial<ExecutionRequest> = {},
+): ExecutionRequest {
   return {
     windowId: nextId(),
     riskDecisionId: nextId(),
@@ -227,6 +239,152 @@ export function createTestFill(overrides: Partial<Fill> = {}): Fill {
     fillPrice: 0.53,
     fillSizeUsd: 25,
     filledAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+// ─── Strategy Factories ─────────────────────────────────────────────────────
+
+export function createTestMarketConfig(overrides: Partial<MarketConfig> = {}): MarketConfig {
+  const now = new Date().toISOString();
+  return {
+    id: nextId(),
+    label: 'Bitcoin 5m Up/Down',
+    asset: 'BTC',
+    marketType: 'UP_DOWN',
+    windowSec: 300,
+    resolverType: 'polymarket',
+    resolverSymbol: 'BTCUSDT',
+    defaultEnabled: true,
+    isActive: true,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
+export function createTestStrategy(overrides: Partial<Strategy> = {}): Strategy {
+  const now = new Date().toISOString();
+  return {
+    id: nextId(),
+    key: `test-strategy-${++counter}`,
+    name: 'Test Strategy',
+    description: 'A test strategy',
+    status: 'active',
+    isDefault: false,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
+export function createTestStrategyVersionConfig(
+  overrides: Partial<StrategyVersionConfig> = {},
+): StrategyVersionConfig {
+  return {
+    id: 'test-strategy-v1',
+    label: 'Test Strategy v1',
+    marketSelector: {
+      asset: 'BTC',
+      marketType: 'UP_DOWN',
+      windowSec: 300,
+      ...overrides.marketSelector,
+    },
+    agentProfile: {
+      regimeAgentProfile: 'regime-default-v1',
+      edgeAgentProfile: 'edge-momentum-v1',
+      supervisorAgentProfile: 'supervisor-conservative-v1',
+      ...overrides.agentProfile,
+    },
+    decisionPolicy: {
+      allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'],
+      minConfidence: 0.7,
+      ...overrides.decisionPolicy,
+    },
+    filters: {
+      maxSpreadBps: 250,
+      minDepthScore: 0.6,
+      minTimeToCloseSec: 15,
+      maxTimeToCloseSec: 90,
+      ...overrides.filters,
+    },
+    riskProfile: {
+      maxSizeUsd: 20,
+      dailyLossLimitUsd: 50,
+      maxTradesPerWindow: 1,
+      ...overrides.riskProfile,
+    },
+    executionPolicy: {
+      entryWindowStartSec: 90,
+      entryWindowEndSec: 10,
+      mode: 'paper',
+      ...overrides.executionPolicy,
+    },
+    ...overrides,
+  };
+}
+
+export function createTestStrategyVersion(
+  overrides: Partial<StrategyVersion> = {},
+): StrategyVersion {
+  return {
+    id: nextId(),
+    strategyId: nextId(),
+    version: 1,
+    configJson: createTestStrategyVersionConfig(),
+    checksum: 'test-checksum',
+    createdAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+export function createTestStrategyAssignment(
+  overrides: Partial<StrategyAssignment> = {},
+): StrategyAssignment {
+  const now = new Date().toISOString();
+  return {
+    id: nextId(),
+    marketConfigId: nextId(),
+    strategyVersionId: nextId(),
+    priority: 0,
+    isActive: true,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
+export function createTestActiveStrategyContext(
+  overrides: Partial<ActiveStrategyContext> = {},
+): ActiveStrategyContext {
+  return {
+    strategyKey: 'btc-5m-momentum',
+    version: 1,
+    decisionPolicy: {
+      allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'],
+      minConfidence: 0.7,
+    },
+    filters: {
+      maxSpreadBps: 250,
+      minDepthScore: 0.6,
+      minTimeToCloseSec: 15,
+      maxTimeToCloseSec: 90,
+    },
+    riskProfile: {
+      maxSizeUsd: 20,
+      dailyLossLimitUsd: 50,
+      maxTradesPerWindow: 1,
+    },
+    executionPolicy: {
+      entryWindowStartSec: 90,
+      entryWindowEndSec: 10,
+      mode: 'paper',
+    },
+    agentProfile: {
+      regimeAgentProfile: 'regime-default-v1',
+      edgeAgentProfile: 'edge-momentum-v1',
+      supervisorAgentProfile: 'supervisor-conservative-v1',
+    },
     ...overrides,
   };
 }

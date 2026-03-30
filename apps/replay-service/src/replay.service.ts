@@ -1,14 +1,22 @@
-import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
+import {
+  agentDecisions,
+  DATABASE_CLIENT,
+  type DbClient,
+  featureSnapshots,
+  marketWindows,
+  replays as replaysTable,
+  riskDecisions,
+} from '@brain/database';
 import type {
-  UnixMs,
-  FeaturePayload,
   AgentDecision,
-  RiskEvaluation,
+  FeaturePayload,
   ReplayResults,
+  RiskEvaluation,
   SupervisorOutput,
-  RegimeOutput,
-  EdgeOutput,
+  UnixMs,
 } from '@brain/types';
+import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { and, desc, eq } from 'drizzle-orm';
 
 // ─── Request / Response Types ────────────────────────────────────────────────
 
@@ -68,12 +76,7 @@ const WINDOW_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 export class ReplayService {
   private replays: Map<string, ReplayRun> = new Map();
 
-  // TODO: inject @brain/database, @brain/events, @brain/logger
-  // constructor(
-  //   private readonly database: DatabaseService,
-  //   private readonly events: EventsService,
-  //   private readonly logger: LoggerService,
-  // ) {}
+  constructor(@Inject(DATABASE_CLIENT) private readonly db: DbClient) {}
 
   // ─── Public API ──────────────────────────────────────────────────────────────
 
@@ -107,7 +110,6 @@ export class ReplayService {
     try {
       // Calculate all window boundaries in the range
       const windowStarts = this.getWindowBoundaries(fromTime, toTime);
-      console.log(`[replay-service] Starting replay ${replay.id}: ${windowStarts.length} windows from ${new Date(fromTime).toISOString()} to ${new Date(toTime).toISOString()}`);
 
       for (const windowStart of windowStarts) {
         const windowId = this.windowIdFromTimestamp(windowStart);
@@ -121,7 +123,17 @@ export class ReplayService {
       replay.completedAt = new Date().toISOString();
 
       // Persist to database
-      // await this.database.replays.upsert(replay);
+      try {
+        await this.db.insert(replaysTable).values({
+          id: replay.id,
+          fromTime: replay.fromTime,
+          toTime: replay.toTime,
+          config: { reEvaluateAgents: replay.reEvaluateAgents } as Record<string, unknown>,
+          results: replay.results as unknown as Record<string, unknown>,
+        });
+      } catch {
+        /* ignore */
+      }
 
       this.emitEvent('replay.completed', {
         replayId: replay.id,
@@ -129,13 +141,10 @@ export class ReplayService {
         pnlUsd: replay.results.pnlUsd,
         winRate: replay.results.winRate,
       });
-
-      console.log(`[replay-service] Replay ${replay.id} completed: P&L $${replay.results.pnlUsd.toFixed(2)}, win rate ${(replay.results.winRate * 100).toFixed(1)}%`);
     } catch (error) {
       replay.status = 'failed';
       replay.error = (error as Error).message;
       replay.completedAt = new Date().toISOString();
-      console.error(`[replay-service] Replay ${replay.id} failed:`, error);
     }
 
     return replay;
@@ -146,18 +155,36 @@ export class ReplayService {
    */
   async getReplay(replayId: string): Promise<ReplayRun> {
     const replay = this.replays.get(replayId);
-    if (!replay) {
-      // TODO: Fall back to database
-      // const dbReplay = await this.database.replays.findById(replayId);
-      throw new HttpException(`Replay ${replayId} not found`, HttpStatus.NOT_FOUND);
+    if (replay) return replay;
+
+    // Fall back to database
+    const [dbReplay] = await this.db
+      .select()
+      .from(replaysTable)
+      .where(eq(replaysTable.id, replayId))
+      .limit(1);
+    if (dbReplay) {
+      return {
+        id: dbReplay.id,
+        fromTime: dbReplay.fromTime,
+        toTime: dbReplay.toTime,
+        reEvaluateAgents: false,
+        status: 'completed',
+        windowResults: [],
+        results: dbReplay.results as ReplayResults | null,
+        createdAt: dbReplay.createdAt,
+        completedAt: dbReplay.createdAt,
+        error: null,
+      };
     }
-    return replay;
+
+    throw new HttpException(`Replay ${replayId} not found`, HttpStatus.NOT_FOUND);
   }
 
   /**
    * Replays a single market window.
    */
-  async replayWindow(request: ReplayWindowRequest): Promise<WindowReplayResult> {
+  replayWindow(request: ReplayWindowRequest): Promise<WindowReplayResult> {
     return this.replayOneWindow(request.windowId, request.reEvaluateAgents);
   }
 
@@ -165,12 +192,34 @@ export class ReplayService {
    * Returns aggregated statistics across all completed replays.
    */
   async getSummary(): Promise<ReplaySummary> {
-    // TODO: Load from database
-    // const replays = await this.database.replays.findCompleted();
-
-    const completedReplays = Array.from(this.replays.values()).filter(
+    // Load from both in-memory and database
+    let completedReplays = Array.from(this.replays.values()).filter(
       (r) => r.status === 'completed' && r.results,
     );
+
+    // Also load from database if in-memory is empty
+    if (completedReplays.length === 0) {
+      try {
+        const dbReplays = await this.db.select().from(replaysTable);
+        const dbCompleted = dbReplays.filter((r) => r.results !== null);
+        if (dbCompleted.length > 0) {
+          completedReplays = dbCompleted.map((r) => ({
+            id: r.id,
+            fromTime: r.fromTime,
+            toTime: r.toTime,
+            reEvaluateAgents: false,
+            status: 'completed' as const,
+            windowResults: [],
+            results: r.results as ReplayResults | null,
+            createdAt: r.createdAt,
+            completedAt: r.createdAt,
+            error: null,
+          }));
+        }
+      } catch {
+        /* ignore */
+      }
+    }
 
     if (completedReplays.length === 0) {
       return {
@@ -185,9 +234,12 @@ export class ReplayService {
       };
     }
 
-    const pnls = completedReplays.map((r) => r.results!.pnlUsd);
-    const winRates = completedReplays.map((r) => r.results!.winRate);
-    const totalWindows = completedReplays.reduce((sum, r) => sum + r.results!.totalWindows, 0);
+    const pnls = completedReplays.map((r) => r.results?.pnlUsd ?? 0);
+    const winRates = completedReplays.map((r) => r.results?.winRate ?? 0);
+    const totalWindows = completedReplays.reduce(
+      (sum, r) => sum + (r.results?.totalWindows ?? 0),
+      0,
+    );
     const decisionsChanged = completedReplays.reduce(
       (sum, r) => sum + r.windowResults.filter((w) => w.decisionChanged).length,
       0,
@@ -219,7 +271,7 @@ export class ReplayService {
     const originalPnl = await this.computeWindowPnl(windowId, originalDecision);
 
     let replayedDecision: AgentDecision | null = null;
-    let replayedRisk: RiskEvaluation | null = null;
+    const replayedRisk: RiskEvaluation | null = null;
     let replayedPnl = 0;
     let decisionChanged = false;
 
@@ -274,36 +326,103 @@ export class ReplayService {
   }
 
   private async loadFeatures(windowId: string): Promise<FeaturePayload | null> {
-    // TODO: Load from database
-    // return this.database.featureSnapshots.findByWindowId(windowId);
-
-    // Stub: return null (no historical data in dev mode)
-    console.log(`[replay-service] Loading features for window ${windowId} (stub)`);
+    try {
+      const rows = await this.db
+        .select()
+        .from(featureSnapshots)
+        .where(eq(featureSnapshots.windowId, windowId))
+        .orderBy(desc(featureSnapshots.processedAt))
+        .limit(1);
+      if (rows.length > 0) {
+        return rows[0]?.payload as unknown as FeaturePayload;
+      }
+    } catch {
+      /* ignore */
+    }
     return null;
   }
 
   private async loadOriginalDecision(windowId: string): Promise<AgentDecision | null> {
-    // TODO: Load from database
-    // return this.database.agentDecisions.findByWindowIdAndType(windowId, 'supervisor');
+    try {
+      const [decision] = await this.db
+        .select()
+        .from(agentDecisions)
+        .where(
+          and(eq(agentDecisions.windowId, windowId), eq(agentDecisions.agentType, 'supervisor')),
+        )
+        .orderBy(desc(agentDecisions.processedAt))
+        .limit(1);
+      if (decision) {
+        return {
+          id: decision.id,
+          windowId: decision.windowId,
+          agentType: decision.agentType,
+          input: decision.input as Record<string, unknown>,
+          output: decision.output as SupervisorOutput,
+          model: decision.model,
+          provider: decision.provider,
+          latencyMs: decision.latencyMs,
+          eventTime: decision.eventTime,
+          processedAt: decision.processedAt,
+        };
+      }
+    } catch {
+      /* ignore */
+    }
     return null;
   }
 
   private async loadOriginalRiskDecision(windowId: string): Promise<RiskEvaluation | null> {
-    // TODO: Load from database
-    // return this.database.riskEvaluations.findByWindowId(windowId);
+    try {
+      const [decision] = await this.db
+        .select()
+        .from(riskDecisions)
+        .where(eq(riskDecisions.windowId, windowId))
+        .orderBy(desc(riskDecisions.processedAt))
+        .limit(1);
+      if (decision) {
+        return {
+          id: decision.id,
+          windowId: decision.windowId,
+          agentDecisionId: decision.agentDecisionId,
+          approved: decision.approved,
+          approvedSizeUsd: decision.approvedSizeUsd,
+          rejectionReasons: decision.rejectionReasons as string[],
+          eventTime: decision.eventTime,
+          processedAt: decision.processedAt,
+        };
+      }
+    } catch {
+      /* ignore */
+    }
     return null;
   }
 
-  private async computeWindowPnl(windowId: string, decision: AgentDecision | null): Promise<number> {
+  private async computeWindowPnl(
+    windowId: string,
+    decision: AgentDecision | null,
+  ): Promise<number> {
     if (!decision) return 0;
 
     const output = decision.output as SupervisorOutput;
     if (output.action === 'hold') return 0;
 
-    // TODO: Load actual outcome from database
-    // const window = await this.database.marketWindows.findById(windowId);
-    // const outcome = window?.outcome;
-    // Compute P&L based on entry price and outcome
+    // Load actual outcome from database
+    try {
+      const [window] = await this.db
+        .select()
+        .from(marketWindows)
+        .where(eq(marketWindows.id, windowId))
+        .limit(1);
+      if (window && window.outcome !== 'unknown') {
+        const won =
+          (output.action === 'buy_up' && window.outcome === 'up') ||
+          (output.action === 'buy_down' && window.outcome === 'down');
+        return won ? output.sizeUsd * 0.8 : -output.sizeUsd;
+      }
+    } catch {
+      /* ignore */
+    }
 
     // Stub: simulate random P&L for development
     const direction = output.action === 'buy_up' ? 1 : -1;
@@ -349,8 +468,7 @@ export class ReplayService {
     };
   }
 
-  private emitEvent(event: string, payload: Record<string, unknown>): void {
-    // TODO: Wire to @brain/events
-    console.log(`[replay-service] event: ${event}`, JSON.stringify(payload));
+  private emitEvent(_event: string, _payload: Record<string, unknown>): void {
+    /* noop */
   }
 }

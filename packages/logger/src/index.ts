@@ -1,5 +1,12 @@
-import { DynamicModule, Global, Inject, Injectable, LoggerService as NestLoggerService, Module } from '@nestjs/common';
-import pino, { Logger as PinoLogger } from 'pino';
+import {
+  type DynamicModule,
+  Global,
+  Inject,
+  Injectable,
+  Module,
+  type LoggerService as NestLoggerService,
+} from '@nestjs/common';
+import pino, { type Logger as PinoLogger } from 'pino';
 
 const PINO_INSTANCE = 'PINO_INSTANCE';
 
@@ -10,7 +17,7 @@ export interface LoggerModuleOptions {
 }
 
 function createPinoInstance(options: LoggerModuleOptions): PinoLogger {
-  const isDev = process.env['NODE_ENV'] !== 'production';
+  const isDev = process.env.NODE_ENV !== 'production';
   const usePretty = options.prettyPrint ?? isDev;
 
   return pino({

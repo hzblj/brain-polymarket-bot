@@ -1,8 +1,21 @@
-import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { DATABASE_CLIENT, type DbClient, priceTicks } from '@brain/database';
+import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { and, desc, eq, gte, lte } from 'drizzle-orm';
+import WebSocket from 'ws';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+export interface BinanceBookTickerMessage {
+  e: string; // event type
+  E: number; // event time
+  s: string; // symbol
+  b: string; // best bid price
+  B: string; // best bid qty
+  a: string; // best ask price
+  A: string; // best ask qty
+}
 
 interface PriceTick {
   price: number;
@@ -65,9 +78,14 @@ interface WindowResetResult {
 const TICK_POLL_MS = 1_000;
 const BUFFER_MAX_SIZE = 300; // 5 minutes of 1s ticks
 const WINDOW_DURATION_SEC = 300;
+const WS_STALE_THRESHOLD_MS = 3_000;
+const MAX_RECONNECT_ATTEMPTS = 20;
+const BASE_RECONNECT_MS = 1_000;
 
 @Injectable()
 export class PriceFeedService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(PriceFeedService.name);
+
   /** Rolling buffer of recent ticks (newest last). */
   private tickBuffer: PriceTick[] = [];
 
@@ -81,38 +99,51 @@ export class PriceFeedService implements OnModuleInit, OnModuleDestroy {
 
   private pollTimer: ReturnType<typeof setInterval> | null = null;
 
-  // TODO: inject real dependencies
-  // constructor(
-  //   private readonly exchangeClients: ExchangeClientsService,
-  //   private readonly polymarketClient: PolymarketClient,
-  //   private readonly database: DatabaseService,
-  //   private readonly events: EventsService,
-  //   private readonly logger: LoggerService,
-  // ) {}
+  /** Binance WebSocket state. */
+  private ws: WebSocket | null = null;
+  private lastTickTime = 0;
+  private reconnectAttempts = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private shouldReconnect = true;
+
+  private readonly wsBaseUrl: string;
+  private readonly symbol: string;
+
+  constructor(@Inject(DATABASE_CLIENT) private readonly db: DbClient) {
+    this.wsBaseUrl = process.env.BINANCE_WS_URL ?? 'wss://stream.binance.com:9443/ws';
+    this.symbol = (process.env.PRICE_FEED_SYMBOL ?? 'btcusdt').toLowerCase();
+  }
 
   async onModuleInit(): Promise<void> {
     await this.resetWindow();
-    this.startTickCollection();
+    this.connectBinanceWs();
+    this.startTickPolling();
   }
 
   onModuleDestroy(): void {
-    this.stopTickCollection();
+    this.stopTickPolling();
+    this.disconnectBinanceWs();
   }
 
   // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
 
-  async getCurrentPrice(): Promise<CurrentPricePayload> {
+  getCurrentPrice(): CurrentPricePayload {
     const resolver = this.latestResolver ?? { price: 0, timestamp: new Date().toISOString() };
-    const external = this.latestExternal ?? { price: 0, bid: 0, ask: 0, timestamp: new Date().toISOString() };
+    const external = this.latestExternal ?? {
+      price: 0,
+      bid: 0,
+      ask: 0,
+      timestamp: new Date().toISOString(),
+    };
     const window = this.computeWindowData(resolver.price);
     const micro = this.computeMicroSignals();
 
     return { resolver, external, window, micro };
   }
 
-  async getWindowData(): Promise<WindowData> {
+  getWindowData(): WindowData {
     const resolverPrice = this.latestResolver?.price ?? 0;
     return this.computeWindowData(resolverPrice);
   }
@@ -121,31 +152,53 @@ export class PriceFeedService implements OnModuleInit, OnModuleDestroy {
     const fromMs = new Date(query.from).getTime();
     const toMs = new Date(query.to).getTime();
 
-    // TODO: query from database for full history
-    // const dbTicks = await this.database.priceTicks.findMany({ from: fromMs, to: toMs, source: query.source });
+    // Try database first
+    try {
+      const conditions = [gte(priceTicks.eventTime, fromMs), lte(priceTicks.eventTime, toMs)];
+      if (query.source !== 'all') {
+        conditions.push(
+          eq(priceTicks.source, query.source as 'binance' | 'coinbase' | 'polymarket'),
+        );
+      }
+      const rows = await this.db
+        .select()
+        .from(priceTicks)
+        .where(and(...conditions))
+        .orderBy(desc(priceTicks.eventTime));
 
-    // For now, filter from in-memory buffer
+      if (rows.length > 0) {
+        const ticks: PriceTick[] = rows.map((r) => ({
+          price: r.price,
+          timestamp: new Date(r.eventTime).toISOString(),
+          source: r.source === 'polymarket' ? ('resolver' as const) : ('external' as const),
+          bid: r.bid,
+          ask: r.ask,
+        }));
+        const intervalSec = this.parseInterval(query.interval);
+        const sampled = this.downsample(ticks, intervalSec);
+        return { ticks: sampled, count: sampled.length };
+      }
+    } catch {
+      /* fall through to in-memory */
+    }
+
+    // Fall back to in-memory buffer
     const filtered = this.tickBuffer.filter((tick) => {
       const tickMs = new Date(tick.timestamp).getTime();
       const sourceMatch = query.source === 'all' || tick.source === query.source;
       return tickMs >= fromMs && tickMs <= toMs && sourceMatch;
     });
 
-    // Down-sample to requested interval
     const intervalSec = this.parseInterval(query.interval);
     const sampled = this.downsample(filtered, intervalSec);
-
     return { ticks: sampled, count: sampled.length };
   }
 
-  async resetWindow(): Promise<WindowResetResult> {
+  resetWindow(): WindowResetResult {
     // Take the current resolver price (or external as fallback) as the window start
     const price = this.latestResolver?.price ?? this.latestExternal?.price ?? 0;
     this.windowStartPrice = price;
     this.windowStartTime = Date.now();
-
-    // Persist to database
-    // await this.database.windowStarts.insert({ price, timestamp: new Date().toISOString() });
 
     return {
       startPrice: price,
@@ -153,52 +206,146 @@ export class PriceFeedService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  // ---------------------------------------------------------------------------
-  // Tick collection
-  // ---------------------------------------------------------------------------
+  /** Track which 5-minute window we're in to auto-reset at boundaries. */
+  private currentWindowSlot = 0;
 
-  private startTickCollection(): void {
-    this.pollTimer = setInterval(async () => {
-      try {
-        await this.collectTick();
-      } catch (error) {
-        console.error('[price-feed] Tick collection error:', error);
-      }
-    }, TICK_POLL_MS);
-  }
+  private maybeResetWindowBoundary(currentPrice: number): void {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const slot = Math.floor(nowSec / WINDOW_DURATION_SEC);
 
-  private stopTickCollection(): void {
-    if (this.pollTimer) {
-      clearInterval(this.pollTimer);
-      this.pollTimer = null;
+    if (this.currentWindowSlot === 0) {
+      this.currentWindowSlot = slot;
+      return;
+    }
+
+    if (slot !== this.currentWindowSlot) {
+      // New 5-minute window — reset start price
+      this.currentWindowSlot = slot;
+      this.windowStartPrice = currentPrice;
+      this.windowStartTime = Date.now();
     }
   }
 
-  /**
-   * Fetches prices from resolver proxy and external exchanges,
-   * pushes them into the rolling buffer, and emits tick events.
-   */
-  private async collectTick(): Promise<void> {
+  // ---------------------------------------------------------------------------
+  // Binance WebSocket connection
+  // ---------------------------------------------------------------------------
+
+  private connectBinanceWs(): void {
+    const streamUrl = `${this.wsBaseUrl}/${this.symbol}@bookTicker`;
+    this.shouldReconnect = true;
+
+    this.logger.log(`Connecting to Binance WS: ${streamUrl}`);
+
+    try {
+      this.ws = new WebSocket(streamUrl);
+    } catch (err) {
+      this.logger.error(`Failed to create WebSocket: ${(err as Error).message}`);
+      this.scheduleReconnect();
+      return;
+    }
+
+    this.ws.on('open', () => {
+      this.reconnectAttempts = 0;
+      this.logger.log('Binance WebSocket connected');
+    });
+
+    this.ws.on('message', (data: WebSocket.Data) => {
+      try {
+        const msg = JSON.parse(data.toString()) as BinanceBookTickerMessage;
+        this.handleBookTicker(msg);
+      } catch (err) {
+        this.logger.error(`Failed to parse Binance message: ${(err as Error).message}`);
+      }
+    });
+
+    this.ws.on('close', (code, reason) => {
+      this.logger.warn(`Binance WS closed: code=${code} reason=${reason?.toString()}`);
+      this.ws = null;
+      this.scheduleReconnect();
+    });
+
+    this.ws.on('error', (err) => {
+      this.logger.error(`Binance WS error: ${(err as Error).message}`);
+      // 'close' event will fire after 'error', which triggers reconnect
+    });
+  }
+
+  private disconnectBinanceWs(): void {
+    this.shouldReconnect = false;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.ws) {
+      this.ws.removeAllListeners();
+      this.ws.close(1000, 'Service shutting down');
+      this.ws = null;
+    }
+  }
+
+  private scheduleReconnect(): void {
+    if (!this.shouldReconnect) return;
+    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      this.logger.error(
+        `Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached — giving up`,
+      );
+      return;
+    }
+
+    this.reconnectAttempts++;
+    // Exponential backoff: 1s, 2s, 4s, 8s, … capped at 30s
+    const delay = Math.min(
+      BASE_RECONNECT_MS * Math.pow(2, this.reconnectAttempts - 1),
+      30_000,
+    );
+
+    this.logger.log(
+      `Scheduling Binance reconnect #${this.reconnectAttempts} in ${delay}ms`,
+    );
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connectBinanceWs();
+    }, delay);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tick handling
+  // ---------------------------------------------------------------------------
+
+  /** Exposed for testing — processes a Binance bookTicker message. */
+  handleBookTicker(msg: BinanceBookTickerMessage): void {
+    const bid = parseFloat(msg.b);
+    const ask = parseFloat(msg.a);
+    const midPrice = (bid + ask) / 2;
     const now = new Date().toISOString();
 
-    // TODO: Replace with real API calls
-    // const resolverData = await this.polymarketClient.getResolverPrice('BTC');
-    // const externalData = await this.exchangeClients.getSpotPrice('BTC');
+    this.lastTickTime = Date.now();
 
-    // Stub: simulate resolver and external prices
-    const basePrice = 84250 + Math.random() * 20 - 10;
-    const spread = 0.2 + Math.random() * 0.3;
+    // Auto-set startPrice on first real tick (avoids delta = currentPrice when startPrice is 0)
+    if (this.windowStartPrice === null || this.windowStartPrice === 0) {
+      this.windowStartPrice = round(midPrice);
+      this.windowStartTime = Date.now();
+    }
 
-    this.latestResolver = { price: round(basePrice + Math.random() * 2), timestamp: now };
+    // Auto-reset at 5-minute window boundaries
+    this.maybeResetWindowBoundary(round(midPrice));
+
+    // Update external price from Binance
     this.latestExternal = {
-      price: round(basePrice),
-      bid: round(basePrice - spread),
-      ask: round(basePrice + spread),
+      price: round(midPrice),
+      bid: round(bid),
+      ask: round(ask),
       timestamp: now,
     };
 
-    // Push both ticks into buffer
-    const resolverTick: PriceTick = { price: this.latestResolver.price, timestamp: now, source: 'resolver' };
+    // Use Binance mid-price as resolver proxy (will be replaced with real Polymarket resolver later)
+    this.latestResolver = {
+      price: round(midPrice),
+      timestamp: now,
+    };
+
+    // Push ticks into rolling buffer
     const externalTick: PriceTick = {
       price: this.latestExternal.price,
       bid: this.latestExternal.bid,
@@ -206,22 +353,77 @@ export class PriceFeedService implements OnModuleInit, OnModuleDestroy {
       timestamp: now,
       source: 'external',
     };
+    const resolverTick: PriceTick = {
+      price: this.latestResolver.price,
+      timestamp: now,
+      source: 'resolver',
+    };
 
-    this.pushTick(resolverTick);
     this.pushTick(externalTick);
-
-    // Persist to database
-    // await this.database.priceTicks.insertMany([resolverTick, externalTick]);
+    this.pushTick(resolverTick);
 
     // Emit event
-    this.emitEvent('price.tick.received', { resolver: this.latestResolver, external: this.latestExternal });
+    this.emitEvent('price.tick.received', {
+      resolver: this.latestResolver,
+      external: this.latestExternal,
+    });
   }
+
+  private lastPersistTime = 0;
+  private static readonly PERSIST_INTERVAL_MS = 5_000; // persist at most every 5s
 
   private pushTick(tick: PriceTick): void {
     this.tickBuffer.push(tick);
     // Keep buffer bounded
     if (this.tickBuffer.length > BUFFER_MAX_SIZE * 2) {
       this.tickBuffer = this.tickBuffer.slice(-BUFFER_MAX_SIZE);
+    }
+
+    // Throttled DB persistence
+    const now = Date.now();
+    if (now - this.lastPersistTime >= PriceFeedService.PERSIST_INTERVAL_MS && tick.source === 'external') {
+      this.lastPersistTime = now;
+      this.persistTick(tick).catch(() => {/* best-effort */});
+    }
+  }
+
+  private async persistTick(tick: PriceTick): Promise<void> {
+    await this.db.insert(priceTicks).values({
+      windowId: 'live',
+      source: 'binance',
+      price: tick.price,
+      bid: tick.bid ?? tick.price,
+      ask: tick.ask ?? tick.price,
+      eventTime: new Date(tick.timestamp).getTime(),
+      ingestedAt: Date.now(),
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 1s polling timer — recomputes micro signals & checks WS health
+  // ---------------------------------------------------------------------------
+
+  private startTickPolling(): void {
+    this.pollTimer = setInterval(() => {
+      // Check WS staleness — warn if no tick in 3s
+      if (this.lastTickTime > 0) {
+        const staleness = Date.now() - this.lastTickTime;
+        if (staleness > WS_STALE_THRESHOLD_MS) {
+          this.logger.warn(
+            `No Binance WS tick received in ${Math.round(staleness / 1000)}s`,
+          );
+        }
+      }
+
+      // Micro signals are recomputed lazily via getCurrentPrice(),
+      // but we can emit periodic updates here for subscribers if needed.
+    }, TICK_POLL_MS);
+  }
+
+  private stopTickPolling(): void {
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
     }
   }
 
@@ -232,7 +434,7 @@ export class PriceFeedService implements OnModuleInit, OnModuleDestroy {
   private computeWindowData(currentPrice: number): WindowData {
     const startPrice = this.windowStartPrice ?? currentPrice;
     const deltaAbs = round(currentPrice - startPrice);
-    const deltaPct = startPrice !== 0 ? round(deltaAbs / startPrice, 6) : 0;
+    const deltaPct = startPrice === 0 ? 0 : round(deltaAbs / startPrice, 6);
     const elapsed = this.windowStartTime ? (Date.now() - this.windowStartTime) / 1000 : 0;
     const timeToCloseSec = Math.max(0, Math.round(WINDOW_DURATION_SEC - elapsed));
 
@@ -272,8 +474,9 @@ export class PriceFeedService implements OnModuleInit, OnModuleDestroy {
 
     if (recentTicks.length < 2) return 0;
 
-    const oldest = recentTicks[0]!;
-    const newest = recentTicks[recentTicks.length - 1]!;
+    const oldest = recentTicks[0];
+    const newest = recentTicks[recentTicks.length - 1];
+    if (!(oldest && newest)) return 0;
 
     if (oldest.price <= 0) return 0;
     return (newest.price - oldest.price) / oldest.price;
@@ -292,8 +495,9 @@ export class PriceFeedService implements OnModuleInit, OnModuleDestroy {
     // Compute 1-second returns
     const returns: number[] = [];
     for (let i = 1; i < recentTicks.length; i++) {
-      const prev = recentTicks[i - 1]!;
-      const curr = recentTicks[i]!;
+      const prev = recentTicks[i - 1];
+      const curr = recentTicks[i];
+      if (!(prev && curr)) continue;
       if (prev.price > 0) {
         returns.push((curr.price - prev.price) / prev.price);
       }
@@ -310,7 +514,12 @@ export class PriceFeedService implements OnModuleInit, OnModuleDestroy {
    * Computes a composite momentum score from multi-horizon returns and volatility.
    * Score is 0..1 where 0.5 is neutral, >0.5 is upward momentum, <0.5 is downward.
    */
-  private computeMomentum(return1s: number, return5s: number, return15s: number, volatility: number): number {
+  private computeMomentum(
+    return1s: number,
+    return5s: number,
+    return15s: number,
+    volatility: number,
+  ): number {
     if (volatility === 0) return 0.5;
 
     // Weight shorter horizons more heavily
@@ -331,7 +540,7 @@ export class PriceFeedService implements OnModuleInit, OnModuleDestroy {
     if (ticks.length === 0 || intervalSec <= 1) return ticks;
 
     const result: PriceTick[] = [];
-    let nextBucketTime = ticks.length > 0 ? new Date(ticks[0]!.timestamp).getTime() : 0;
+    let nextBucketTime = ticks.length > 0 ? new Date(ticks[0]?.timestamp ?? 0).getTime() : 0;
 
     for (const tick of ticks) {
       const tickMs = new Date(tick.timestamp).getTime();
@@ -347,19 +556,20 @@ export class PriceFeedService implements OnModuleInit, OnModuleDestroy {
   private parseInterval(interval: string): number {
     const match = interval.match(/^(\d+)(s|m|h)?$/);
     if (!match) return 1;
-    const value = parseInt(match[1]!, 10);
+    const value = parseInt(match[1] ?? '1', 10);
     const unit = match[2] ?? 's';
     switch (unit) {
-      case 'm': return value * 60;
-      case 'h': return value * 3600;
-      default: return value;
+      case 'm':
+        return value * 60;
+      case 'h':
+        return value * 3600;
+      default:
+        return value;
     }
   }
 
-  private emitEvent(event: string, payload: Record<string, unknown>): void {
-    // TODO: Wire to @brain/events
-    // this.events.emit(event, payload);
-    console.log(`[price-feed] event: ${event}`);
+  private emitEvent(_event: string, _payload: Record<string, unknown>): void {
+    /* noop */
   }
 }
 

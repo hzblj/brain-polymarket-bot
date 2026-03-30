@@ -1,10 +1,10 @@
-import { Controller, Get, Post, Body, Param, Query, HttpCode } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query } from '@nestjs/common';
 import { ExecutionService } from './execution.service';
 import type { OrderInput } from './execution.service';
 
 @Controller('api/v1/execution')
 export class ExecutionController {
-  constructor(private readonly executionService: ExecutionService) {}
+  constructor(@Inject(ExecutionService) private readonly executionService: ExecutionService) {}
 
   /**
    * POST /api/v1/execution/paper-order
@@ -55,7 +55,10 @@ export class ExecutionController {
    */
   @Get('fills')
   async getFills(@Query('windowId') windowId?: string, @Query('limit') limit?: string) {
-    const fills = await this.executionService.getFills(windowId, limit ? parseInt(limit, 10) : undefined);
+    const fills = await this.executionService.getFills(
+      windowId,
+      limit ? parseInt(limit, 10) : undefined,
+    );
     return { ok: true, data: fills };
   }
 

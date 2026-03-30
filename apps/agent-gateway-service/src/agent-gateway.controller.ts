@@ -1,14 +1,14 @@
-import { Controller, Get, Post, Body, Param, Query, HttpCode } from '@nestjs/common';
-import { AgentGatewayService } from './agent-gateway.service';
-import type {
-  RegimeEvaluationRequest,
-  EdgeEvaluationRequest,
-  SupervisorEvaluationRequest,
+import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query } from '@nestjs/common';
+import {
+  AgentGatewayService,
+  type EdgeEvaluationRequest,
+  type RegimeEvaluationRequest,
+  type SupervisorEvaluationRequest,
 } from './agent-gateway.service';
 
 @Controller('api/v1/agent')
 export class AgentGatewayController {
-  constructor(private readonly agentGatewayService: AgentGatewayService) {}
+  constructor(@Inject(AgentGatewayService) private readonly agentGatewayService: AgentGatewayService) {}
 
   /**
    * POST /api/v1/agent/regime/evaluate
@@ -47,6 +47,38 @@ export class AgentGatewayController {
   }
 
   /**
+   * GET /api/v1/agent/context
+   * Returns combined structured context for agents (features + risk + config).
+   */
+  @Get('context')
+  async getContext() {
+    const context = await this.agentGatewayService.getContext();
+    return { ok: true, data: context };
+  }
+
+  /**
+   * POST /api/v1/agent/decision/validate
+   * Validates and normalizes an agent decision payload.
+   */
+  @Post('decision/validate')
+  @HttpCode(200)
+  async validateDecision(@Body() body: Record<string, unknown>) {
+    const result = await this.agentGatewayService.validateDecision(body);
+    return { ok: true, data: result };
+  }
+
+  /**
+   * POST /api/v1/agent/decision/log
+   * Persists a decision trace for auditing.
+   */
+  @Post('decision/log')
+  @HttpCode(200)
+  async logDecision(@Body() body: Record<string, unknown>) {
+    const result = await this.agentGatewayService.logDecision(body);
+    return { ok: true, data: result };
+  }
+
+  /**
    * GET /api/v1/agent/traces
    * Returns recent LLM agent decision traces for auditing.
    */
@@ -65,10 +97,10 @@ export class AgentGatewayController {
   }
 
   /**
-   * GET /api/v1/agent/trace/:traceId
+   * GET /api/v1/agent/traces/:traceId
    * Returns full detail of a specific LLM decision trace.
    */
-  @Get('trace/:traceId')
+  @Get('traces/:traceId')
   async getTrace(@Param('traceId') traceId: string) {
     const trace = await this.agentGatewayService.getTrace(traceId);
     return { ok: true, data: trace };

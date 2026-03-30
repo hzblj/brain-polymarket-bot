@@ -13,10 +13,16 @@
   },
   "dependencies": {
     "@brain/types": "workspace:*",
-    "drizzle-orm": "^0.29.0",
-    "postgres": "^3.4.0"
+    "@nestjs/common": "^10.3.0",
+    "better-sqlite3": "^11.0.0",
+    "drizzle-orm": "^0.29.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
     "drizzle-kit": "^0.20.0"
+  },
+  "peerDependencies": {
+    "reflect-metadata": "^0.1.13 || ^0.2.0",
+    "rxjs": "^7.0.0"
   }
 }

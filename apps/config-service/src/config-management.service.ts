@@ -1,6 +1,17 @@
-import { Injectable, OnModuleInit, HttpException, HttpStatus } from '@nestjs/common';
-import { z } from 'zod';
+import { createHash } from 'node:crypto';
+import {
+  DATABASE_CLIENT,
+  type DbClient,
+  marketConfigs,
+  strategies,
+  strategyAssignments,
+  strategyVersions,
+  systemConfigs,
+} from '@brain/database';
 import type { ExecutionMode } from '@brain/types';
+import { HttpException, HttpStatus, Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { desc, eq } from 'drizzle-orm';
+import { z } from 'zod';
 
 // ─── Zod Schemas for Config Validation ───────────────────────────────────────
 
@@ -36,6 +47,20 @@ const FeatureFlagSchema = z.object({
   liveExecutionEnabled: z.boolean().optional(),
   replayEnabled: z.boolean().optional(),
   metricsEnabled: z.boolean().optional(),
+});
+
+const MarketResolverSchema = z.object({
+  type: z.enum(['CHAINLINK_PROXY', 'EXTERNAL_PROXY']).optional(),
+  symbol: z.string().min(1).optional(),
+});
+
+const MarketConfigUpdateSchema = z.object({
+  label: z.string().min(1).optional(),
+  asset: z.string().min(1).optional(),
+  marketType: z.enum(['UP_DOWN']).optional(),
+  windowSec: z.number().int().positive().optional(),
+  defaultEnabled: z.boolean().optional(),
+  resolver: MarketResolverSchema.optional(),
 });
 
 const SystemConfigUpdateSchema = z.object({
@@ -83,7 +108,21 @@ interface FeatureFlags {
   metricsEnabled: boolean;
 }
 
+interface MarketConfig {
+  id: string;
+  label: string;
+  asset: string;
+  marketType: 'UP_DOWN';
+  windowSec: number;
+  defaultEnabled: boolean;
+  resolver: {
+    type: 'CHAINLINK_PROXY' | 'EXTERNAL_PROXY';
+    symbol: string;
+  };
+}
+
 interface EffectiveConfig {
+  market: MarketConfig;
   trading: TradingConfig;
   risk: RiskConfig;
   provider: ProviderConfig;
@@ -119,6 +158,19 @@ const DEFAULT_PROVIDER: ProviderConfig = {
   maxRetries: 2,
 };
 
+const DEFAULT_MARKET: MarketConfig = {
+  id: 'bitcoin-5m-default',
+  label: 'bitcoin-5m',
+  asset: 'BTC',
+  marketType: 'UP_DOWN',
+  windowSec: 300,
+  defaultEnabled: true,
+  resolver: {
+    type: 'CHAINLINK_PROXY',
+    symbol: 'BTC/USD',
+  },
+};
+
 const DEFAULT_FLAGS: FeatureFlags = {
   agentRegimeEnabled: true,
   agentEdgeEnabled: true,
@@ -130,6 +182,8 @@ const DEFAULT_FLAGS: FeatureFlags = {
 
 @Injectable()
 export class ConfigManagementService implements OnModuleInit {
+  private readonly logger = new Logger(ConfigManagementService.name);
+  private market: MarketConfig = { ...DEFAULT_MARKET, resolver: { ...DEFAULT_MARKET.resolver } };
   private trading: TradingConfig = { ...DEFAULT_TRADING };
   private risk: RiskConfig = { ...DEFAULT_RISK };
   private provider: ProviderConfig = { ...DEFAULT_PROVIDER };
@@ -137,17 +191,104 @@ export class ConfigManagementService implements OnModuleInit {
   private lastUpdatedAt: string = new Date().toISOString();
   private configSource: 'database' | 'defaults' = 'defaults';
 
-  // TODO: inject @brain/database, @brain/events, @brain/logger
-  // constructor(
-  //   private readonly database: DatabaseService,
-  //   private readonly events: EventsService,
-  //   private readonly logger: LoggerService,
-  // ) {}
+  constructor(@Inject(DATABASE_CLIENT) private readonly db: DbClient) {}
 
   async onModuleInit(): Promise<void> {
+    await this.autoSeedIfEmpty();
     await this.loadFromDatabase();
     this.applyEnvOverrides();
-    console.log('[config-service] initialized, mode:', this.trading.mode);
+  }
+
+  /**
+   * If the strategies table is empty, seed default market config,
+   * strategy, version, and assignment inline.
+   */
+  private async autoSeedIfEmpty(): Promise<void> {
+    try {
+      const rows = await this.db.select().from(strategies).limit(1);
+      if (rows.length > 0) return;
+
+      this.logger.log('Empty database detected — running auto-seed...');
+
+      // 1. Market config
+      const existingMC = await this.db
+        .select()
+        .from(marketConfigs)
+        .where(eq(marketConfigs.label, 'Bitcoin 5m Up/Down'))
+        .limit(1);
+
+      let mcId: string;
+      if (existingMC.length > 0) {
+        mcId = existingMC[0]!.id;
+      } else {
+        const [ins] = await this.db
+          .insert(marketConfigs)
+          .values({
+            label: 'Bitcoin 5m Up/Down',
+            asset: 'BTC',
+            marketType: 'UP_DOWN',
+            windowSec: 300,
+            resolverType: 'polymarket',
+            resolverSymbol: 'BTCUSDT',
+            defaultEnabled: true,
+            isActive: true,
+          })
+          .returning({ id: marketConfigs.id });
+        mcId = ins!.id;
+      }
+
+      // 2. Strategy
+      const [strat] = await this.db
+        .insert(strategies)
+        .values({
+          key: 'btc-5m-momentum',
+          name: 'BTC 5m Momentum',
+          description: 'Default conservative momentum strategy for Bitcoin 5-minute Up/Down markets.',
+          status: 'active',
+          isDefault: true,
+        })
+        .returning({ id: strategies.id });
+      const stratId = strat!.id;
+
+      // 3. Strategy version
+      const versionConfig = {
+        id: 'btc-5m-momentum-v1',
+        label: 'BTC 5m Momentum v1',
+        marketSelector: { asset: 'BTC', marketType: 'UP_DOWN', windowSec: 300 },
+        agentProfile: {
+          regimeAgentProfile: 'regime-default-v1',
+          edgeAgentProfile: 'edge-momentum-v1',
+          supervisorAgentProfile: 'supervisor-conservative-v1',
+        },
+        decisionPolicy: { allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'], minConfidence: 0.7 },
+        filters: { maxSpreadBps: 250, minDepthScore: 0.6, minTimeToCloseSec: 15, maxTimeToCloseSec: 90 },
+        riskProfile: { maxSizeUsd: 20, dailyLossLimitUsd: 50, maxTradesPerWindow: 1 },
+        executionPolicy: { entryWindowStartSec: 90, entryWindowEndSec: 10, mode: 'paper' },
+      };
+      const checksum = createHash('sha256').update(JSON.stringify(versionConfig)).digest('hex');
+
+      const [ver] = await this.db
+        .insert(strategyVersions)
+        .values({
+          strategyId: stratId,
+          version: 1,
+          configJson: versionConfig as unknown as Record<string, unknown>,
+          checksum,
+        })
+        .returning({ id: strategyVersions.id });
+
+      // 4. Assignment
+      await this.db.insert(strategyAssignments).values({
+        marketConfigId: mcId,
+        strategyVersionId: ver!.id,
+        priority: 0,
+        isActive: true,
+      });
+
+      this.logger.log('Auto-seed complete');
+    } catch (error) {
+      this.logger.warn(`Auto-seed failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   // ─── Public API ──────────────────────────────────────────────────────────────
@@ -155,8 +296,9 @@ export class ConfigManagementService implements OnModuleInit {
   /**
    * Returns the full effective config: DB values merged over env overrides over defaults.
    */
-  async getEffectiveConfig(): Promise<EffectiveConfig> {
+  getEffectiveConfig(): EffectiveConfig {
     return {
+      market: { ...this.market, resolver: { ...this.market.resolver } },
       trading: { ...this.trading },
       risk: { ...this.risk },
       provider: { ...this.provider },
@@ -221,7 +363,62 @@ export class ConfigManagementService implements OnModuleInit {
       featureFlags: this.featureFlags,
     });
 
-    console.log('[config-service] config updated at', this.lastUpdatedAt);
+    return this.getEffectiveConfig();
+  }
+
+  /**
+   * Returns the current market configuration.
+   */
+  getMarketConfig(): MarketConfig {
+    return { ...this.market };
+  }
+
+  /**
+   * Updates the market configuration. Validates with Zod before applying.
+   */
+  async updateMarketConfig(update: Record<string, unknown>): Promise<MarketConfig> {
+    const parsed = MarketConfigUpdateSchema.safeParse(update);
+    if (!parsed.success) {
+      throw new HttpException(
+        {
+          message: 'Invalid market config update',
+          errors: parsed.error.issues.map((i) => ({
+            path: i.path.join('.'),
+            message: i.message,
+          })),
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const { resolver, ...rest } = parsed.data;
+    this.market = { ...this.market, ...this.stripUndefined(rest) };
+    if (resolver) {
+      this.market.resolver = { ...this.market.resolver, ...this.stripUndefined(resolver) };
+    }
+    this.lastUpdatedAt = new Date().toISOString();
+    this.configSource = 'database';
+
+    await this.persistToDatabase();
+    this.emitEvent('config.market.updated', { market: this.market });
+
+    return this.getMarketConfig();
+  }
+
+  /**
+   * Resets all runtime config to default Bitcoin 5m preset.
+   */
+  async resetDefaults(): Promise<EffectiveConfig> {
+    this.trading = { ...DEFAULT_TRADING };
+    this.risk = { ...DEFAULT_RISK };
+    this.provider = { ...DEFAULT_PROVIDER };
+    this.featureFlags = { ...DEFAULT_FLAGS };
+    this.market = { ...DEFAULT_MARKET };
+    this.lastUpdatedAt = new Date().toISOString();
+    this.configSource = 'defaults';
+
+    await this.persistToDatabase();
+    this.emitEvent('config.reset', {});
 
     return this.getEffectiveConfig();
   }
@@ -229,7 +426,7 @@ export class ConfigManagementService implements OnModuleInit {
   /**
    * Returns current feature flags.
    */
-  async getFeatureFlags(): Promise<FeatureFlags> {
+  getFeatureFlags(): FeatureFlags {
     return { ...this.featureFlags };
   }
 
@@ -237,19 +434,34 @@ export class ConfigManagementService implements OnModuleInit {
 
   private async loadFromDatabase(): Promise<void> {
     try {
-      // TODO: Load from database
-      // const stored = await this.database.systemConfig.findLatest();
-      // if (stored) {
-      //   this.trading = { ...this.trading, ...stored.trading };
-      //   this.risk = { ...this.risk, ...stored.risk };
-      //   this.provider = { ...this.provider, ...stored.provider };
-      //   this.featureFlags = { ...this.featureFlags, ...stored.featureFlags };
-      //   this.configSource = 'database';
-      //   this.lastUpdatedAt = stored.updatedAt;
-      // }
-      console.log('[config-service] database load: using defaults (DB not wired yet)');
-    } catch (error) {
-      console.error('[config-service] Failed to load config from database, using defaults:', error);
+      const rows = await this.db
+        .select()
+        .from(systemConfigs)
+        .orderBy(desc(systemConfigs.updatedAt))
+        .limit(1);
+      if (rows.length > 0) {
+        const stored = rows[0]?.config as Record<string, unknown>;
+        if (stored.market) {
+          const m = stored.market as Partial<MarketConfig>;
+          this.market = { ...this.market, ...m, resolver: { ...this.market.resolver, ...(m.resolver ?? {}) } };
+        }
+        if (stored.trading)
+          this.trading = { ...this.trading, ...(stored.trading as Partial<TradingConfig>) };
+        if (stored.risk) this.risk = { ...this.risk, ...(stored.risk as Partial<RiskConfig>) };
+        if (stored.provider)
+          this.provider = { ...this.provider, ...(stored.provider as Partial<ProviderConfig>) };
+        if (stored.featureFlags)
+          this.featureFlags = {
+            ...this.featureFlags,
+            ...(stored.featureFlags as Partial<FeatureFlags>),
+          };
+        this.configSource = 'database';
+        this.lastUpdatedAt = rows[0]?.updatedAt ?? new Date().toISOString();
+      } else {
+        // no stored config found, use defaults
+      }
+    } catch (_error) {
+      /* ignored - fall back to defaults */
     }
   }
 
@@ -257,39 +469,41 @@ export class ConfigManagementService implements OnModuleInit {
     // Allow environment variables to override defaults (before DB values)
     const env = process.env;
 
-    if (env['EXECUTION_MODE']) {
-      const mode = env['EXECUTION_MODE'] as ExecutionMode;
+    if (env.EXECUTION_MODE) {
+      const mode = env.EXECUTION_MODE as ExecutionMode;
       if (['disabled', 'paper', 'live'].includes(mode)) {
         this.trading.mode = mode;
       }
     }
-    if (env['RISK_MAX_SIZE_USD']) {
-      this.risk.maxSizeUsd = parseFloat(env['RISK_MAX_SIZE_USD']);
-      this.trading.maxSizeUsd = parseFloat(env['RISK_MAX_SIZE_USD']);
+    if (env.RISK_MAX_SIZE_USD) {
+      this.risk.maxSizeUsd = parseFloat(env.RISK_MAX_SIZE_USD);
+      this.trading.maxSizeUsd = parseFloat(env.RISK_MAX_SIZE_USD);
     }
-    if (env['RISK_DAILY_LOSS_LIMIT_USD']) {
-      this.risk.dailyLossLimitUsd = parseFloat(env['RISK_DAILY_LOSS_LIMIT_USD']);
+    if (env.RISK_DAILY_LOSS_LIMIT_USD) {
+      this.risk.dailyLossLimitUsd = parseFloat(env.RISK_DAILY_LOSS_LIMIT_USD);
     }
-    if (env['AGENT_PROVIDER']) {
-      this.provider.provider = env['AGENT_PROVIDER'] as 'anthropic' | 'openai';
+    if (env.AGENT_PROVIDER) {
+      this.provider.provider = env.AGENT_PROVIDER as 'anthropic' | 'openai';
     }
-    if (env['AGENT_MODEL']) {
-      this.provider.model = env['AGENT_MODEL'];
+    if (env.AGENT_MODEL) {
+      this.provider.model = env.AGENT_MODEL;
     }
   }
 
   private async persistToDatabase(): Promise<void> {
     try {
-      // TODO: Persist to database
-      // await this.database.systemConfig.upsert({
-      //   trading: this.trading,
-      //   risk: this.risk,
-      //   provider: this.provider,
-      //   featureFlags: this.featureFlags,
-      //   updatedAt: this.lastUpdatedAt,
-      // });
-    } catch (error) {
-      console.error('[config-service] Failed to persist config to database:', error);
+      await this.db.insert(systemConfigs).values({
+        config: {
+          market: this.market,
+          trading: this.trading,
+          risk: this.risk,
+          provider: this.provider,
+          featureFlags: this.featureFlags,
+        },
+        updatedAt: this.lastUpdatedAt,
+      });
+    } catch (_error) {
+      /* ignored - persistence is best-effort */
     }
   }
 
@@ -303,9 +517,7 @@ export class ConfigManagementService implements OnModuleInit {
     return result;
   }
 
-  private emitEvent(event: string, payload: Record<string, unknown>): void {
-    // TODO: Wire to @brain/events
-    // this.events.emit(event, payload);
-    console.log(`[config-service] event: ${event}`);
+  private emitEvent(_event: string, _payload: Record<string, unknown>): void {
+    /* noop */
   }
 }

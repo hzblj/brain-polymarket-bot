@@ -1,9 +1,9 @@
-import { Controller, Get, Post, Query, HttpCode } from '@nestjs/common';
+import { Controller, Get, HttpCode, Inject, Post, Query } from '@nestjs/common';
 import { FeatureEngineService } from './feature-engine.service';
 
 @Controller('api/v1/features')
 export class FeatureEngineController {
-  constructor(private readonly featureEngineService: FeatureEngineService) {}
+  constructor(@Inject(FeatureEngineService) private readonly featureEngineService: FeatureEngineService) {}
 
   /**
    * GET /api/v1/features/current
@@ -30,10 +30,7 @@ export class FeatureEngineController {
    * Returns historical feature snapshots.
    */
   @Get('history')
-  async getHistory(
-    @Query('from') from: string,
-    @Query('to') to: string,
-  ) {
+  async getHistory(@Query('from') from: string, @Query('to') to: string) {
     const data = await this.featureEngineService.getHistory({ from, to });
     return { ok: true, data };
   }

@@ -1,9 +1,9 @@
-import { Controller, Get, Post, Query, HttpCode } from '@nestjs/common';
+import { Controller, Get, HttpCode, Inject, Post, Query } from '@nestjs/common';
 import { PriceFeedService } from './price-feed.service';
 
 @Controller('api/v1/price')
 export class PriceFeedController {
-  constructor(private readonly priceFeedService: PriceFeedService) {}
+  constructor(@Inject(PriceFeedService) private readonly priceFeedService: PriceFeedService) {}
 
   /**
    * GET /api/v1/price/current

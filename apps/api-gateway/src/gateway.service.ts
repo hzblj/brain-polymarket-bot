@@ -1,8 +1,8 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
-import { HttpService } from '@nestjs/axios';
-import { FastifyRequest, FastifyReply } from 'fastify';
-import { firstValueFrom } from 'rxjs';
 import type { HealthStatus, ServiceName } from '@brain/types';
+import { HttpService } from '@nestjs/axios';
+import { Inject, Injectable, type OnModuleInit } from '@nestjs/common';
+import type { FastifyReply, FastifyRequest } from 'fastify';
+import { firstValueFrom } from 'rxjs';
 
 // ─── Service Registry ────────────────────────────────────────────────────────
 
@@ -13,16 +13,63 @@ interface ServiceEndpoint {
   healthPath: string;
 }
 
+const DEFAULT_HOST = process.env.SERVICE_HOST ?? 'localhost';
+
 const SERVICE_REGISTRY: ServiceEndpoint[] = [
-  { name: 'market-discovery', port: 3001, host: 'localhost', healthPath: '/api/v1/market/active' },
-  { name: 'price-feed', port: 3002, host: 'localhost', healthPath: '/api/v1/prices/latest' },
-  { name: 'orderbook', port: 3003, host: 'localhost', healthPath: '/api/v1/orderbook/snapshot' },
-  { name: 'feature-engine', port: 3004, host: 'localhost', healthPath: '/api/v1/features/latest' },
-  { name: 'risk', port: 3005, host: 'localhost', healthPath: '/api/v1/risk/state' },
-  { name: 'execution', port: 3006, host: 'localhost', healthPath: '/api/v1/execution/positions' },
-  { name: 'config', port: 3007, host: 'localhost', healthPath: '/api/v1/config' },
-  { name: 'agent-gateway', port: 3008, host: 'localhost', healthPath: '/api/v1/agent/traces?limit=1' },
-  { name: 'replay', port: 3009, host: 'localhost', healthPath: '/api/v1/replay/summary' },
+  {
+    name: 'market-discovery',
+    port: 3001,
+    host: process.env.MARKET_DISCOVERY_HOST ?? DEFAULT_HOST,
+    healthPath: '/api/v1/market/active',
+  },
+  {
+    name: 'price-feed',
+    port: 3002,
+    host: process.env.PRICE_FEED_HOST ?? DEFAULT_HOST,
+    healthPath: '/api/v1/price/current',
+  },
+  {
+    name: 'orderbook',
+    port: 3003,
+    host: process.env.ORDERBOOK_HOST ?? DEFAULT_HOST,
+    healthPath: '/api/v1/book/current',
+  },
+  {
+    name: 'feature-engine',
+    port: 3004,
+    host: process.env.FEATURE_ENGINE_HOST ?? DEFAULT_HOST,
+    healthPath: '/api/v1/features/current',
+  },
+  {
+    name: 'risk',
+    port: 3005,
+    host: process.env.RISK_HOST ?? DEFAULT_HOST,
+    healthPath: '/api/v1/risk/state',
+  },
+  {
+    name: 'execution',
+    port: 3006,
+    host: process.env.EXECUTION_HOST ?? DEFAULT_HOST,
+    healthPath: '/api/v1/execution/positions',
+  },
+  {
+    name: 'config',
+    port: 3007,
+    host: process.env.CONFIG_HOST ?? DEFAULT_HOST,
+    healthPath: '/api/v1/config',
+  },
+  {
+    name: 'agent-gateway',
+    port: 3008,
+    host: process.env.AGENT_GATEWAY_HOST ?? DEFAULT_HOST,
+    healthPath: '/api/v1/agent/traces?limit=1',
+  },
+  {
+    name: 'replay',
+    port: 3009,
+    host: process.env.REPLAY_HOST ?? DEFAULT_HOST,
+    healthPath: '/api/v1/replay/summary',
+  },
 ];
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -54,10 +101,10 @@ interface SystemStatus {
 
 @Injectable()
 export class GatewayService implements OnModuleInit {
-  constructor(private readonly httpService: HttpService) {}
+  constructor(@Inject(HttpService) private readonly httpService: HttpService) {}
 
   async onModuleInit(): Promise<void> {
-    console.log('[api-gateway] initialized, proxying to', SERVICE_REGISTRY.length, 'services');
+    /* noop */
   }
 
   // ─── Health Check ──────────────────────────────────────────────────────────
@@ -66,9 +113,7 @@ export class GatewayService implements OnModuleInit {
    * Pings all registered services and aggregates their health status.
    */
   async aggregateHealthChecks(): Promise<AggregatedHealth> {
-    const checks = await Promise.all(
-      SERVICE_REGISTRY.map((svc) => this.checkServiceHealth(svc)),
-    );
+    const checks = await Promise.all(SERVICE_REGISTRY.map((svc) => this.checkServiceHealth(svc)));
 
     const unhealthy = checks.filter((c) => c.status === 'unhealthy').length;
     const degraded = checks.filter((c) => c.status === 'degraded').length;
@@ -89,15 +134,27 @@ export class GatewayService implements OnModuleInit {
    * Gathers status from key services to build a system-wide overview.
    */
   async getSystemStatus(): Promise<SystemStatus> {
+    const findHost = (name: string) =>
+      SERVICE_REGISTRY.find((s) => s.name === name)?.host ?? DEFAULT_HOST;
     const [activeMarket, positions, riskState, config] = await Promise.all([
-      this.fetchFromService<Record<string, unknown>>('localhost', 3001, '/api/v1/market/active'),
-      this.fetchFromService<Record<string, unknown>[]>('localhost', 3006, '/api/v1/execution/positions'),
-      this.fetchFromService<Record<string, unknown>>('localhost', 3005, '/api/v1/risk/state'),
-      this.fetchFromService<Record<string, unknown>>('localhost', 3007, '/api/v1/config'),
+      this.fetchFromService<Record<string, unknown>>(
+        findHost('market-discovery'),
+        3001,
+        '/api/v1/market/active',
+      ),
+      this.fetchFromService<Record<string, unknown>[]>(
+        findHost('execution'),
+        3006,
+        '/api/v1/execution/positions',
+      ),
+      this.fetchFromService<Record<string, unknown>>(findHost('risk'), 3005, '/api/v1/risk/state'),
+      this.fetchFromService<Record<string, unknown>>(findHost('config'), 3007, '/api/v1/config'),
     ]);
 
-    const mode = (config?.['trading'] as Record<string, unknown> | undefined)?.['mode'] as string ?? 'unknown';
-    const dailyPnlUsd = (riskState?.['state'] as Record<string, unknown> | undefined)?.['dailyPnlUsd'] as number ?? 0;
+    const mode =
+      ((config?.trading as Record<string, unknown> | undefined)?.mode as string) ?? 'unknown';
+    const dailyPnlUsd =
+      ((riskState?.state as Record<string, unknown> | undefined)?.dailyPnlUsd as number) ?? 0;
 
     return {
       mode,
@@ -121,7 +178,9 @@ export class GatewayService implements OnModuleInit {
     serviceName: string,
     port: number,
   ): Promise<void> {
-    const url = `http://localhost:${port}${req.url}`;
+    const svc = SERVICE_REGISTRY.find((s) => s.port === port);
+    const host = svc?.host ?? DEFAULT_HOST;
+    const url = `http://${host}:${port}${req.url}`;
     const method = req.method.toLowerCase();
 
     try {
@@ -143,7 +202,6 @@ export class GatewayService implements OnModuleInit {
       res.status(response.status).send(response.data);
     } catch (error) {
       const message = (error as Error).message;
-      console.error(`[api-gateway] Proxy error → ${serviceName} (${url}):`, message);
 
       res.status(502).send({
         ok: false,

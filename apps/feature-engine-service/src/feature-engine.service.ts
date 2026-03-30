@@ -1,4 +1,6 @@
-import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { DATABASE_CLIENT, type DbClient, featureSnapshots } from '@brain/database';
+import { Inject, Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { and, desc, gte, lte } from 'drizzle-orm';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,9 +53,9 @@ interface HistoryQuery {
 // Service base URLs (configurable via @brain/config)
 // ---------------------------------------------------------------------------
 
-const MARKET_SERVICE_URL = process.env['MARKET_SERVICE_URL'] ?? 'http://localhost:3001';
-const PRICE_SERVICE_URL = process.env['PRICE_SERVICE_URL'] ?? 'http://localhost:3002';
-const BOOK_SERVICE_URL = process.env['BOOK_SERVICE_URL'] ?? 'http://localhost:3003';
+const MARKET_SERVICE_URL = process.env.MARKET_SERVICE_URL ?? 'http://localhost:3001';
+const PRICE_SERVICE_URL = process.env.PRICE_SERVICE_URL ?? 'http://localhost:3002';
+const BOOK_SERVICE_URL = process.env.BOOK_SERVICE_URL ?? 'http://localhost:3003';
 
 const RECOMPUTE_INTERVAL_MS = 1_000;
 const HISTORY_BUFFER_SIZE = 300;
@@ -70,13 +72,7 @@ export class FeatureEngineService implements OnModuleInit, OnModuleDestroy {
   private payloadHistory: FeaturePayload[] = [];
   private computeTimer: ReturnType<typeof setInterval> | null = null;
 
-  // TODO: inject real dependencies
-  // constructor(
-  //   private readonly config: ConfigService,
-  //   private readonly database: DatabaseService,
-  //   private readonly events: EventsService,
-  //   private readonly logger: LoggerService,
-  // ) {}
+  constructor(@Inject(DATABASE_CLIENT) private readonly db: DbClient) {}
 
   async onModuleInit(): Promise<void> {
     await this.recompute();
@@ -91,11 +87,11 @@ export class FeatureEngineService implements OnModuleInit, OnModuleDestroy {
   // Public API
   // ---------------------------------------------------------------------------
 
-  async getCurrentFeatures(): Promise<FeaturePayload | null> {
+  getCurrentFeatures(): FeaturePayload | null {
     return this.currentPayload;
   }
 
-  async getWindowFeatures(): Promise<FeaturePayload | null> {
+  getWindowFeatures(): FeaturePayload | null {
     // Returns the same payload since it already reflects the current window
     return this.currentPayload;
   }
@@ -104,9 +100,25 @@ export class FeatureEngineService implements OnModuleInit, OnModuleDestroy {
     const fromMs = new Date(query.from).getTime();
     const toMs = new Date(query.to).getTime();
 
-    // TODO: query from database for full history
-    // const dbSnapshots = await this.database.featureSnapshots.findMany({ from: fromMs, to: toMs });
+    // Try database first
+    try {
+      const rows = await this.db
+        .select()
+        .from(featureSnapshots)
+        .where(and(gte(featureSnapshots.eventTime, fromMs), lte(featureSnapshots.eventTime, toMs)))
+        .orderBy(desc(featureSnapshots.eventTime));
 
+      if (rows.length > 0) {
+        return {
+          snapshots: rows.map((r) => r.payload as unknown as FeaturePayload),
+          count: rows.length,
+        };
+      }
+    } catch {
+      /* fall through */
+    }
+
+    // Fall back to in-memory
     const filtered = this.payloadHistory.filter((p) => {
       const pMs = new Date(p.computedAt).getTime();
       return pMs >= fromMs && pMs <= toMs;
@@ -171,7 +183,16 @@ export class FeatureEngineService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Persist to database
-    // await this.database.featureSnapshots.insert(payload);
+    try {
+      await this.db.insert(featureSnapshots).values({
+        windowId: payload.market.marketId,
+        payload: payload as unknown as Record<string, unknown>,
+        eventTime: new Date(payload.computedAt).getTime(),
+        processedAt: Date.now(),
+      });
+    } catch {
+      /* ignore - feature snapshots are high-frequency */
+    }
 
     // Emit event
     this.emitEvent('features.computed', {
@@ -191,8 +212,8 @@ export class FeatureEngineService implements OnModuleInit, OnModuleDestroy {
     this.computeTimer = setInterval(async () => {
       try {
         await this.recompute();
-      } catch (error) {
-        console.error('[feature-engine] Recompute error:', error);
+      } catch (_error) {
+        /* ignored - will retry on next interval */
       }
     }, RECOMPUTE_INTERVAL_MS);
   }
@@ -212,7 +233,7 @@ export class FeatureEngineService implements OnModuleInit, OnModuleDestroy {
    * Computes derived trading signals from raw features.
    */
   private computeSignals(
-    price: PriceFeatures,
+    _price: PriceFeatures,
     book: BookFeatures,
     market: MarketFeatures,
     rawPrice: RawPriceData,
@@ -279,7 +300,11 @@ export class FeatureEngineService implements OnModuleInit, OnModuleDestroy {
   /**
    * Determines whether current market conditions are suitable for trading.
    */
-  private assessTradeability(market: MarketFeatures, book: BookFeatures, volatility: number): boolean {
+  private assessTradeability(
+    market: MarketFeatures,
+    book: BookFeatures,
+    volatility: number,
+  ): boolean {
     // Must have enough time left in the window
     if (market.timeToCloseSec < MIN_TIME_TO_CLOSE_SEC) return false;
 
@@ -302,7 +327,10 @@ export class FeatureEngineService implements OnModuleInit, OnModuleDestroy {
   private async fetchMarketData(): Promise<{ marketId: string; timeToCloseSec: number }> {
     try {
       const res = await fetch(`${MARKET_SERVICE_URL}/api/v1/market/window/current`);
-      const json = await res.json() as { ok: boolean; data: { marketId: string; secondsToClose: number } | null };
+      const json = (await res.json()) as {
+        ok: boolean;
+        data: { marketId: string; secondsToClose: number } | null;
+      };
       if (json.ok && json.data) {
         return { marketId: json.data.marketId, timeToCloseSec: json.data.secondsToClose };
       }
@@ -315,7 +343,7 @@ export class FeatureEngineService implements OnModuleInit, OnModuleDestroy {
   private async fetchPriceData(): Promise<RawPriceData> {
     try {
       const res = await fetch(`${PRICE_SERVICE_URL}/api/v1/price/current`);
-      const json = await res.json() as {
+      const json = (await res.json()) as {
         ok: boolean;
         data: {
           resolver: { price: number };
@@ -337,13 +365,21 @@ export class FeatureEngineService implements OnModuleInit, OnModuleDestroy {
     } catch {
       // Fallback
     }
-    return { startPrice: 0, resolverPrice: 0, deltaAbs: 0, deltaPct: 0, return5s: 0, return15s: 0, volatility: 0 };
+    return {
+      startPrice: 0,
+      resolverPrice: 0,
+      deltaAbs: 0,
+      deltaPct: 0,
+      return5s: 0,
+      return15s: 0,
+      volatility: 0,
+    };
   }
 
   private async fetchBookData(): Promise<RawBookData> {
     try {
       const res = await fetch(`${BOOK_SERVICE_URL}/api/v1/book/metrics`);
-      const json = await res.json() as {
+      const json = (await res.json()) as {
         ok: boolean;
         data: {
           up: { bestBid: number; bestAsk: number; bidDepth: number; askDepth: number };
@@ -367,13 +403,19 @@ export class FeatureEngineService implements OnModuleInit, OnModuleDestroy {
     } catch {
       // Fallback
     }
-    return { upBid: 0, upAsk: 0, downBid: 0, downAsk: 0, spreadBps: 9999, depthScore: 0, imbalance: 0 };
+    return {
+      upBid: 0,
+      upAsk: 0,
+      downBid: 0,
+      downAsk: 0,
+      spreadBps: 9999,
+      depthScore: 0,
+      imbalance: 0,
+    };
   }
 
-  private emitEvent(event: string, payload: Record<string, unknown>): void {
-    // TODO: Wire to @brain/events
-    // this.events.emit(event, payload);
-    console.log(`[feature-engine] event: ${event}`, payload);
+  private emitEvent(_event: string, _payload: Record<string, unknown>): void {
+    /* noop */
   }
 }
 

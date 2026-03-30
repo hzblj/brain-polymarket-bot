@@ -1,5 +1,5 @@
-import { DynamicModule, Module } from '@nestjs/common';
 import { BrainLoggerService } from '@brain/logger';
+import { type DynamicModule, Module } from '@nestjs/common';
 import { PolymarketRestClient, type PolymarketRestClientOptions } from './rest-client';
 import { PolymarketWsClient, type PolymarketWsClientOptions } from './ws-client';
 

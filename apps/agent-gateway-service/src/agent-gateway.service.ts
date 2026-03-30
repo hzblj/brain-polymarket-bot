@@ -1,20 +1,18 @@
-import { Injectable, OnModuleInit, HttpException, HttpStatus } from '@nestjs/common';
-import { z } from 'zod';
-import {
-  RegimeOutputSchema,
-  EdgeOutputSchema,
-  SupervisorOutputSchema,
-} from '@brain/schemas';
+import { agentDecisions, DATABASE_CLIENT, type DbClient } from '@brain/database';
+import { EdgeOutputSchema, RegimeOutputSchema, SupervisorOutputSchema } from '@brain/schemas';
 import type {
+  AgentType,
+  EdgeOutput,
   FeaturePayload,
   RegimeOutput,
-  EdgeOutput,
-  SupervisorOutput,
-  AgentType,
-  RiskState,
   RiskConfig,
+  RiskState,
+  SupervisorOutput,
   UnixMs,
 } from '@brain/types';
+import { HttpException, HttpStatus, Inject, Injectable, type OnModuleInit } from '@nestjs/common';
+import { and, desc, eq } from 'drizzle-orm';
+import type { z } from 'zod';
 
 // ─── System Prompts ──────────────────────────────────────────────────────────
 
@@ -209,23 +207,21 @@ export class AgentGatewayService implements OnModuleInit {
   private timeoutMs = 30_000;
   private maxRetries = 2;
 
-  // TODO: inject @brain/llm-clients, @brain/database, @brain/events, @brain/logger
-  // constructor(
-  //   private readonly llmClients: LlmClientsService,
-  //   private readonly database: DatabaseService,
-  //   private readonly events: EventsService,
-  //   private readonly logger: LoggerService,
-  // ) {}
+  constructor(@Inject(DATABASE_CLIENT) private readonly db: DbClient) {}
 
-  async onModuleInit(): Promise<void> {
+  onModuleInit(): void {
     // Load config from env
-    this.provider = (process.env['AGENT_PROVIDER'] as 'anthropic' | 'openai') ?? this.provider;
-    this.model = process.env['AGENT_MODEL'] ?? this.model;
-    this.temperature = process.env['AGENT_TEMPERATURE'] ? parseFloat(process.env['AGENT_TEMPERATURE']) : this.temperature;
-    this.timeoutMs = process.env['AGENT_TIMEOUT_MS'] ? parseInt(process.env['AGENT_TIMEOUT_MS'], 10) : this.timeoutMs;
-    this.maxRetries = process.env['AGENT_MAX_RETRIES'] ? parseInt(process.env['AGENT_MAX_RETRIES'], 10) : this.maxRetries;
-
-    console.log(`[agent-gateway] initialized: provider=${this.provider}, model=${this.model}`);
+    this.provider = (process.env.AGENT_PROVIDER as 'anthropic' | 'openai') ?? this.provider;
+    this.model = process.env.AGENT_MODEL ?? this.model;
+    this.temperature = process.env.AGENT_TEMPERATURE
+      ? parseFloat(process.env.AGENT_TEMPERATURE)
+      : this.temperature;
+    this.timeoutMs = process.env.AGENT_TIMEOUT_MS
+      ? parseInt(process.env.AGENT_TIMEOUT_MS, 10)
+      : this.timeoutMs;
+    this.maxRetries = process.env.AGENT_MAX_RETRIES
+      ? parseInt(process.env.AGENT_MAX_RETRIES, 10)
+      : this.maxRetries;
   }
 
   // ─── Public API ──────────────────────────────────────────────────────────────
@@ -296,7 +292,13 @@ export class AgentGatewayService implements OnModuleInit {
       if (trace) return { ...trace, cached: true };
     }
 
-    const userPrompt = this.buildSupervisorUserPrompt(features, regime, edge, riskState, riskConfig);
+    const userPrompt = this.buildSupervisorUserPrompt(
+      features,
+      regime,
+      edge,
+      riskState,
+      riskConfig,
+    );
     const result = await this.callAgent<SupervisorOutput>(
       'supervisor',
       windowId,
@@ -310,12 +312,99 @@ export class AgentGatewayService implements OnModuleInit {
   }
 
   /**
+   * Returns a combined structured context for agents.
+   * Aggregates recent traces, current config state, and cache status.
+   */
+  async getContext(): Promise<Record<string, unknown>> {
+    const recentTraces = await this.listTraces(undefined, undefined, 10);
+    return {
+      provider: this.provider,
+      model: this.model,
+      temperature: this.temperature,
+      timeoutMs: this.timeoutMs,
+      maxRetries: this.maxRetries,
+      cacheSize: this.cache.size,
+      tracesInMemory: this.traces.size,
+      recentTraces: recentTraces.map((t) => ({
+        id: t.id,
+        windowId: t.windowId,
+        agentType: t.agentType,
+        latencyMs: t.latencyMs,
+        cached: t.cached,
+        createdAt: t.createdAt,
+      })),
+    };
+  }
+
+  /**
+   * Validates an agent decision payload against the supervisor output schema.
+   */
+  async validateDecision(payload: Record<string, unknown>): Promise<{ valid: boolean; errors?: Array<{ path: string; message: string }>; normalized?: SupervisorOutput }> {
+    const parsed = SupervisorOutputSchema.safeParse(payload);
+    if (!parsed.success) {
+      return {
+        valid: false,
+        errors: parsed.error.issues.map((i) => ({
+          path: i.path.join('.'),
+          message: i.message,
+        })),
+      };
+    }
+    return { valid: true, normalized: parsed.data };
+  }
+
+  /**
+   * Logs an externally-produced decision trace.
+   */
+  async logDecision(payload: Record<string, unknown>): Promise<{ id: string; logged: boolean }> {
+    const id = `trace-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const windowId = (payload.windowId as string) ?? 'unknown';
+    const agentType = (payload.agentType as AgentType) ?? 'supervisor';
+    const output = payload.output ?? payload;
+
+    const trace: AgentTrace = {
+      id,
+      windowId,
+      agentType,
+      model: (payload.model as string) ?? this.model,
+      provider: (payload.provider as string) ?? this.provider,
+      systemPrompt: '',
+      userPrompt: JSON.stringify(payload.input ?? {}),
+      rawResponse: JSON.stringify(output),
+      parsedOutput: output as RegimeOutput | EdgeOutput | SupervisorOutput,
+      latencyMs: (payload.latencyMs as number) ?? 0,
+      tokenUsage: { input: 0, output: 0 },
+      cached: false,
+      createdAt: new Date().toISOString(),
+    };
+
+    this.traces.set(id, trace);
+
+    try {
+      await this.db.insert(agentDecisions).values({
+        id,
+        windowId,
+        agentType,
+        input: (payload.input as Record<string, unknown>) ?? {},
+        output: output as Record<string, unknown>,
+        model: trace.model,
+        provider: trace.provider,
+        latencyMs: trace.latencyMs,
+        eventTime: Date.now(),
+        processedAt: Date.now(),
+      });
+    } catch (_dbError) {
+      /* best-effort persistence */
+    }
+
+    return { id, logged: true };
+  }
+
+  /**
    * Lists recent agent traces, optionally filtered.
    */
   async listTraces(agentType?: string, windowId?: string, limit = 50): Promise<AgentTrace[]> {
-    // TODO: Load from database
-    // return this.database.agentDecisions.find({ agentType, windowId, limit });
-
+    // In-memory traces first
     let traces = Array.from(this.traces.values());
 
     if (agentType) {
@@ -323,6 +412,39 @@ export class AgentGatewayService implements OnModuleInit {
     }
     if (windowId) {
       traces = traces.filter((t) => t.windowId === windowId);
+    }
+
+    // Fall back to database if in-memory is empty
+    if (traces.length === 0) {
+      const conditions: ReturnType<typeof eq>[] = [];
+      if (agentType)
+        conditions.push(
+          eq(agentDecisions.agentType, agentType as 'regime' | 'edge' | 'supervisor'),
+        );
+      if (windowId) conditions.push(eq(agentDecisions.windowId, windowId));
+
+      const rows = await this.db
+        .select()
+        .from(agentDecisions)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(desc(agentDecisions.processedAt))
+        .limit(limit);
+
+      return rows.map((r) => ({
+        id: r.id,
+        windowId: r.windowId,
+        agentType: r.agentType as AgentType,
+        model: r.model,
+        provider: r.provider,
+        systemPrompt: '',
+        userPrompt: JSON.stringify(r.input),
+        rawResponse: JSON.stringify(r.output),
+        parsedOutput: r.output as RegimeOutput | EdgeOutput | SupervisorOutput,
+        latencyMs: r.latencyMs,
+        tokenUsage: { input: 0, output: 0 },
+        cached: false,
+        createdAt: new Date(r.processedAt).toISOString(),
+      }));
     }
 
     return traces
@@ -335,12 +457,33 @@ export class AgentGatewayService implements OnModuleInit {
    */
   async getTrace(traceId: string): Promise<AgentTrace> {
     const trace = this.traces.get(traceId);
-    if (!trace) {
-      // TODO: Fall back to database
-      // const dbTrace = await this.database.agentDecisions.findById(traceId);
-      throw new HttpException(`Trace ${traceId} not found`, HttpStatus.NOT_FOUND);
+    if (trace) return trace;
+
+    // Fall back to database
+    const [r] = await this.db
+      .select()
+      .from(agentDecisions)
+      .where(eq(agentDecisions.id, traceId))
+      .limit(1);
+    if (r) {
+      return {
+        id: r.id,
+        windowId: r.windowId,
+        agentType: r.agentType as AgentType,
+        model: r.model,
+        provider: r.provider,
+        systemPrompt: '',
+        userPrompt: JSON.stringify(r.input),
+        rawResponse: JSON.stringify(r.output),
+        parsedOutput: r.output as RegimeOutput | EdgeOutput | SupervisorOutput,
+        latencyMs: r.latencyMs,
+        tokenUsage: { input: 0, output: 0 },
+        cached: false,
+        createdAt: new Date(r.processedAt).toISOString(),
+      };
     }
-    return trace;
+
+    throw new HttpException(`Trace ${traceId} not found`, HttpStatus.NOT_FOUND);
   }
 
   // ─── Core Agent Call ───────────────────────────────────────────────────────
@@ -405,18 +548,22 @@ export class AgentGatewayService implements OnModuleInit {
         this.traces.set(trace.id, trace);
 
         // Persist to database (agent_decisions table)
-        // await this.database.agentDecisions.insert({
-        //   id: trace.id,
-        //   windowId,
-        //   agentType,
-        //   input: JSON.parse(userPrompt),
-        //   output: parsedOutput,
-        //   model: this.model,
-        //   provider: this.provider,
-        //   latencyMs,
-        //   eventTime: Date.now(),
-        //   processedAt: Date.now(),
-        // });
+        try {
+          await this.db.insert(agentDecisions).values({
+            id: trace.id,
+            windowId,
+            agentType,
+            input: JSON.parse(userPrompt),
+            output: parsedOutput as unknown as Record<string, unknown>,
+            model: this.model,
+            provider: this.provider,
+            latencyMs,
+            eventTime: Date.now(),
+            processedAt: Date.now(),
+          });
+        } catch (_dbError) {
+          /* best-effort persistence */
+        }
 
         this.emitEvent(`agent.${agentType}.completed`, {
           traceId: trace.id,
@@ -424,16 +571,13 @@ export class AgentGatewayService implements OnModuleInit {
           latencyMs,
           attempt,
         });
-
-        console.log(`[agent-gateway] ${agentType} completed in ${latencyMs}ms (attempt ${attempt + 1})`);
         return trace;
       } catch (error) {
         lastError = error as Error;
-        console.warn(`[agent-gateway] ${agentType} attempt ${attempt + 1} failed:`, (error as Error).message);
 
         if (attempt < this.maxRetries) {
           // Exponential backoff: 500ms, 1000ms, 2000ms
-          await this.sleep(500 * Math.pow(2, attempt));
+          await this.sleep(500 * 2 ** attempt);
         }
       }
     }
@@ -660,9 +804,7 @@ export class AgentGatewayService implements OnModuleInit {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  private emitEvent(event: string, payload: Record<string, unknown>): void {
-    // TODO: Wire to @brain/events
-    // this.events.emit(event, payload);
-    console.log(`[agent-gateway] event: ${event}`, JSON.stringify(payload));
+  private emitEvent(_event: string, _payload: Record<string, unknown>): void {
+    /* noop */
   }
 }

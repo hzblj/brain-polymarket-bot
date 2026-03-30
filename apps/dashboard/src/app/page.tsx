@@ -1,0 +1,443 @@
+"use client";
+
+import {
+  Activity,
+  BarChart3,
+  Clock,
+  Crosshair,
+  Layers,
+  Shield,
+  TrendingUp,
+  Zap,
+} from "lucide-react";
+
+import { KpiCard } from "@/components/cards/kpi-card";
+import { HealthTile } from "@/components/cards/health-tile";
+import { PipelineStep } from "@/components/cards/pipeline-step";
+import { StreakCard } from "@/components/cards/streak-card";
+import { StatusBadge } from "@/components/badges/status-badge";
+import { PnlBadge } from "@/components/badges/pnl-badge";
+import { SideBadge } from "@/components/badges/side-badge";
+import { DataTable } from "@/components/tables/data-table";
+
+import {
+  useSystemState,
+  useMarketSnapshot,
+  usePipeline,
+  useOpenTrades,
+  useClosedTrades,
+  useServiceHealth,
+  useTodayMetrics,
+  useSimulationSummary,
+} from "@/lib/hooks";
+
+import {
+  formatUsd,
+  formatPct,
+  formatPnl,
+  formatDuration,
+  formatTimeAgo,
+  formatPrice,
+} from "@/lib/formatters";
+
+export default function OverviewPage() {
+  const system = useSystemState();
+  const snapshot = useMarketSnapshot();
+  const pipeline = usePipeline();
+  const openTrades = useOpenTrades();
+  const closedTrades = useClosedTrades();
+  const health = useServiceHealth();
+  const metrics = useTodayMetrics();
+  const simulation = useSimulationSummary();
+
+  const s = system.data;
+  const m = snapshot.data;
+  const pipe = pipeline.data;
+  const open = openTrades.data;
+  const closed = closedTrades.data;
+  const services = health.data;
+  const today = metrics.data;
+  const sim = simulation.data;
+
+  const totalUnrealized =
+    open?.reduce((sum, t) => sum + t.unrealizedPnl, 0) ?? 0;
+
+  const lastPipelineStep = pipe?.[pipe.length - 1];
+
+  return (
+    <div className="flex flex-col gap-4 p-4">
+      {/* ── KPI Strip ──────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
+        <KpiCard
+          label="Current Mode"
+          value={s?.mode ?? "—"}
+          icon={Zap}
+          subtitle={
+            s ? (
+              <StatusBadge
+                status={s.mode as "paper" | "live" | "disabled"}
+                size="sm"
+              />
+            ) : undefined
+          }
+        />
+        <KpiCard
+          label="Active Market"
+          value={s?.activeMarket?.asset ?? "—"}
+          icon={Crosshair}
+          subtitle={s?.activeMarket?.label}
+        />
+        <KpiCard
+          label="Time To Close"
+          value={m?.timeToCloseMs != null ? formatDuration(m.timeToCloseMs) : "—"}
+          icon={Clock}
+        />
+        <KpiCard
+          label="Strategy"
+          value={s?.currentStrategy?.key ?? "—"}
+          icon={Layers}
+          subtitle={s?.currentStrategy ? `v${s.currentStrategy.version}` : undefined}
+        />
+        <KpiCard
+          label="Risk State"
+          value={s?.killSwitch ? "Kill Switch ON" : "Trading Enabled"}
+          icon={Shield}
+          variant={s?.killSwitch ? "negative" : "positive"}
+          subtitle={
+            s ? (
+              <StatusBadge
+                status={s.killSwitch ? "unhealthy" : "healthy"}
+                size="sm"
+              />
+            ) : undefined
+          }
+        />
+        <KpiCard
+          label="Agent Status"
+          value={lastPipelineStep?.status ?? "—"}
+          icon={Activity}
+          subtitle={
+            lastPipelineStep?.timestamp
+              ? formatTimeAgo(lastPipelineStep.timestamp)
+              : undefined
+          }
+        />
+        <KpiCard
+          label="Open Positions"
+          value={open?.length ?? 0}
+          icon={BarChart3}
+          subtitle={formatPnl(totalUnrealized)}
+          variant={
+            totalUnrealized > 0
+              ? "positive"
+              : totalUnrealized < 0
+                ? "negative"
+                : "default"
+          }
+        />
+        <KpiCard
+          label="Today PnL"
+          value={today ? formatPnl(today.realizedPnl) : "—"}
+          icon={TrendingUp}
+          delta={today?.realizedPnl}
+          variant={
+            today
+              ? today.realizedPnl > 0
+                ? "positive"
+                : today.realizedPnl < 0
+                  ? "negative"
+                  : "default"
+              : "default"
+          }
+        />
+      </div>
+
+      {/* ── Row 1: Pipeline + Market Snapshot ──────────────────────── */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+        {/* Live Decision Pipeline */}
+        <div className="lg:col-span-3 rounded-lg border border-border bg-surface-1 p-4">
+          <h2 className="mb-3 text-sm font-semibold text-text-secondary uppercase tracking-wider">
+            Live Decision Pipeline
+          </h2>
+          {pipe ? (
+            <div className="flex items-start gap-2 overflow-x-auto">
+              {pipe.map((step, i) => (
+                <div key={step.label} className="flex items-start">
+                  <PipelineStep
+                    label={step.label}
+                    status={step.status}
+                    value={step.value}
+                    confidence={step.confidence ?? undefined}
+                    timestamp={step.timestamp}
+                  />
+                  {i < pipe.length - 1 && (
+                    <div className="mt-5 mx-1 h-px w-6 shrink-0 bg-border" />
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-text-muted text-sm">Loading...</p>
+          )}
+        </div>
+
+        {/* Live Market Snapshot */}
+        <div className="lg:col-span-2 rounded-lg border border-accent/20 bg-surface-2/60 backdrop-blur-sm p-4 glow-accent">
+          <h2 className="mb-4 text-sm font-semibold text-accent uppercase tracking-wider">
+            Live Market Snapshot
+          </h2>
+          {m ? (
+            <div className="flex flex-col gap-3">
+              {/* Hero prices */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-md bg-surface-0/50 px-3 py-2">
+                  <span className="block text-[10px] uppercase tracking-wider text-text-muted">Resolver</span>
+                  <span className="text-xl font-bold tabular-nums text-accent">${formatPrice(m.resolverPrice, 2)}</span>
+                </div>
+                <div className="rounded-md bg-surface-0/50 px-3 py-2">
+                  <span className="block text-[10px] uppercase tracking-wider text-text-muted">Spot</span>
+                  <span className="text-xl font-bold tabular-nums text-text-primary">${formatPrice(m.spotPrice, 2)}</span>
+                </div>
+              </div>
+
+              {/* Delta + Time to close */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-md bg-surface-0/50 px-3 py-2">
+                  <span className="block text-[10px] uppercase tracking-wider text-text-muted">Delta</span>
+                  <span className={`text-lg font-semibold tabular-nums ${m.deltaAbs >= 0 ? 'text-positive' : 'text-negative'}`}>
+                    {m.deltaAbs >= 0 ? '+' : ''}{formatPrice(m.deltaAbs, 4)} ({formatPct(m.deltaPct)})
+                  </span>
+                </div>
+                <div className="rounded-md bg-surface-0/50 px-3 py-2">
+                  <span className="block text-[10px] uppercase tracking-wider text-text-muted">Closes In</span>
+                  <span className={`text-lg font-semibold tabular-nums ${m.timeToCloseMs < 30000 ? 'text-negative' : m.timeToCloseMs < 60000 ? 'text-warning' : 'text-text-primary'}`}>
+                    {formatDuration(m.timeToCloseMs)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Metrics grid */}
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <div className="rounded bg-surface-0/40 px-2 py-1.5">
+                  <span className="block text-text-muted">Spread</span>
+                  <span className="font-medium tabular-nums text-text-primary">{formatPrice(m.spread, 1)} bps</span>
+                </div>
+                <div className="rounded bg-surface-0/40 px-2 py-1.5">
+                  <span className="block text-text-muted">Depth</span>
+                  <span className="font-medium tabular-nums text-text-primary">{formatPrice(m.depthScore, 2)}</span>
+                </div>
+                <div className="rounded bg-surface-0/40 px-2 py-1.5">
+                  <span className="block text-text-muted">Imbalance</span>
+                  <span className="font-medium tabular-nums text-text-primary">{formatPct(m.imbalance)}</span>
+                </div>
+              </div>
+
+              {/* Bid/Ask levels */}
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded bg-positive/5 border border-positive/10 px-2 py-1.5">
+                  <span className="block text-text-muted">UP Bid / Ask</span>
+                  <span className="font-medium tabular-nums text-positive">{formatPrice(m.upBid, 4)}</span>
+                  <span className="text-text-muted"> / </span>
+                  <span className="font-medium tabular-nums text-text-secondary">{formatPrice(m.upAsk, 4)}</span>
+                </div>
+                <div className="rounded bg-negative/5 border border-negative/10 px-2 py-1.5">
+                  <span className="block text-text-muted">DOWN Bid / Ask</span>
+                  <span className="font-medium tabular-nums text-negative">{formatPrice(m.downBid, 4)}</span>
+                  <span className="text-text-muted"> / </span>
+                  <span className="font-medium tabular-nums text-text-secondary">{formatPrice(m.downAsk, 4)}</span>
+                </div>
+              </div>
+
+              {/* Liquidity */}
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <div className="rounded bg-surface-0/40 px-2 py-1.5">
+                  <span className="block text-text-muted">Liquidity</span>
+                  <span className="font-medium tabular-nums text-accent">${formatPrice((m as Record<string, unknown>).liquidityUsd as number ?? 0, 0)}</span>
+                </div>
+                <div className="rounded bg-surface-0/40 px-2 py-1.5">
+                  <span className="block text-text-muted">24h Vol</span>
+                  <span className="font-medium tabular-nums text-text-primary">${formatPrice((m as Record<string, unknown>).volume24hUsd as number ?? 0, 0)}</span>
+                </div>
+                <div className="rounded bg-surface-0/40 px-2 py-1.5">
+                  <span className="block text-text-muted">Depth</span>
+                  <span className="font-medium tabular-nums text-text-primary">${formatPrice((m as Record<string, unknown>).totalDepthUsd as number ?? 0, 0)}</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="text-text-muted text-sm">Loading...</p>
+          )}
+        </div>
+      </div>
+
+      {/* ── Row 2: Open Trades + Health Summary ────────────────────── */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+        {/* Open Trades */}
+        <div className="lg:col-span-3 rounded-lg border border-border bg-surface-1 p-4">
+          <h2 className="mb-3 text-sm font-semibold text-text-secondary uppercase tracking-wider">
+            Open Trades
+          </h2>
+          <DataTable
+            columns={[
+              {
+                key: "side",
+                label: "Side",
+                render: (row) => <SideBadge side={row.side} />,
+              },
+              { key: "strategy", label: "Strategy" },
+              {
+                key: "entryPrice",
+                label: "Entry",
+                render: (row) => formatPrice(row.entryPrice, 4),
+              },
+              {
+                key: "sizeUsd",
+                label: "Size",
+                render: (row) => formatUsd(row.sizeUsd),
+              },
+              {
+                key: "currentMark",
+                label: "Mark",
+                render: (row) => formatPrice(row.currentMark, 4),
+              },
+              {
+                key: "unrealizedPnl",
+                label: "Unrealized PnL",
+                render: (row) => <PnlBadge value={row.unrealizedPnl} showSign />,
+              },
+              {
+                key: "status",
+                label: "Status",
+                render: (row) => (
+                  <span className="text-xs text-text-secondary capitalize">{row.status}</span>
+                ),
+              },
+            ]}
+            data={open ?? []}
+            emptyMessage="No open positions"
+          />
+        </div>
+
+        {/* Health Summary */}
+        <div className="lg:col-span-2 rounded-lg border border-border bg-surface-1 p-4">
+          <h2 className="mb-3 text-sm font-semibold text-text-secondary uppercase tracking-wider">
+            Health Summary
+          </h2>
+          {services ? (
+            <div className="grid grid-cols-2 gap-2">
+              {services.map((svc) => (
+                <HealthTile
+                  key={svc.name}
+                  name={svc.name}
+                  status={svc.status}
+                  lastHeartbeat={svc.lastHeartbeat}
+                  latencyMs={svc.latencyMs}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="text-text-muted text-sm">Loading...</p>
+          )}
+        </div>
+      </div>
+
+      {/* ── Row 3: Closed Trades + Simulation Summary ──────────────── */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+        {/* Closed Trades Today */}
+        <div className="lg:col-span-3 rounded-lg border border-border bg-surface-1 p-4">
+          <h2 className="mb-3 text-sm font-semibold text-text-secondary uppercase tracking-wider">
+            Closed Trades Today
+          </h2>
+          <DataTable
+            columns={[
+              {
+                key: "side",
+                label: "Side",
+                render: (row) => <SideBadge side={row.side} />,
+              },
+              {
+                key: "result",
+                label: "Result",
+                render: (row) => (
+                  <span
+                    className={
+                      row.result === "win"
+                        ? "text-positive font-medium"
+                        : row.result === "loss"
+                          ? "text-negative font-medium"
+                          : "text-text-muted font-medium"
+                    }
+                  >
+                    {row.result.toUpperCase()}
+                  </span>
+                ),
+              },
+              {
+                key: "pnl",
+                label: "PnL",
+                render: (row) => <PnlBadge value={row.pnl} showSign />,
+              },
+              {
+                key: "duration",
+                label: "Duration",
+                render: (row) => formatDuration(row.duration),
+              },
+              { key: "exitReason", label: "Exit Reason" },
+            ]}
+            data={closed ?? []}
+            emptyMessage="No closed trades today"
+          />
+        </div>
+
+        {/* Simulation Summary */}
+        <div className="lg:col-span-2 rounded-lg border border-border bg-surface-1 p-4">
+          <h2 className="mb-3 text-sm font-semibold text-text-secondary uppercase tracking-wider">
+            Simulation Summary
+          </h2>
+          {sim ? (
+            <div className="flex flex-col gap-3">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                <SnapshotRow label="Paper Trades" value={String(sim.paperTradesToday)} />
+                <SnapshotRow label="Win Rate" value={formatPct(sim.winRate)} />
+                <SnapshotRow label="Profit Factor" value={formatPrice(sim.profitFactor, 2)} />
+                <SnapshotRow label="Avg PnL" value={formatPnl(sim.avgPnl)} />
+                <SnapshotRow label="Avg Hold Time" value={sim.avgHoldTime} />
+                <SnapshotRow label="False Positive" value={formatPct(sim.falsePositiveRate)} />
+                <SnapshotRow label="No-Trade Rate" value={formatPct(sim.noTradeRate)} />
+              </div>
+              <div className="flex gap-2">
+                <StreakCard
+                  label="Win Streak"
+                  value={sim.currentWinStreak}
+                  type="win"
+                />
+                <StreakCard
+                  label="Loss Streak"
+                  value={sim.currentLossStreak}
+                  type="loss"
+                />
+                <StreakCard
+                  label="Green Days"
+                  value={sim.greenDayStreak}
+                  type="neutral"
+                />
+              </div>
+            </div>
+          ) : (
+            <p className="text-text-muted text-sm">Loading...</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Tiny helper for key-value rows ───────────────────────────────────── */
+function SnapshotRow({ label, value }: { label: string; value: string }) {
+  return (
+    <>
+      <span className="text-text-muted">{label}</span>
+      <span className="text-text-primary font-mono text-right">{value}</span>
+    </>
+  );
+}

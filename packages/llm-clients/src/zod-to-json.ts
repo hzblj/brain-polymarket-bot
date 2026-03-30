@@ -9,6 +9,7 @@ export function zodToJsonSchema(schema: z.ZodSchema): Record<string, unknown> {
   return convertZodType(schema._def as z.ZodTypeDef & Record<string, unknown>);
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Zod type tree traversal
 function convertZodType(def: z.ZodTypeDef & Record<string, unknown>): Record<string, unknown> {
   const typeName = (def as { typeName?: string }).typeName;
 
@@ -123,6 +124,6 @@ function convertZodType(def: z.ZodTypeDef & Record<string, unknown>): Record<str
 }
 
 function isOptional(schema: z.ZodSchema): boolean {
-  const typeName = ((schema._def as Record<string, unknown>).typeName) as string | undefined;
+  const typeName = (schema._def as Record<string, unknown>).typeName as string | undefined;
   return typeName === 'ZodOptional' || typeName === 'ZodDefault';
 }

@@ -1,3 +1,4 @@
 export { createDb, type DbClient } from './client';
-export * from './schema';
+export { DATABASE_CLIENT, DatabaseModule } from './database.module';
 export * from './relations';
+export * from './schema';

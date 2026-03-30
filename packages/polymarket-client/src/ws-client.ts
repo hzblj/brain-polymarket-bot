@@ -1,7 +1,7 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import type { BrainLoggerService } from '@brain/logger';
+import { Injectable, type OnModuleDestroy } from '@nestjs/common';
 import WebSocket from 'ws';
-import { BrainLoggerService } from '@brain/logger';
-import type { PolymarketWsMessage, BookUpdateMessage } from './types';
+import type { BookUpdateMessage, PolymarketWsMessage } from './types';
 
 export interface PolymarketWsClientOptions {
   wsUrl: string;
@@ -38,9 +38,9 @@ export class PolymarketWsClient implements OnModuleDestroy {
     this.pingIntervalMs = options.pingIntervalMs ?? 30000;
   }
 
-  async connect(): Promise<void> {
+  connect(): Promise<void> {
     if (this.ws?.readyState === WebSocket.OPEN || this.isConnecting) {
-      return;
+      return Promise.resolve();
     }
 
     this.isConnecting = true;
@@ -91,7 +91,7 @@ export class PolymarketWsClient implements OnModuleDestroy {
     if (!this.bookHandlers.has(assetId)) {
       this.bookHandlers.set(assetId, new Set());
     }
-    this.bookHandlers.get(assetId)!.add(handler);
+    this.bookHandlers.get(assetId)?.add(handler);
 
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.sendSubscription(assetId);
@@ -130,6 +130,7 @@ export class PolymarketWsClient implements OnModuleDestroy {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: WS message routing
   private handleMessage(data: WebSocket.Data): void {
     try {
       const messages: PolymarketWsMessage[] = JSON.parse(data.toString());

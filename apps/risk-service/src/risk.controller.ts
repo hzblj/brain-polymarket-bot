@@ -1,10 +1,10 @@
-import { Controller, Get, Post, Body, HttpCode } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Post } from '@nestjs/common';
 import { RiskService } from './risk.service';
-import type { RiskEvaluationRequest, RiskConfigUpdate } from './risk.service';
+import type { RiskConfigUpdate, RiskEvaluationRequest } from './risk.service';
 
 @Controller('api/v1/risk')
 export class RiskController {
-  constructor(private readonly riskService: RiskService) {}
+  constructor(@Inject(RiskService) private readonly riskService: RiskService) {}
 
   /**
    * GET /api/v1/risk/state

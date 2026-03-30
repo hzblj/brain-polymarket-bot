@@ -1,6 +1,6 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import type { BrainLoggerService } from '@brain/logger';
+import { Injectable, type OnModuleDestroy } from '@nestjs/common';
 import WebSocket from 'ws';
-import { BrainLoggerService } from '@brain/logger';
 import type { PriceFeedClient, PriceFeedTick, PriceTickHandler } from './interface';
 
 interface CoinbaseTickerMessage {
@@ -47,8 +47,8 @@ export class CoinbaseClient implements PriceFeedClient, OnModuleDestroy {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
-  async connect(): Promise<void> {
-    if (this.isConnected) return;
+  connect(): Promise<void> {
+    if (this.isConnected) return Promise.resolve();
     this.shouldReconnect = true;
 
     return new Promise<void>((resolve, reject) => {
@@ -64,7 +64,7 @@ export class CoinbaseClient implements PriceFeedClient, OnModuleDestroy {
           product_ids: [this.productId],
           channels: ['ticker'],
         });
-        this.ws!.send(subscribeMsg);
+        this.ws?.send(subscribeMsg);
         this.logger.debug('Subscribed to Coinbase ticker', { productId: this.productId });
         resolve();
       });
