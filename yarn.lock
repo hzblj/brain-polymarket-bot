@@ -2700,9 +2700,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"brain-service@workspace:.":
+"brain-polymarket-bot@workspace:.":
   version: 0.0.0-use.local
-  resolution: "brain-service@workspace:."
+  resolution: "brain-polymarket-bot@workspace:."
   dependencies:
     "@biomejs/biome": "npm:^2.4.8"
     "@types/node": "npm:^20.11.0"

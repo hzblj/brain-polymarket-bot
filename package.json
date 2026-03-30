@@ -1,5 +1,5 @@
 {
-  "name": "brain-service",
+  "name": "brain-polymarket-bot",
   "private": true,
   "workspaces": [
     "packages/*",

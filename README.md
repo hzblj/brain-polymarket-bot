@@ -1,4 +1,4 @@
-# Brain Service
+# Brain Polymarket Bot
 
 Polymarket BTC 5-minute Up/Down trading bot. Monorepo s 10 NestJS microservices, LLM agenty (Claude/OpenAI) a deterministickymi risk guardrails.
 

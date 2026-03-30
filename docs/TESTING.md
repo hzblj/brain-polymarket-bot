@@ -1,4 +1,4 @@
-# Testovani brain-service v paper mode
+# Testovani brain-polymarket-bot v paper mode
 
 Prakticky navod jak rozjet system, napojit na realna data a nechat ho cele dny bezet v paper mode — bez realnch obchodu, ale se vsemi rozhodnutimi ulozenymi pro vyhodnoceni.
 
@@ -11,7 +11,7 @@ Prakticky navod jak rozjet system, napojit na realna data a nechat ho cele dny b
 ## 1. Priprava
 
 ```bash
-cd brain-service
+cd brain-polymarket-bot
 cp .env.example .env
 ```
 
@@ -320,7 +320,7 @@ docker compose down && docker compose up -d
 
 # Smazat data a zacit od nuly
 docker compose down
-docker volume rm brain-service_brain-data
+docker volume rm brain-polymarket-bot_brain-data
 docker compose up -d
 
 # Overit co je v DB
