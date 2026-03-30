@@ -18,6 +18,11 @@ import { PageHeader } from "@/components/layout/page-header";
 import { StatusBadge } from "@/components/badges/status-badge";
 import { useSystemState } from "@/lib/hooks";
 import { formatUsd } from "@/lib/formatters";
+import {
+  updateRiskConfig,
+  setKillSwitch as apiSetKillSwitch,
+  setTradingMode,
+} from "@/lib/api";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -109,17 +114,26 @@ export default function SettingsPage() {
 
   // ── Handlers ────────────────────────────────────────────────────────────
 
-  const handleConfirm = useCallback(() => {
-    if (confirmAction === "disable") {
-      setMode("disabled");
-    } else if (confirmAction === "paper") {
-      setMode("paper");
-    } else if (confirmAction === "live" && liveConfirmText === "LIVE") {
-      setMode("live");
-    } else if (confirmAction === "kill-activate") {
-      setKillSwitch(true);
-    } else if (confirmAction === "kill-deactivate") {
-      setKillSwitch(false);
+  const handleConfirm = useCallback(async () => {
+    try {
+      if (confirmAction === "disable") {
+        await setTradingMode("disabled");
+        setMode("disabled");
+      } else if (confirmAction === "paper") {
+        await setTradingMode("paper");
+        setMode("paper");
+      } else if (confirmAction === "live" && liveConfirmText === "LIVE") {
+        await setTradingMode("live");
+        setMode("live");
+      } else if (confirmAction === "kill-activate") {
+        await apiSetKillSwitch(true);
+        setKillSwitch(true);
+      } else if (confirmAction === "kill-deactivate") {
+        await apiSetKillSwitch(false);
+        setKillSwitch(false);
+      }
+    } catch {
+      // on failure, don't update local state — it stays in sync with server
     }
     setConfirmAction(null);
     setLiveConfirmText("");
@@ -151,9 +165,13 @@ export default function SettingsPage() {
     setEditValue("");
   };
 
-  const handleSaveRisk = () => {
-    // No real API call yet — just reset dirty flag
-    setRiskDirty(false);
+  const handleSaveRisk = async () => {
+    try {
+      await updateRiskConfig(risk);
+      setRiskDirty(false);
+    } catch {
+      // keep dirty flag so user knows save failed
+    }
   };
 
   // ── Computed ────────────────────────────────────────────────────────────

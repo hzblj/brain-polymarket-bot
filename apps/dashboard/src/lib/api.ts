@@ -332,6 +332,24 @@ export async function toggleExecutionMode(currentMode: string) {
   return postApi('/api/v1/config', { trading: { mode: newMode } });
 }
 
+export async function updateRiskConfig(config: {
+  maxSizeUsd?: number;
+  dailyLossLimitUsd?: number;
+  maxSpreadBps?: number;
+  minDepthScore?: number;
+  maxTradesPerWindow?: number;
+}) {
+  return postApi('/api/v1/risk/config', config);
+}
+
+export async function setKillSwitch(active: boolean) {
+  return postApi(`/api/v1/risk/kill-switch/${active ? 'on' : 'off'}`, {});
+}
+
+export async function setTradingMode(mode: 'disabled' | 'paper' | 'live') {
+  return postApi('/api/v1/config', { trading: { mode } });
+}
+
 // ─── Config & Strategy API Functions ──────────────────────────────────────
 
 export async function getSystemConfig() {

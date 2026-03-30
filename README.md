@@ -5,24 +5,53 @@ Polymarket BTC 5-minute Up/Down trading bot. Monorepo s 13 NestJS microservices,
 ## Architektura
 
 ```
-[Polymarket API/WS]     [Binance/Coinbase WS]
-         |                        |
-    market-discovery         price-feed
-         |                        |
-         +--- orderbook ----------+
-                    |
-              feature-engine
-                    |
-              agent-gateway
-             /      |      \
-     regime-agent  edge   supervisor
-                    |
-               risk-service
-                    |
-            execution-service ──────► post-trade-analyzer
-                    |                        |
-              [Polymarket CLOB]      strategy-optimizer
-                                     (denni deep analyza)
+  ┌─────────────────────────────── DATA SOURCES ───────────────────────────────┐
+  │                                                                            │
+  │  [Polymarket API/WS]   [Binance Spot WS]   [mempool.space WS]   [Binance Futures]
+  │         │                      │                   │               │       │
+  │  market-discovery        price-feed         whale-tracker    derivatives-feed
+  │         │                      │                   │               │       │
+  │         +--- orderbook ────────+                   │               │       │
+  │                    │                               │               │       │
+  └────────────────────┴───────────────────────────────┴───────────────┘       │
+                       │                               │               │
+                       ▼                               ▼               ▼
+                 ┌──────────────────────────────────────────────────────┐
+                 │              feature-engine                          │
+                 │  price + book + signals + whales + derivatives       │
+                 │  → unified FeaturePayload (1x/sec)                  │
+                 └────────────────────┬────────────────────────────────┘
+                                      │
+                                      ▼
+                 ┌─────────────────────────────────────────────────────────┐
+                 │              agent-gateway (OpenAI gpt-4o)               │
+                 │                                                          │
+                 │   regime-agent ──► edge-agent ──► supervisor             │
+                 │                                                          │
+                 │   4 strategie (vybirano podle strategy-assignment):      │
+                 │   ┌─────────────┬──────────────┬─────────────────┐      │
+                 │   │  Momentum   │ Mean Revert  │  Basis Arb      │      │
+                 │   │  (default)  │ (Citadel)    │  (Jump/HFT)     │      │
+                 │   ├─────────────┼──────────────┼─────────────────┤      │
+                 │   │  Vol Fade   │              │                 │      │
+                 │   │  (Wintermute│              │                 │      │
+                 │   └─────────────┴──────────────┴─────────────────┘      │
+                 │                                                          │
+                 │   Vsichni agenti dostavaji:                              │
+                 │   • price/book/signals (cenova data)                     │
+                 │   • whales (exchange flow, abnormal activity)            │
+                 │   • derivatives (funding, OI, liquidace)                 │
+                 └────────────────────┬────────────────────────────────────┘
+                                      │
+                                      ▼
+                               risk-service
+                          (deterministicke guardrails)
+                                      │
+                                      ▼
+                            execution-service ──────► post-trade-analyzer
+                                      │                        │
+                               [Polymarket CLOB]        strategy-optimizer
+                                                        (denni deep analyza)
 ```
 
 **Hlavni zasada:** Services pocitaji realitu. Agenti interpretuju. Risk schvaluje. Execution provadi. Analyzeri se uci. LLM nikdy neposlou order.
@@ -41,9 +70,34 @@ Polymarket BTC 5-minute Up/Down trading bot. Monorepo s 13 NestJS microservices,
 | config | 3007 | Centralni konfigurace, market config, feature flags, rezimy, reset-defaults |
 | agent-gateway | 3008 | Komunikace s Claude/OpenAI, context, decision validate/log, trace log |
 | replay | 3009 | Prehravani historickych dat, backtest |
-| whale-tracker | 3010 | Sledovani on-chain whale transakci (BTC exchange flows) |
+| whale-tracker | 3010 | Sledovani on-chain whale transakci (BTC exchange flows, mempool.space) |
 | post-trade-analyzer | 3011 | LLM analyza kazdeho obchodu (P&L, edge accuracy, misleading signaly) |
 | strategy-optimizer | 3012 | Denni deep analyza, pattern recognition, navrhy na upravu strategie |
+| derivatives-feed | 3013 | Binance Futures: funding rate, open interest, liquidace (WS + REST) |
+
+## Strategie
+
+Kazda strategie ma vlastni sadu system promptu pro regime/edge/supervisor agenty. Vyber strategie se ridi pres `strategy-assignment` v config-service.
+
+| Strategie | Profily | Styl | Kdy obchoduje |
+|-----------|---------|------|---------------|
+| **Momentum** (default) | regime-default-v1, edge-momentum-v1, supervisor-conservative-v1 | Trendovy | Silny momentum + edge > 5% + regime trending |
+| **Mean Reversion** | regime-mean-reversion-v1, edge-reversion-v1, supervisor-aggressive-v1 | Citadel/Renaissance | Overextended move + vysoka meanReversionStrength + fade |
+| **Basis Arbitrage** | regime-basis-v1, edge-basis-v1, supervisor-speed-v1 | Jump/HFT | Divergence Binance vs Polymarket + exchange leads |
+| **Vol Fade** | regime-vol-v1, edge-vol-fade-v1, supervisor-patient-v1 | Wintermute/MM | Implied vol > realized vol + underpriced token |
+
+### Datove vstupy pro agenty
+
+Vsichni agenti dostavaji kompletni FeaturePayload vcetne:
+- **Price/book/signals** — cenova data, orderbook, computed signaly
+- **Whales** (optional) — exchangeFlowPressure, abnormalActivityScore, whaleVolumeBtc
+- **Derivatives** (optional) — fundingPressure, oiTrend, liquidationIntensity/Imbalance, derivativesSentiment
+
+Agenti pouzivaji whale + derivatives data pro:
+- Potvrzeni/vyvraceni cenoveho signalu (signal confluence)
+- Adjustaci confidence (whale flow protikladi = -0.15 confidence)
+- Detekci nebezpecnych situaci (liquidation cascade + protikladny edge = HOLD)
+- Kontrariani signaly (extreme funding = crowded positioning)
 
 ## Shared packages
 
