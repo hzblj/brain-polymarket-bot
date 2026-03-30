@@ -1,0 +1,177 @@
+{
+  // ─── OpenClaw Configuration for Brain Polymarket Bot ──────────────────────
+  // Monitors all 14 microservices, runs health checks, tracks P&L,
+  // and alerts via your preferred chat channel.
+
+  // ─── Agent Definitions ────────────────────────────────────────────────────
+
+  "agents": {
+    "defaults": {
+      "workspace": "~/.openclaw/workspace/brain-polymarket",
+      "model": {
+        "primary": "openai/gpt-4o",
+        "fallbacks": ["openai/gpt-4o-mini"]
+      },
+      "thinkingDefault": "medium",
+      "timeoutSeconds": 120,
+      "contextTokens": 128000,
+      "maxConcurrent": 3,
+      "heartbeat": {
+        "every": "5m",
+        "lightContext": true,
+        "suppressToolErrorWarnings": true
+      },
+      "subagents": {
+        "maxConcurrent": 4,
+        "runTimeoutSeconds": 300
+      }
+    },
+    "list": [
+      {
+        "id": "brain-ops",
+        "default": true,
+        "name": "Brain Ops",
+        "model": "openai/gpt-4o",
+        "identity": {
+          "name": "Brain Ops",
+          "emoji": "🧠",
+          "theme": "Trading bot operations manager"
+        },
+        "sandbox": { "mode": "off" }
+      },
+      {
+        "id": "brain-trader",
+        "name": "Brain Trader",
+        "model": "openai/gpt-4o",
+        "identity": {
+          "name": "Brain Trader",
+          "emoji": "📈",
+          "theme": "Monitors trading decisions, P&L, and strategy performance"
+        },
+        "sandbox": { "mode": "off" }
+      },
+      {
+        "id": "brain-monitor",
+        "name": "Brain Monitor",
+        "model": "openai/gpt-4o-mini",
+        "identity": {
+          "name": "Brain Monitor",
+          "emoji": "🔍",
+          "theme": "Infrastructure health monitoring and alerting"
+        },
+        "sandbox": { "mode": "off" }
+      }
+    ]
+  },
+
+  // ─── Model Providers ──────────────────────────────────────────────────────
+
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "openai": {
+        "apiKey": { "source": "env", "provider": "openai", "id": "OPENAI_API_KEY" }
+      }
+    }
+  },
+
+  // ─── Cron Jobs ────────────────────────────────────────────────────────────
+
+  "cron": {
+    "enabled": true,
+    "maxConcurrentRuns": 2,
+    "retry": {
+      "maxAttempts": 3,
+      "backoffMs": [30000, 60000, 300000],
+      "retryOn": ["rate_limit", "overloaded", "network", "server_error"]
+    }
+  },
+
+  // ─── Hooks ────────────────────────────────────────────────────────────────
+
+  "hooks": {
+    "internal": {
+      "enabled": true,
+      "entries": {
+        "session-memory": { "enabled": true }
+      }
+    }
+  },
+
+  // ─── Tools ────────────────────────────────────────────────────────────────
+
+  "tools": {
+    "profile": "full",
+    "web": {
+      "fetch": {
+        "enabled": true,
+        "maxChars": 50000,
+        "timeoutSeconds": 15
+      },
+      "search": {
+        "enabled": true,
+        "maxResults": 5,
+        "timeoutSeconds": 15
+      }
+    },
+    "exec": {
+      "backgroundMs": 30000,
+      "timeoutSec": 120
+    }
+  },
+
+  // ─── Session Management ───────────────────────────────────────────────────
+
+  "session": {
+    "scope": "per-sender",
+    "reset": {
+      "mode": "daily",
+      "atHour": 0
+    },
+    "maintenance": {
+      "mode": "enforce",
+      "pruneAfter": "7d",
+      "maxEntries": 200
+    }
+  },
+
+  // ─── Messages ─────────────────────────────────────────────────────────────
+
+  "messages": {
+    "responsePrefix": "🧠",
+    "ackReaction": "👀",
+    "ackReactionScope": "all",
+    "removeAckAfterReply": true,
+    "queue": {
+      "mode": "collect",
+      "debounceMs": 2000,
+      "cap": 10
+    }
+  },
+
+  // ─── Gateway ──────────────────────────────────────────────────────────────
+
+  "gateway": {
+    "mode": "local",
+    "port": 18789,
+    "bind": "lan",
+    "controlUi": {
+      "enabled": true
+    }
+  },
+
+  // ─── Skills ───────────────────────────────────────────────────────────────
+
+  "skills": {
+    "allowBundled": ["*"]
+  },
+
+  // ─── UI ───────────────────────────────────────────────────────────────────
+
+  "ui": {
+    "assistant": {
+      "name": "Brain",
+      "avatar": "🧠"
+    }
+  }
+}

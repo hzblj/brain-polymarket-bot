@@ -421,30 +421,23 @@ npx vitest
 
 ## TODO
 
-### Napojeni na realna data (stuby → produkce)
+### Data
 
-- [x] **price-feed-service**: napojeno na realne Binance WebSocket (`btcusdt@bookTicker`) — live bid/ask/mid
-- [ ] **price-feed-service**: pridat Coinbase WS jako druhy feed (pro cross-validation)
-- [ ] **price-feed-service**: napojit resolver proxy (Chainlink-like source pro Polymarket settlement cenu — ted pouziva Binance mid jako proxy)
-- [x] **orderbook-service**: napojeno na Polymarket CLOB REST API (polling `/book?token_id=...` kazdych 2s) — vyzaduje `POLYMARKET_UP_TOKEN_ID` a `POLYMARKET_DOWN_TOKEN_ID` v env, jinak fallback na simulaci
-- [x] **market-discovery-service**: napojeno na Polymarket Gamma API pro detekci aktivnich BTC 5m marketu — fallback na stub kdyz zadny market neni nalezen
+- [ ] Pridat Coinbase WS jako druhy price feed (pro cross-validation)
+- [ ] Napojit resolver proxy (Chainlink-like source pro Polymarket settlement cenu)
 
-### Napojeni LLM agentu
+### LLM agenti
 
-- [ ] **agent-gateway-service**: napojit `@brain/llm-clients` v metode `callAgent()` (radek ~417) — ted pouziva stub odpovedi ktere vzdy vraci `hold`
 - [ ] Otestovat system prompty na realnych datech a doladit
 - [ ] Implementovat hybrid variantu (Claude pro regime/edge, OpenAI pro supervisor)
 
-### Orchestrace a pipeline
+### Orchestrace
 
-- [ ] Implementovat orchestrator ktery propoji cely flow: features → agenti → risk → execution (ted je kazda service samostatna, neni automaticky pipeline)
-- [ ] Nastavit triggery pro volani agentu (timeToClose < 90s, delta threshold, tradeability flip)
-- [ ] Napojit `@brain/events` EventBus do vsech services (ted pouzivaji stub `emitEvent()`)
+- [ ] Triggery pro volani agentu (timeToClose < 90s, delta threshold, tradeability flip)
 
-### Persistence a monitoring
+### Monitoring
 
-- [ ] Napojit `@brain/logger` (pino) do vsech services (ted pouzivaji console.log ktery biome odstranil)
-- [ ] Dashboard / UI pro sledovani paper trades v realnem case
+- [ ] Napojit logger (pino) do starsich services (price-feed, orderbook, risk, execution)
 - [ ] Alerting pri kill switch, daily loss limit, service down
 
 ### Live hardening
