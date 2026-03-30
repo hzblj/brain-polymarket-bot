@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { EventBus } from '@brain/events';
 import { MarketDiscoveryService } from './market-discovery.service';
 
 describe('MarketDiscoveryService', () => {
@@ -12,7 +13,7 @@ describe('MarketDiscoveryService', () => {
     vi.spyOn(console, 'debug').mockImplementation(() => {});
     // Mock fetch so Gamma API calls fail gracefully and service uses stub
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network in test')));
-    service = new MarketDiscoveryService();
+    service = new MarketDiscoveryService(null as any, new EventBus());
   });
 
   afterEach(() => {
@@ -175,7 +176,7 @@ describe('MarketDiscoveryService', () => {
     });
 
     it('should emit market.active.changed event on transition', async () => {
-      const spy = vi.spyOn(service as unknown as Record<string, unknown>, 'emitEvent');
+      const spy = vi.spyOn(service as any, 'emitEvent');
       vi.setSystemTime(new Date('2026-03-20T10:00:30.000Z'));
       await service.refreshMarket();
 
@@ -192,7 +193,7 @@ describe('MarketDiscoveryService', () => {
     });
 
     it('should emit market.window.opened event early in window', async () => {
-      const spy = vi.spyOn(service as unknown as Record<string, unknown>, 'emitEvent');
+      const spy = vi.spyOn(service as any, 'emitEvent');
       // Set time near the start of a 5-minute window (>240s remaining)
       const windowStart =
         Math.floor(new Date('2026-03-20T10:00:00.000Z').getTime() / 300_000) * 300_000;
@@ -207,7 +208,7 @@ describe('MarketDiscoveryService', () => {
     });
 
     it('should emit market.window.closing event near window end', async () => {
-      const spy = vi.spyOn(service as unknown as Record<string, unknown>, 'emitEvent');
+      const spy = vi.spyOn(service as any, 'emitEvent');
       // Set time near the end of a 5-minute window (<=30s remaining)
       const windowStart =
         Math.floor(new Date('2026-03-20T10:00:00.000Z').getTime() / 300_000) * 300_000;
@@ -291,7 +292,7 @@ describe('MarketDiscoveryService', () => {
       const m1 = await service.getActiveMarket();
 
       // Create new service at same time
-      const service2 = new MarketDiscoveryService();
+      const service2 = new MarketDiscoveryService(null as any, new EventBus());
       vi.setSystemTime(new Date('2026-03-20T10:01:30.000Z'));
       const m2 = await service2.getActiveMarket();
 

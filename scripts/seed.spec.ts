@@ -39,20 +39,28 @@ describe('seed', () => {
     expect(mcs[0]!.isActive).toBe(true);
 
     const strats = await db.select().from(strategies);
-    expect(strats.length).toBe(1);
-    expect(strats[0]!.key).toBe('btc-5m-momentum');
-    expect(strats[0]!.isDefault).toBe(true);
-    expect(strats[0]!.status).toBe('active');
+    expect(strats.length).toBe(4); // momentum + mean-reversion + basis-arb + vol-fade
+    const defaultStrat = strats.find((s) => s.key === 'btc-5m-momentum');
+    expect(defaultStrat).toBeDefined();
+    expect(defaultStrat!.isDefault).toBe(true);
+    expect(defaultStrat!.status).toBe('active');
+    // Verify additional strategies exist
+    expect(strats.find((s) => s.key === 'btc-5m-mean-reversion')).toBeDefined();
+    expect(strats.find((s) => s.key === 'btc-5m-basis-arb')).toBeDefined();
+    expect(strats.find((s) => s.key === 'btc-5m-vol-fade')).toBeDefined();
 
     const versions = await db.select().from(strategyVersions);
-    expect(versions.length).toBe(1);
-    expect(versions[0]!.version).toBe(1);
-    const config = versions[0]!.configJson as Record<string, unknown>;
+    expect(versions.length).toBe(4);
+    const defaultVersion = versions.find((v) => v.strategyId === defaultStrat!.id);
+    expect(defaultVersion!.version).toBe(1);
+    const config = defaultVersion!.configJson as Record<string, unknown>;
     expect((config as { executionPolicy: { mode: string } }).executionPolicy.mode).toBe('paper');
 
     const assignments = await db.select().from(strategyAssignments);
-    expect(assignments.length).toBe(1);
-    expect(assignments[0]!.isActive).toBe(true);
+    expect(assignments.length).toBe(4);
+    // Only default strategy assignment is active
+    const activeAssignments = assignments.filter((a) => a.isActive);
+    expect(activeAssignments.length).toBe(1);
   });
 
   it('is idempotent - running twice creates no duplicates', async () => {
@@ -65,12 +73,12 @@ describe('seed', () => {
     expect(mcs.length).toBe(1);
 
     const strats = await db.select().from(strategies);
-    expect(strats.length).toBe(1);
+    expect(strats.length).toBe(4);
 
     const versions = await db.select().from(strategyVersions);
-    expect(versions.length).toBe(1);
+    expect(versions.length).toBe(4);
 
     const assignments = await db.select().from(strategyAssignments);
-    expect(assignments.length).toBe(1);
+    expect(assignments.length).toBe(4);
   });
 });

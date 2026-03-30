@@ -17,6 +17,15 @@ import {
   getSystemConfig,
   getSystemState,
   getTodayMetrics,
+  getWhaleFeatures,
+  getWhaleTransactions,
+  getWhaleHistory,
+  getDerivativesFeatures,
+  getDerivativesLiquidations,
+  getDerivativesHistory,
+  getTradeAnalyses,
+  getStrategyReports,
+  getOptimizerStatus,
 } from './api';
 
 // ─── Live data hooks (2-5s refetch) ────────────────────────────────────────
@@ -118,6 +127,84 @@ export function useSimulationSummary() {
     queryKey: ['simulationSummary'],
     queryFn: getSimulationSummary,
     refetchInterval: 30_000,
+  });
+}
+
+// ─── Whale tracker hooks (3-5s refetch) ──────────────────────────────────
+
+export function useWhaleFeatures() {
+  return useQuery({
+    queryKey: ['whaleFeatures'],
+    queryFn: getWhaleFeatures,
+    refetchInterval: 3_000,
+  });
+}
+
+export function useWhaleTransactions() {
+  return useQuery({
+    queryKey: ['whaleTransactions'],
+    queryFn: getWhaleTransactions,
+    refetchInterval: 5_000,
+  });
+}
+
+export function useWhaleHistory() {
+  return useQuery({
+    queryKey: ['whaleHistory'],
+    queryFn: getWhaleHistory,
+    refetchInterval: 5_000,
+  });
+}
+
+// ─── Derivatives feed hooks (3-5s refetch) ───────────────────────────────
+
+export function useDerivativesFeatures() {
+  return useQuery({
+    queryKey: ['derivativesFeatures'],
+    queryFn: getDerivativesFeatures,
+    refetchInterval: 3_000,
+  });
+}
+
+export function useDerivativesLiquidations() {
+  return useQuery({
+    queryKey: ['derivativesLiquidations'],
+    queryFn: getDerivativesLiquidations,
+    refetchInterval: 3_000,
+  });
+}
+
+export function useDerivativesHistory() {
+  return useQuery({
+    queryKey: ['derivativesHistory'],
+    queryFn: getDerivativesHistory,
+    refetchInterval: 5_000,
+  });
+}
+
+// ─── Trade analysis & optimizer hooks (10-30s refetch) ──────────────────
+
+export function useTradeAnalyses(verdict?: string) {
+  return useQuery({
+    queryKey: ['tradeAnalyses', verdict],
+    queryFn: () => getTradeAnalyses({ verdict, limit: 100 }),
+    refetchInterval: 10_000,
+  });
+}
+
+export function useStrategyReports() {
+  return useQuery({
+    queryKey: ['strategyReports'],
+    queryFn: () => getStrategyReports(10),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useOptimizerStatus() {
+  return useQuery({
+    queryKey: ['optimizerStatus'],
+    queryFn: getOptimizerStatus,
+    refetchInterval: 10_000,
   });
 }
 

@@ -30,6 +30,9 @@ services:
       - CONFIG_HOST=config
       - AGENT_GATEWAY_HOST=agent-gateway
       - REPLAY_HOST=replay
+      - WHALE_TRACKER_HOST=whale-tracker
+      - POST_TRADE_ANALYZER_HOST=post-trade-analyzer
+      - STRATEGY_OPTIMIZER_HOST=strategy-optimizer
     depends_on:
       - market-discovery
       - price-feed
@@ -40,6 +43,8 @@ services:
       - execution
       - config
       - replay
+      - post-trade-analyzer
+      - strategy-optimizer
 
   market-discovery:
     <<: *service-base
@@ -84,10 +89,14 @@ services:
       - MARKET_SERVICE_URL=http://market-discovery:3001
       - PRICE_SERVICE_URL=http://price-feed:3002
       - BOOK_SERVICE_URL=http://orderbook:3003
+      - WHALE_SERVICE_URL=http://whale-tracker:3010
+      - DERIVATIVES_SERVICE_URL=http://derivatives-feed:3013
     depends_on:
       - market-discovery
       - price-feed
       - orderbook
+      - whale-tracker
+      - derivatives-feed
 
   agent-gateway:
     <<: *service-base
@@ -124,6 +133,65 @@ services:
       - '3007:3007'
     environment:
       - DATABASE_PATH=./data/config.sqlite
+
+  derivatives-feed:
+    <<: *service-base
+    container_name: brain-derivatives-feed
+    command: yarn tsx watch apps/derivatives-feed-service/src/main.ts
+    ports:
+      - '3013:3013'
+    environment:
+      - DATABASE_PATH=./data/derivatives-feed.sqlite
+
+  whale-tracker:
+    <<: *service-base
+    container_name: brain-whale-tracker
+    command: yarn tsx watch apps/whale-tracker-service/src/main.ts
+    ports:
+      - '3010:3010'
+    environment:
+      - DATABASE_PATH=./data/whale-tracker.sqlite
+      - PRICE_SERVICE_URL=http://price-feed:3002
+    depends_on:
+      - price-feed
+
+  post-trade-analyzer:
+    <<: *service-base
+    container_name: brain-post-trade-analyzer
+    command: yarn tsx watch apps/post-trade-analyzer-service/src/main.ts
+    ports:
+      - '3011:3011'
+    environment:
+      - DATABASE_PATH=./data/post-trade-analyzer.sqlite
+      - EXECUTION_SERVICE_URL=http://execution:3006
+      - FEATURE_ENGINE_URL=http://feature-engine:3004
+      - AGENT_GATEWAY_URL=http://agent-gateway:3008
+      - RISK_SERVICE_URL=http://risk:3005
+      - MARKET_DISCOVERY_URL=http://market-discovery:3001
+    depends_on:
+      - execution
+      - feature-engine
+      - agent-gateway
+      - risk
+      - market-discovery
+
+  strategy-optimizer:
+    <<: *service-base
+    container_name: brain-strategy-optimizer
+    command: yarn tsx watch apps/strategy-optimizer-service/src/main.ts
+    ports:
+      - '3012:3012'
+    environment:
+      - DATABASE_PATH=./data/strategy-optimizer.sqlite
+      - POST_TRADE_ANALYZER_URL=http://post-trade-analyzer:3011
+      - EXECUTION_SERVICE_URL=http://execution:3006
+      - RISK_SERVICE_URL=http://risk:3005
+      - CONFIG_SERVICE_URL=http://config:3007
+      - OPTIMIZER_INTERVAL_MS=86400000
+    depends_on:
+      - post-trade-analyzer
+      - execution
+      - config
 
   replay:
     <<: *service-base

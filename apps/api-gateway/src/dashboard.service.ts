@@ -159,18 +159,33 @@ export class DashboardService {
   // ─── Pipeline ─────────────────────────────────────────────────────────────
 
   async getPipeline() {
-    const [regimeTraces, edgeTraces, supervisorTraces] = await Promise.all([
-      this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=regime&limit=1'),
-      this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=edge&limit=1'),
-      this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=supervisor&limit=1'),
-    ]);
+    const [regimeTraces, edgeTraces, supervisorTraces, riskState, latestPositions] =
+      await Promise.all([
+        this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=regime&limit=1'),
+        this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=edge&limit=1'),
+        this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=supervisor&limit=1'),
+        this.fetch('risk', '/api/v1/risk/state'),
+        this.fetch('execution', '/api/v1/execution/positions'),
+      ]);
 
     const regime = Array.isArray(regimeTraces) ? ((regimeTraces[0] as Rec) ?? null) : null;
     const edge = Array.isArray(edgeTraces) ? ((edgeTraces[0] as Rec) ?? null) : null;
     const supervisor = Array.isArray(supervisorTraces)
       ? ((supervisorTraces[0] as Rec) ?? null)
       : null;
-    const supOut = extractOutput(supervisor);
+
+    // Risk step: derive from real risk service state
+    const riskRec = riskState as Rec | null;
+    const hasRiskData = !!riskRec;
+    const killSwitch = !!riskRec?.killSwitchActive;
+    const tradingEnabled = riskRec?.tradingEnabled !== false;
+    const remainingBudget = num(riskRec?.remainingDailyBudgetUsd as number);
+    const riskPassed = hasRiskData && !killSwitch && tradingEnabled && remainingBudget > 0;
+
+    // Execution step: derive from real execution service positions
+    const positions = Array.isArray(latestPositions) ? latestPositions : [];
+    const latestPosition = (positions[0] as Rec | undefined) ?? null;
+    const hasExecution = !!latestPosition;
 
     return [
       traceToStep('Regime', regime, 'regime'),
@@ -178,20 +193,34 @@ export class DashboardService {
       traceToStep('Supervisor', supervisor, 'action'),
       {
         label: 'Risk',
-        status: supOut?.riskCheck ? 'success' : 'pending',
-        value: supOut?.riskCheck ? (supOut.riskCheck.passed ? 'passed' : 'blocked') : null,
+        status: hasRiskData ? 'success' : 'pending',
+        value: hasRiskData ? (riskPassed ? 'passed' : 'blocked') : null,
         confidence: null,
-        timestamp: supervisor ? str(supervisor.createdAt, null as unknown as string) : null,
+        timestamp: riskRec?.updatedAt ? str(riskRec.updatedAt as string) : null,
+        detail: hasRiskData
+          ? {
+              killSwitch,
+              tradingEnabled,
+              remainingBudgetUsd: remainingBudget,
+              dailyPnlUsd: num(val(riskRec, 'state', 'dailyPnlUsd') as number),
+            }
+          : null,
       },
       {
         label: 'Execution',
-        status: supOut?.execution?.orderId ? 'success' : 'pending',
-        value: supOut?.execution?.orderId ?? null,
+        status: hasExecution ? 'success' : 'pending',
+        value: hasExecution ? str(latestPosition.id as string) : null,
         confidence: null,
-        timestamp: str(
-          supOut?.execution?.filledAt ?? supervisor?.createdAt,
-          null as unknown as string,
-        ),
+        timestamp: hasExecution
+          ? str((latestPosition.openedAt ?? latestPosition.createdAt) as string)
+          : null,
+        detail: hasExecution
+          ? {
+              side: str(latestPosition.side as string),
+              sizeUsd: num(latestPosition.sizeUsd as number),
+              mode: str(latestPosition.mode as string),
+            }
+          : null,
       },
     ];
   }

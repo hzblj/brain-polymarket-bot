@@ -8,6 +8,7 @@ import {
   strategyVersions,
   systemConfigs,
 } from '@brain/database';
+import { EventBus } from '@brain/events';
 import type { ExecutionMode } from '@brain/types';
 import { HttpException, HttpStatus, Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { desc, eq } from 'drizzle-orm';
@@ -138,14 +139,14 @@ const DEFAULT_TRADING: TradingConfig = {
   edgeThresholdStrong: 0.15,
   maxSpreadBps: 300,
   minDepthScore: 0.1,
-  maxSizeUsd: 50,
+  maxSizeUsd: 0.5,
   mode: 'disabled',
 };
 
 const DEFAULT_RISK: RiskConfig = {
-  dailyLossLimitUsd: 200,
+  dailyLossLimitUsd: 10,
   maxTradesPerWindow: 1,
-  maxSizeUsd: 50,
+  maxSizeUsd: 0.5,
   maxSpreadBps: 300,
   minDepthScore: 0.1,
 };
@@ -191,7 +192,10 @@ export class ConfigManagementService implements OnModuleInit {
   private lastUpdatedAt: string = new Date().toISOString();
   private configSource: 'database' | 'defaults' = 'defaults';
 
-  constructor(@Inject(DATABASE_CLIENT) private readonly db: DbClient) {}
+  constructor(
+    @Inject(DATABASE_CLIENT) private readonly db: DbClient,
+    private readonly eventBus: EventBus,
+  ) {}
 
   async onModuleInit(): Promise<void> {
     await this.autoSeedIfEmpty();
@@ -262,7 +266,7 @@ export class ConfigManagementService implements OnModuleInit {
         },
         decisionPolicy: { allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'], minConfidence: 0.7 },
         filters: { maxSpreadBps: 250, minDepthScore: 0.6, minTimeToCloseSec: 15, maxTimeToCloseSec: 90 },
-        riskProfile: { maxSizeUsd: 20, dailyLossLimitUsd: 50, maxTradesPerWindow: 1 },
+        riskProfile: { maxSizeUsd: 0.5, dailyLossLimitUsd: 10, maxTradesPerWindow: 1 },
         executionPolicy: { entryWindowStartSec: 90, entryWindowEndSec: 10, mode: 'paper' },
       };
       const checksum = createHash('sha256').update(JSON.stringify(versionConfig)).digest('hex');
@@ -517,7 +521,7 @@ export class ConfigManagementService implements OnModuleInit {
     return result;
   }
 
-  private emitEvent(_event: string, _payload: Record<string, unknown>): void {
-    /* noop */
+  private emitEvent(event: string, payload: Record<string, unknown>): void {
+    this.eventBus.emit(event as any, payload);
   }
 }

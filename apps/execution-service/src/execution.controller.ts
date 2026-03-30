@@ -7,6 +7,20 @@ export class ExecutionController {
   constructor(@Inject(ExecutionService) private readonly executionService: ExecutionService) {}
 
   /**
+   * GET /api/v1/execution/health
+   * Returns health status of the execution service.
+   */
+  @Get('health')
+  getHealth() {
+    return {
+      ok: true,
+      service: 'execution',
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  /**
    * POST /api/v1/execution/paper-order
    * Places a paper (simulated) trade using current orderbook data.
    */

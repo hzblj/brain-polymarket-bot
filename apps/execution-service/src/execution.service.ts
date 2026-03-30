@@ -4,6 +4,7 @@ import {
   fills as fillsTable,
   orders as ordersTable,
 } from '@brain/database';
+import { type BrainEventName, type BrainEventMap, EventBus } from '@brain/events';
 import type { ExecutionMode, OrderSide, OrderStatus, UnixMs } from '@brain/types';
 import { HttpException, HttpStatus, Inject, Injectable, type OnModuleInit } from '@nestjs/common';
 import { desc, eq, inArray } from 'drizzle-orm';
@@ -68,7 +69,10 @@ export class ExecutionService implements OnModuleInit {
   private orders: Map<string, InternalOrder> = new Map();
   private positions: Map<string, Position> = new Map();
 
-  constructor(@Inject(DATABASE_CLIENT) private readonly db: DbClient) {}
+  constructor(
+    @Inject(DATABASE_CLIENT) private readonly db: DbClient,
+    private readonly eventBus: EventBus,
+  ) {}
 
   async onModuleInit(): Promise<void> {
     // Load open orders and positions from database
@@ -494,7 +498,7 @@ export class ExecutionService implements OnModuleInit {
     }
   }
 
-  private emitEvent(_event: string, _payload: Record<string, unknown>): void {
-    /* noop */
+  private emitEvent<E extends BrainEventName>(event: E, payload: BrainEventMap[E]): void {
+    this.eventBus.emit(event, payload);
   }
 }

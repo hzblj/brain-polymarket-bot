@@ -6,6 +6,20 @@ export class FeatureEngineController {
   constructor(@Inject(FeatureEngineService) private readonly featureEngineService: FeatureEngineService) {}
 
   /**
+   * GET /api/v1/features/health
+   * Returns health status of the feature-engine service.
+   */
+  @Get('health')
+  getHealth() {
+    return {
+      ok: true,
+      service: 'feature-engine',
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  /**
    * GET /api/v1/features/current
    * Returns the current unified feature payload combining market, price, book, and signals.
    */

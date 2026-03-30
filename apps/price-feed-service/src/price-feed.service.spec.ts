@@ -1,5 +1,6 @@
 import { createDb } from '@brain/database';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { EventBus } from '@brain/events';
 import { PriceFeedService, type BinanceBookTickerMessage } from './price-feed.service';
 
 function makeTick(bid: number, ask: number, eventTime = Date.now()): BinanceBookTickerMessage {
@@ -16,7 +17,7 @@ describe('PriceFeedService', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const db = createDb(':memory:');
-    service = new PriceFeedService(db);
+    service = new PriceFeedService(db, new EventBus());
     // Don't call onModuleInit — it tries to open real WS. Use handleBookTicker directly.
     service.resetWindow();
   });

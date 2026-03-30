@@ -17,15 +17,23 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
+  Waves,
+  Flame,
+  Microscope,
+  BrainCircuit,
 } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/market", label: "Live Market", icon: CandlestickChart },
+  { href: "/whales", label: "Whale Tracker", icon: Waves },
+  { href: "/derivatives", label: "Derivatives", icon: Flame },
   { href: "/agents", label: "Agents", icon: Bot },
   { href: "/trades", label: "Trades", icon: ArrowRightLeft },
   { href: "/simulation", label: "Simulation", icon: FlaskConical },
   { href: "/performance", label: "Performance", icon: TrendingUp },
+  { href: "/trade-analysis", label: "Trade Analysis", icon: Microscope },
+  { href: "/strategy-reports", label: "Strategy Reports", icon: BrainCircuit },
   { href: "/replay", label: "Replay", icon: RotateCcw },
   { href: "/health", label: "Health", icon: HeartPulse },
   { href: "/strategies", label: "Strategies", icon: SlidersHorizontal },

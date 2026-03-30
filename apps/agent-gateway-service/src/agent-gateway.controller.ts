@@ -11,6 +11,20 @@ export class AgentGatewayController {
   constructor(@Inject(AgentGatewayService) private readonly agentGatewayService: AgentGatewayService) {}
 
   /**
+   * GET /api/v1/agent/health
+   * Returns health status of the agent-gateway service.
+   */
+  @Get('health')
+  getHealth() {
+    return {
+      ok: true,
+      service: 'agent-gateway',
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  /**
    * POST /api/v1/agent/regime/evaluate
    * Classifies the current market regime using an LLM agent.
    * Input: feature payload. Output: regime classification with confidence.

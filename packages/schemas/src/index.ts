@@ -273,6 +273,52 @@ export const AgentConfigSchema = z.object({
   temperature: z.number().min(0).max(2).default(0),
 });
 
+// ─── Trade Analysis Schemas ─────────────────────────────────────────────────
+
+export const AnalysisVerdictSchema = z.enum(['profitable', 'unprofitable', 'breakeven', 'unknown']);
+export const ConfidenceCalibrationSchema = z.enum(['overconfident', 'underconfident', 'well_calibrated']);
+
+export const TradeAnalysisLlmOutputSchema = z.object({
+  edgeAccurate: z.boolean(),
+  confidenceCalibration: ConfidenceCalibrationSchema,
+  misleadingSignals: z.array(z.string().min(1).max(200)).max(5),
+  correctSignals: z.array(z.string().min(1).max(200)).max(5),
+  improvementSuggestions: z.array(z.string().min(1).max(300)).max(3),
+  reasoning: z.string().min(1).max(3000),
+});
+
+export type TradeAnalysisLlmOutput = z.infer<typeof TradeAnalysisLlmOutputSchema>;
+
+// ─── Strategy Report Schemas ────────────────────────────────────────────────
+
+export const SuggestionCategorySchema = z.enum([
+  'risk_limits',
+  'position_sizing',
+  'agent_prompts',
+  'regime_filters',
+  'timing',
+  'other',
+]);
+export const SuggestionPrioritySchema = z.enum(['high', 'medium', 'low']);
+
+export const StrategySuggestionSchema = z.object({
+  category: SuggestionCategorySchema,
+  suggestion: z.string().min(1).max(500),
+  rationale: z.string().min(1).max(500),
+  confidence: z.number().min(0).max(1),
+  priority: SuggestionPrioritySchema,
+  autoApplicable: z.boolean(),
+});
+
+export const DailyReportLlmOutputSchema = z.object({
+  patterns: z.array(z.string().min(1).max(300)).max(10),
+  suggestions: z.array(StrategySuggestionSchema).max(7),
+  executiveSummary: z.string().min(1).max(2000),
+  reasoning: z.string().min(1).max(5000),
+});
+
+export type DailyReportLlmOutput = z.infer<typeof DailyReportLlmOutputSchema>;
+
 // ─── Type Inference Helpers ─────────────────────────────────────────────────
 
 export type FeaturePayloadParsed = z.infer<typeof FeaturePayloadSchema>;

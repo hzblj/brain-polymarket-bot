@@ -2,6 +2,7 @@ import { relations } from 'drizzle-orm';
 import {
   agentDecisions,
   bookSnapshots,
+  dailyReports,
   featureSnapshots,
   fills,
   marketConfigs,
@@ -14,6 +15,7 @@ import {
   strategyAssignments,
   strategyRuns,
   strategyVersions,
+  tradeAnalyses,
 } from './schema';
 
 export const marketsRelations = relations(markets, ({ many }) => ({
@@ -132,5 +134,18 @@ export const strategyRunsRelations = relations(strategyRuns, ({ one }) => ({
   marketConfig: one(marketConfigs, {
     fields: [strategyRuns.marketConfigId],
     references: [marketConfigs.id],
+  }),
+}));
+
+// ─── Analysis Relations ─────────────────────────────────────────────────────
+
+export const tradeAnalysesRelations = relations(tradeAnalyses, ({ one }) => ({
+  order: one(orders, {
+    fields: [tradeAnalyses.orderId],
+    references: [orders.id],
+  }),
+  window: one(marketWindows, {
+    fields: [tradeAnalyses.windowId],
+    references: [marketWindows.id],
   }),
 }));

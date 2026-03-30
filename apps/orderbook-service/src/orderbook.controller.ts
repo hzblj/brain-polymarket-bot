@@ -6,6 +6,20 @@ export class OrderbookController {
   constructor(@Inject(OrderbookService) private readonly orderbookService: OrderbookService) {}
 
   /**
+   * GET /api/v1/book/health
+   * Returns health status of the orderbook service.
+   */
+  @Get('health')
+  getHealth() {
+    return {
+      ok: true,
+      service: 'orderbook',
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  /**
    * GET /api/v1/book/current
    * Returns the current normalized order book snapshot for both UP and DOWN tokens.
    */

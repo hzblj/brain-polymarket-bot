@@ -1,0 +1,30 @@
+{
+  "name": "@brain/post-trade-analyzer-service",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@brain/config": "workspace:*",
+    "@brain/database": "workspace:*",
+    "@brain/events": "workspace:*",
+    "@brain/llm-clients": "workspace:*",
+    "@brain/logger": "workspace:*",
+    "@brain/schemas": "workspace:*",
+    "@brain/types": "workspace:*",
+    "@nestjs/common": "^10.3.0",
+    "@nestjs/core": "^10.3.0",
+    "@nestjs/platform-fastify": "^10.3.0",
+    "drizzle-orm": "^0.29.0",
+    "reflect-metadata": "^0.2.1",
+    "rxjs": "^7.8.1",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "vitest": "^1.2.0"
+  }
+}

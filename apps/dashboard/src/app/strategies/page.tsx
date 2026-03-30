@@ -1,13 +1,18 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layout/page-header';
 import { StatusBadge } from '@/components/badges/status-badge';
 import { DataTable } from '@/components/tables/data-table';
 import { useSystemConfig, useStrategies, useFeatureFlags } from '@/lib/hooks';
 import { formatUsd, formatTimeAgo } from '@/lib/formatters';
-import { getStrategyDetail } from '@/lib/api';
+import {
+  getStrategyDetail,
+  switchStrategy,
+  resetDefaultStrategy,
+  toggleExecutionMode,
+} from '@/lib/api';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -26,6 +31,22 @@ type Strategy = {
   updatedAt: string;
 };
 
+type StrategyDetail = {
+  id: string;
+  key: string;
+  name: string;
+  version: number;
+  versionId: string;
+  config: {
+    marketSelector: { asset: string; marketType: string; windowSec: number };
+    agentProfile: { regimeAgentProfile: string; edgeAgentProfile: string; supervisorAgentProfile: string };
+    decisionPolicy: { allowedDecisions: string[]; minConfidence: number };
+    filters: { maxSpreadBps: number; minDepthScore: number; minTimeToCloseSec: number; maxTimeToCloseSec: number };
+    riskProfile: { maxSizeUsd: number; dailyLossLimitUsd: number; maxTradesPerWindow: number };
+    executionPolicy: { entryWindowStartSec: number; entryWindowEndSec: number; mode: string };
+  };
+};
+
 const FLAG_LABELS: Record<string, string> = {
   agentRegimeEnabled: 'Agent Regime Enabled',
   agentEdgeEnabled: 'Agent Edge Enabled',
@@ -38,21 +59,83 @@ const FLAG_LABELS: Record<string, string> = {
 // ─── Page ──────────────────────────────────────────────────────────────────
 
 export default function StrategiesPage() {
-  const { data: config } = useSystemConfig();
-  const { data: strategies } = useStrategies();
+  const { data: config, refetch: refetchConfig } = useSystemConfig();
+  const { data: strategies, refetch: refetchStrategies } = useStrategies();
   const { data: flags } = useFeatureFlags();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<StrategyDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
+  const [actionLoading, setActionLoading] = useState(false);
 
-  const handleConfirm = useCallback(() => {
-    if (confirmAction === 'switch') toast.success('Strategy switched successfully.');
-    if (confirmAction === 'reset') toast.success('Config reset to BTC 5m default.');
-    if (confirmAction === 'toggle-mode') toast.success('Execution mode toggled.');
-    setConfirmAction(null);
-  }, [confirmAction]);
+  // Fetch strategy detail when a row is selected
+  useEffect(() => {
+    if (!selectedId) {
+      setDetail(null);
+      return;
+    }
 
-  const detail = selectedId ? null : null; // TODO: fetch via getStrategyDetail(selectedId) when strategies API is implemented
+    let cancelled = false;
+    setDetailLoading(true);
+
+    getStrategyDetail(selectedId)
+      .then((data) => {
+        if (!cancelled) setDetail(data as StrategyDetail | null);
+      })
+      .catch(() => {
+        if (!cancelled) setDetail(null);
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [selectedId]);
+
+  const handleConfirm = useCallback(async () => {
+    setActionLoading(true);
+    try {
+      if (confirmAction === 'switch') {
+        if (!selectedId || !detail) {
+          toast.error('Select a strategy first.');
+          return;
+        }
+        // Find the market config ID from strategies data, or use the versionId
+        const strategyList = (strategies ?? []) as Strategy[];
+        const selected = strategyList.find((s) => s.id === selectedId);
+        if (!selected) {
+          toast.error('Strategy not found.');
+          return;
+        }
+        // Switch strategy: we need marketConfigId and strategyVersionId
+        // The detail has versionId if available, otherwise use the strategy id
+        await switchStrategy('default', detail.versionId ?? selectedId);
+        toast.success(`Switched to ${selected.name}.`);
+        refetchStrategies();
+        refetchConfig();
+      }
+
+      if (confirmAction === 'reset') {
+        await resetDefaultStrategy();
+        toast.success('Config reset to default strategy.');
+        refetchStrategies();
+        refetchConfig();
+      }
+
+      if (confirmAction === 'toggle-mode') {
+        const currentMode = (config as Record<string, Record<string, string>>)?.trading?.mode ?? 'disabled';
+        await toggleExecutionMode(currentMode);
+        toast.success(currentMode === 'paper' ? 'Switched to LIVE mode.' : 'Switched to PAPER mode.');
+        refetchConfig();
+      }
+    } catch (err) {
+      toast.error(`Action failed: ${(err as Error).message}`);
+    } finally {
+      setActionLoading(false);
+      setConfirmAction(null);
+    }
+  }, [confirmAction, selectedId, detail, strategies, config, refetchStrategies, refetchConfig]);
 
   // ─── Strategy table columns ────────────────────────────────────────────
 
@@ -68,6 +151,18 @@ export default function StrategiesPage() {
       key: 'status',
       label: 'Status',
       render: (row: Strategy) => <StatusBadge status={row.status} />,
+    },
+    {
+      key: 'isDefault',
+      label: 'Default',
+      render: (row: Strategy) =>
+        row.isDefault ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">
+            Active
+          </span>
+        ) : (
+          <span className="text-xs text-text-muted">-</span>
+        ),
     },
     {
       key: 'createdAt',
@@ -95,15 +190,14 @@ export default function StrategiesPage() {
               <ConfigRow label="Resolver Type" value="binance_spot" />
               <ConfigRow
                 label="Execution Mode"
-                value={<StatusBadge status={config.trading.mode} />}
+                value={<StatusBadge status={(config as Record<string, Record<string, string>>).trading.mode} />}
               />
-              <ConfigRow label="Active Strategy" value="btc_5m_momentum_v1" />
-              <ConfigRow label="Strategy Version" value="v3" />
-              <ConfigRow label="Max Size" value={formatUsd(config.trading.maxSizeUsd)} />
-              <ConfigRow label="Max Spread" value={`${config.trading.maxSpreadBps} bps`} />
-              <ConfigRow label="Edge Threshold (min)" value={String(config.trading.edgeThresholdMin)} />
-              <ConfigRow label="Edge Threshold (strong)" value={String(config.trading.edgeThresholdStrong)} />
-              <ConfigRow label="LLM Provider" value={`${config.provider.provider} / ${config.provider.model}`} />
+              <ConfigRow label="Max Size" value={formatUsd((config as Record<string, Record<string, number>>).trading.maxSizeUsd)} />
+              <ConfigRow label="Daily Budget" value={formatUsd((config as Record<string, Record<string, number>>).risk.dailyLossLimitUsd)} />
+              <ConfigRow label="Max Spread" value={`${(config as Record<string, Record<string, number>>).trading.maxSpreadBps} bps`} />
+              <ConfigRow label="Edge Threshold (min)" value={String((config as Record<string, Record<string, number>>).trading.edgeThresholdMin)} />
+              <ConfigRow label="Edge Threshold (strong)" value={String((config as Record<string, Record<string, number>>).trading.edgeThresholdStrong)} />
+              <ConfigRow label="LLM Provider" value={`${(config as Record<string, Record<string, string>>).provider.provider} / ${(config as Record<string, Record<string, string>>).provider.model}`} />
             </div>
           ) : (
             <p className="text-sm text-text-muted">Loading config...</p>
@@ -156,7 +250,13 @@ export default function StrategiesPage() {
       </div>
 
       {/* ── Row 3: Strategy Detail (expandable) ──────────────────────────── */}
-      {selectedId && detail && (
+      {selectedId && detailLoading && (
+        <div className="rounded-lg border border-border-bright bg-surface-1 p-4">
+          <p className="text-sm text-text-muted">Loading strategy detail...</p>
+        </div>
+      )}
+
+      {selectedId && detail && !detailLoading && (
         <div className="rounded-lg border border-border-bright bg-surface-1 p-4">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-text-primary">
@@ -196,7 +296,7 @@ export default function StrategiesPage() {
             {/* Risk Profile */}
             <DetailSection title="Risk Profile">
               <DetailRow label="Max Size" value={formatUsd(detail.config.riskProfile.maxSizeUsd)} />
-              <DetailRow label="Daily Loss Limit" value={formatUsd(detail.config.riskProfile.dailyLossLimitUsd)} />
+              <DetailRow label="Daily Budget" value={formatUsd(detail.config.riskProfile.dailyLossLimitUsd)} />
               <DetailRow label="Max Trades / Window" value={String(detail.config.riskProfile.maxTradesPerWindow)} />
             </DetailSection>
 
@@ -229,7 +329,7 @@ export default function StrategiesPage() {
               {confirmAction === 'reset' && 'Reset config to BTC 5m default preset?'}
               {confirmAction === 'toggle-mode' && (
                 <>
-                  {config?.trading.mode === 'paper'
+                  {(config as Record<string, Record<string, string>>)?.trading?.mode === 'paper'
                     ? 'Switch to LIVE execution? This will use REAL funds.'
                     : 'Switch to PAPER mode?'}
                 </>
@@ -238,19 +338,21 @@ export default function StrategiesPage() {
             <div className="flex gap-2">
               <button
                 onClick={() => setConfirmAction(null)}
-                className="rounded px-3 py-1 text-xs font-medium text-text-secondary hover:bg-surface-3"
+                disabled={actionLoading}
+                className="rounded px-3 py-1 text-xs font-medium text-text-secondary hover:bg-surface-3 disabled:opacity-40"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirm}
-                className={`rounded px-3 py-1 text-xs font-semibold ${
-                  confirmAction === 'toggle-mode' && config?.trading.mode === 'paper'
+                disabled={actionLoading}
+                className={`rounded px-3 py-1 text-xs font-semibold disabled:opacity-40 ${
+                  confirmAction === 'toggle-mode' && (config as Record<string, Record<string, string>>)?.trading?.mode === 'paper'
                     ? 'bg-negative text-white hover:bg-negative/80'
                     : 'bg-accent text-white hover:bg-accent/80'
                 }`}
               >
-                Confirm
+                {actionLoading ? 'Processing...' : 'Confirm'}
               </button>
             </div>
           </div>
@@ -259,7 +361,7 @@ export default function StrategiesPage() {
         <div className="flex flex-wrap gap-3">
           <button
             onClick={() => setConfirmAction('switch')}
-            disabled={!selectedId}
+            disabled={!selectedId || !detail}
             className="rounded border border-border bg-surface-2 px-4 py-2 text-sm font-medium text-text-primary hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Switch Active Strategy
@@ -273,12 +375,12 @@ export default function StrategiesPage() {
           <button
             onClick={() => setConfirmAction('toggle-mode')}
             className={`rounded px-4 py-2 text-sm font-semibold ${
-              config?.trading.mode === 'paper'
+              (config as Record<string, Record<string, string>>)?.trading?.mode === 'paper'
                 ? 'border border-negative/30 bg-negative/10 text-negative hover:bg-negative/20'
                 : 'border border-warning/30 bg-warning/10 text-warning hover:bg-warning/20'
             }`}
           >
-            {config?.trading.mode === 'paper' ? 'Switch to Live' : 'Switch to Paper'}
+            {(config as Record<string, Record<string, string>>)?.trading?.mode === 'paper' ? 'Switch to Live' : 'Switch to Paper'}
           </button>
         </div>
       </div>

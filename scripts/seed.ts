@@ -60,8 +60,8 @@ const DEFAULT_STRATEGY_VERSION_CONFIG: StrategyVersionConfig = {
     maxTimeToCloseSec: 90,
   },
   riskProfile: {
-    maxSizeUsd: 20,
-    dailyLossLimitUsd: 50,
+    maxSizeUsd: 0.5,
+    dailyLossLimitUsd: 10,
     maxTradesPerWindow: 1,
   },
   executionPolicy: {
@@ -70,6 +70,158 @@ const DEFAULT_STRATEGY_VERSION_CONFIG: StrategyVersionConfig = {
     mode: 'paper',
   },
 };
+
+// ─── Mean Reversion Strategy (Citadel / Renaissance style) ─────────────────
+
+const MEAN_REVERSION_STRATEGY_KEY = 'btc-5m-mean-reversion';
+
+const MEAN_REVERSION_STRATEGY_IDENTITY = {
+  key: MEAN_REVERSION_STRATEGY_KEY,
+  name: 'BTC 5m Mean Reversion',
+  description:
+    'Contrarian strategy that trades against overextended 5-minute moves, betting on snap-back to mean.',
+  status: 'active' as const,
+  isDefault: false,
+};
+
+const MEAN_REVERSION_VERSION_CONFIG: StrategyVersionConfig = {
+  id: 'btc-5m-mean-reversion-v1',
+  label: 'BTC 5m Mean Reversion v1',
+  marketSelector: {
+    asset: 'BTC',
+    marketType: 'UP_DOWN',
+    windowSec: 300,
+  },
+  agentProfile: {
+    regimeAgentProfile: 'regime-mean-reversion-v1',
+    edgeAgentProfile: 'edge-reversion-v1',
+    supervisorAgentProfile: 'supervisor-aggressive-v1',
+  },
+  decisionPolicy: {
+    allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'],
+    minConfidence: 0.55,
+  },
+  filters: {
+    maxSpreadBps: 200,
+    minDepthScore: 0.5,
+    minTimeToCloseSec: 30,
+    maxTimeToCloseSec: 120,
+  },
+  riskProfile: {
+    maxSizeUsd: 0.5,
+    dailyLossLimitUsd: 10,
+    maxTradesPerWindow: 1,
+  },
+  executionPolicy: {
+    entryWindowStartSec: 120,
+    entryWindowEndSec: 30,
+    mode: 'paper',
+  },
+};
+
+// ─── Basis Arbitrage Strategy (Jump Trading / HFT style) ────────────────────
+
+const BASIS_ARB_STRATEGY_KEY = 'btc-5m-basis-arb';
+
+const BASIS_ARB_STRATEGY_IDENTITY = {
+  key: BASIS_ARB_STRATEGY_KEY,
+  name: 'BTC 5m Basis Arb',
+  description:
+    'Cross-venue arbitrage exploiting price lag between Binance/Coinbase and Polymarket token prices.',
+  status: 'active' as const,
+  isDefault: false,
+};
+
+const BASIS_ARB_VERSION_CONFIG: StrategyVersionConfig = {
+  id: 'btc-5m-basis-arb-v1',
+  label: 'BTC 5m Basis Arb v1',
+  marketSelector: {
+    asset: 'BTC',
+    marketType: 'UP_DOWN',
+    windowSec: 300,
+  },
+  agentProfile: {
+    regimeAgentProfile: 'regime-basis-v1',
+    edgeAgentProfile: 'edge-basis-v1',
+    supervisorAgentProfile: 'supervisor-speed-v1',
+  },
+  decisionPolicy: {
+    allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'],
+    minConfidence: 0.5,
+  },
+  filters: {
+    maxSpreadBps: 300,
+    minDepthScore: 0.4,
+    minTimeToCloseSec: 10,
+    maxTimeToCloseSec: 60,
+  },
+  riskProfile: {
+    maxSizeUsd: 0.5,
+    dailyLossLimitUsd: 10,
+    maxTradesPerWindow: 2,
+  },
+  executionPolicy: {
+    entryWindowStartSec: 60,
+    entryWindowEndSec: 10,
+    mode: 'paper',
+  },
+};
+
+// ─── Volatility Fade Strategy (Wintermute / Market Maker style) ─────────────
+
+const VOL_FADE_STRATEGY_KEY = 'btc-5m-vol-fade';
+
+const VOL_FADE_STRATEGY_IDENTITY = {
+  key: VOL_FADE_STRATEGY_KEY,
+  name: 'BTC 5m Vol Fade',
+  description:
+    'Harvests volatility premium by buying underpriced tokens when implied vol exceeds realized vol.',
+  status: 'active' as const,
+  isDefault: false,
+};
+
+const VOL_FADE_VERSION_CONFIG: StrategyVersionConfig = {
+  id: 'btc-5m-vol-fade-v1',
+  label: 'BTC 5m Vol Fade v1',
+  marketSelector: {
+    asset: 'BTC',
+    marketType: 'UP_DOWN',
+    windowSec: 300,
+  },
+  agentProfile: {
+    regimeAgentProfile: 'regime-vol-v1',
+    edgeAgentProfile: 'edge-vol-fade-v1',
+    supervisorAgentProfile: 'supervisor-patient-v1',
+  },
+  decisionPolicy: {
+    allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'],
+    minConfidence: 0.75,
+  },
+  filters: {
+    maxSpreadBps: 400,
+    minDepthScore: 0.3,
+    minTimeToCloseSec: 60,
+    maxTimeToCloseSec: 150,
+  },
+  riskProfile: {
+    maxSizeUsd: 0.5,
+    dailyLossLimitUsd: 10,
+    maxTradesPerWindow: 1,
+  },
+  executionPolicy: {
+    entryWindowStartSec: 150,
+    entryWindowEndSec: 60,
+    mode: 'paper',
+  },
+};
+
+// ─── All Additional Strategies ──────────────────────────────────────────────
+
+const ADDITIONAL_STRATEGIES = [
+  { key: MEAN_REVERSION_STRATEGY_KEY, identity: MEAN_REVERSION_STRATEGY_IDENTITY, config: MEAN_REVERSION_VERSION_CONFIG },
+  { key: BASIS_ARB_STRATEGY_KEY, identity: BASIS_ARB_STRATEGY_IDENTITY, config: BASIS_ARB_VERSION_CONFIG },
+  { key: VOL_FADE_STRATEGY_KEY, identity: VOL_FADE_STRATEGY_IDENTITY, config: VOL_FADE_VERSION_CONFIG },
+];
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -177,10 +329,84 @@ export async function seed(dbPath?: string) {
     console.log(`  Created assignment: ${inserted!.id}`);
   }
 
+  // 5. Seed additional strategies (mean-reversion, basis-arb, vol-fade)
+  for (const { key, identity, config } of ADDITIONAL_STRATEGIES) {
+    validateStrategyVersionConfig(config);
+
+    // Upsert strategy identity
+    const existingStrat = await db
+      .select()
+      .from(strategies)
+      .where(eq(strategies.key, key))
+      .limit(1);
+
+    let stratId: string;
+    if (existingStrat.length > 0) {
+      stratId = existingStrat[0]!.id;
+      console.log(`  Strategy already exists: ${identity.name} (${stratId})`);
+    } else {
+      const [inserted] = await db
+        .insert(strategies)
+        .values(identity)
+        .returning({ id: strategies.id });
+      stratId = inserted!.id;
+      console.log(`  Created strategy: ${identity.name} (${stratId})`);
+    }
+
+    // Upsert version
+    const existingVer = await db
+      .select()
+      .from(strategyVersions)
+      .where(eq(strategyVersions.strategyId, stratId))
+      .limit(1);
+
+    let verIdAdditional: string;
+    if (existingVer.length > 0 && existingVer[0]!.version === 1) {
+      verIdAdditional = existingVer[0]!.id;
+      console.log(`  Strategy version v1 already exists: ${identity.name} (${verIdAdditional})`);
+    } else {
+      const cksum = computeChecksum(config as unknown as Record<string, unknown>);
+      const [inserted] = await db
+        .insert(strategyVersions)
+        .values({
+          strategyId: stratId,
+          version: 1,
+          configJson: config as unknown as Record<string, unknown>,
+          checksum: cksum,
+        })
+        .returning({ id: strategyVersions.id });
+      verIdAdditional = inserted!.id;
+      console.log(`  Created strategy version v1: ${identity.name} (${verIdAdditional})`);
+    }
+
+    // Upsert assignment (inactive by default — only default strategy is active)
+    const existingAssign = await db
+      .select()
+      .from(strategyAssignments)
+      .where(eq(strategyAssignments.strategyVersionId, verIdAdditional))
+      .limit(1);
+
+    if (existingAssign.length > 0) {
+      console.log(`  Assignment already exists: ${identity.name} (${existingAssign[0]!.id})`);
+    } else {
+      const [inserted] = await db
+        .insert(strategyAssignments)
+        .values({
+          marketConfigId,
+          strategyVersionId: verIdAdditional,
+          priority: 1,
+          isActive: false,
+        })
+        .returning({ id: strategyAssignments.id });
+      console.log(`  Created assignment (inactive): ${identity.name} (${inserted!.id})`);
+    }
+  }
+
   console.log('\nSeed complete:');
   console.log(`  Market config: ${DEFAULT_MARKET_CONFIG.label} (${marketConfigId})`);
-  console.log(`  Strategy: ${DEFAULT_STRATEGY_IDENTITY.name} (${strategyId})`);
+  console.log(`  Strategy (default): ${DEFAULT_STRATEGY_IDENTITY.name} (${strategyId})`);
   console.log(`  Version: v1 (${versionId})`);
+  console.log(`  Additional strategies: ${ADDITIONAL_STRATEGIES.map(s => s.identity.name).join(', ')}`);
   console.log(`  Mode: paper`);
 
   return { marketConfigId, strategyId, versionId };

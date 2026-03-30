@@ -1,34 +1,53 @@
 import { EventEmitter } from 'node:events';
-import type {
-  AgentDecision,
-  BookSnapshot,
-  FeaturePayload,
-  Fill,
-  Market,
-  MarketWindow,
-  Order,
-  PriceTick,
-  RiskEvaluation,
-} from '@brain/types';
 import { Global, Injectable, Module, type OnModuleDestroy } from '@nestjs/common';
 
 // ─── Event Map ──────────────────────────────────────────────────────────────
 
 export interface BrainEventMap {
-  'market.active.changed': { market: Market; previousStatus: string };
-  'market.window.opened': { window: MarketWindow };
-  'market.window.closing': { window: MarketWindow; remainingMs: number };
-  'book.snapshot.updated': { snapshot: BookSnapshot };
-  'book.spread.changed': { windowId: string; spreadBps: number; previousSpreadBps: number };
-  'book.depth.changed': { windowId: string; depthScore: number; previousDepthScore: number };
-  'book.imbalance.changed': { windowId: string; imbalance: number; previousImbalance: number };
-  'price.tick.received': { tick: PriceTick };
-  'features.computed': { payload: FeaturePayload };
-  'agent.decision.made': { decision: AgentDecision };
-  'risk.evaluated': { evaluation: RiskEvaluation };
-  'order.created': { order: Order };
-  'order.filled': { order: Order; fill: Fill };
-  'order.cancelled': { order: Order; reason: string };
+  // Market discovery events
+  'market.active.changed': { previousMarketId: string; newMarketId: string };
+  'market.window.opened': { marketId: string; start: string; end: string };
+  'market.window.closing': { marketId: string; secondsToClose: number };
+
+  // Price feed events
+  'price.tick.received': { resolver: { price: number }; external: { price: number } };
+
+  // Orderbook events
+  'book.snapshot.updated': { timestamp: string };
+  'book.spread.changed': { spreadBps: number };
+  'book.depth.changed': { upBidDepth: number; upAskDepth: number };
+  'book.imbalance.changed': { imbalance: number };
+
+  // Whale tracker events
+  'whales.large-tx.detected': { txid: string; amountBtc: number; direction: string };
+  'whales.flow.updated': { netExchangeFlowBtc: number; exchangeFlowPressure: number; abnormalActivityScore: number };
+
+  // Derivatives feed events
+  'derivatives.funding.updated': { fundingRate: number; fundingPressure: number };
+  'derivatives.oi.changed': { openInterestUsd: number; changePct: number };
+  'derivatives.liquidation.detected': { side: string; quantityUsd: number; price: number };
+  'derivatives.cascade.alert': { liquidationIntensity: number; side: string; totalUsd: number };
+
+  // Feature engine events
+  'features.computed': { marketId: string; tradeable: boolean; timeToCloseSec: number };
+
+  // Agent gateway events
+  'agent.decision.made': { windowId: string; action: string; sizeUsd: number; confidence: number };
+
+  // Risk events
+  'risk.approved': { windowId: string; agentDecisionId: string; approved: boolean; approvedSizeUsd: number; rejectionReasons: string[] };
+  'risk.rejected': { windowId: string; agentDecisionId: string; approved: boolean; approvedSizeUsd: number; rejectionReasons: string[] };
+  'risk.kill-switch.changed': { active: boolean; previous: boolean };
+  'risk.config.updated': { config: Record<string, unknown>; tradingEnabled: boolean };
+
+  // Execution events
+  'order.created': { orderId: string; mode: string; side: string };
+  'order.filled': { orderId: string; mode: string; fillPrice: number; fillSizeUsd: number };
+  'order.cancelled': { orderId: string; mode: string };
+
+  // Analysis events
+  'trade.analysis.completed': { analysisId: string; windowId: string; orderId: string; profitable: boolean; pnlUsd: number };
+  'strategy.report.generated': { reportId: string; periodStart: string; periodEnd: string; totalPnlUsd: number; tradeCount: number };
 }
 
 export type BrainEventName = keyof BrainEventMap;

@@ -1,3 +1,4 @@
+import { EventBus } from '@brain/events';
 import { HttpException } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfigManagementService } from './config-management.service';
@@ -6,7 +7,7 @@ describe('ConfigManagementService', () => {
   let service: ConfigManagementService;
 
   beforeEach(() => {
-    service = new ConfigManagementService();
+    service = new ConfigManagementService(undefined as any, new EventBus());
     vi.spyOn(console, 'log').mockImplementation(() => {
       /* noop */
     });
@@ -34,15 +35,15 @@ describe('ConfigManagementService', () => {
       expect(config.trading.edgeThresholdStrong).toBe(0.15);
       expect(config.trading.maxSpreadBps).toBe(300);
       expect(config.trading.minDepthScore).toBe(0.1);
-      expect(config.trading.maxSizeUsd).toBe(50);
+      expect(config.trading.maxSizeUsd).toBe(0.5);
       expect(config.trading.mode).toBe('disabled');
     });
 
     it('returns correct default risk config', async () => {
       const config = await service.getEffectiveConfig();
-      expect(config.risk.dailyLossLimitUsd).toBe(200);
+      expect(config.risk.dailyLossLimitUsd).toBe(10);
       expect(config.risk.maxTradesPerWindow).toBe(1);
-      expect(config.risk.maxSizeUsd).toBe(50);
+      expect(config.risk.maxSizeUsd).toBe(0.5);
       expect(config.risk.maxSpreadBps).toBe(300);
       expect(config.risk.minDepthScore).toBe(0.1);
     });
@@ -70,7 +71,7 @@ describe('ConfigManagementService', () => {
       const config1 = await service.getEffectiveConfig();
       config1.trading.maxSizeUsd = 9999;
       const config2 = await service.getEffectiveConfig();
-      expect(config2.trading.maxSizeUsd).toBe(50);
+      expect(config2.trading.maxSizeUsd).toBe(0.5);
     });
   });
 
@@ -94,7 +95,7 @@ describe('ConfigManagementService', () => {
       expect(result.risk.dailyLossLimitUsd).toBe(500);
       expect(result.risk.maxTradesPerWindow).toBe(3);
       // Unchanged fields
-      expect(result.risk.maxSizeUsd).toBe(50);
+      expect(result.risk.maxSizeUsd).toBe(0.5);
     });
 
     it('partially updates provider config', async () => {
@@ -157,8 +158,8 @@ describe('ConfigManagementService', () => {
 
     it('empty update preserves all defaults', async () => {
       const result = await service.updateConfig({});
-      expect(result.trading.maxSizeUsd).toBe(50);
-      expect(result.risk.dailyLossLimitUsd).toBe(200);
+      expect(result.trading.maxSizeUsd).toBe(0.5);
+      expect(result.risk.dailyLossLimitUsd).toBe(10);
       expect(result.source).toBe('database');
     });
   });
@@ -415,7 +416,7 @@ describe('ConfigManagementService', () => {
 
       const result = await service.resetDefaults();
 
-      expect(result.trading.maxSizeUsd).toBe(50);
+      expect(result.trading.maxSizeUsd).toBe(0.5);
       expect(result.market.asset).toBe('BTC');
       expect(result.market.windowSec).toBe(300);
       expect(result.source).toBe('defaults');

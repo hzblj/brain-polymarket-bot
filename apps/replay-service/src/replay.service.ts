@@ -71,6 +71,9 @@ interface ReplaySummary {
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const WINDOW_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+const AGENT_GATEWAY_HOST = process.env.AGENT_GATEWAY_HOST ?? 'localhost';
+const AGENT_GATEWAY_PORT = process.env.AGENT_GATEWAY_PORT ?? '3008';
+const AGENT_GATEWAY_URL = `http://${AGENT_GATEWAY_HOST}:${AGENT_GATEWAY_PORT}`;
 
 @Injectable()
 export class ReplayService {
@@ -276,14 +279,8 @@ export class ReplayService {
     let decisionChanged = false;
 
     if (reEvaluateAgents && features) {
-      // Re-run agent evaluation on historical features
-      // TODO: Call agent-gateway-service to re-evaluate
-      // const regimeResult = await httpClient.post('http://localhost:3008/api/v1/agent/regime/evaluate', { windowId, features });
-      // const edgeResult = await httpClient.post('http://localhost:3008/api/v1/agent/edge/evaluate', { windowId, features });
-      // const supervisorResult = await httpClient.post('http://localhost:3008/api/v1/agent/supervisor/evaluate', { ... });
-
-      // Stub: simulate a re-evaluation result
-      replayedDecision = this.simulateReplayedDecision(windowId, features);
+      // Re-run agent evaluation on historical features via agent-gateway
+      replayedDecision = await this.evaluateViaAgentGateway(windowId, features);
 
       // Compare original vs replayed
       if (originalDecision && replayedDecision) {
@@ -292,7 +289,6 @@ export class ReplayService {
         decisionChanged = origOutput.action !== replayOutput.action;
       }
 
-      // Simulate P&L for the replayed decision
       replayedPnl = await this.computeWindowPnl(windowId, replayedDecision);
     }
 
@@ -431,27 +427,81 @@ export class ReplayService {
     return won ? output.sizeUsd * 0.8 : -output.sizeUsd;
   }
 
-  private simulateReplayedDecision(windowId: string, features: FeaturePayload): AgentDecision {
-    // Stub: generate a simulated re-evaluation
-    return {
-      id: `replay-decision-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      windowId,
-      agentType: 'supervisor',
-      input: features as unknown as Record<string, unknown>,
-      output: {
-        action: 'hold',
-        sizeUsd: 0,
-        confidence: 0.45,
-        reasoning: 'Replay evaluation: insufficient edge detected in historical data.',
-        regimeSummary: 'Market was in a mean-reverting regime during this window.',
-        edgeSummary: 'No significant edge detected in replay.',
-      } satisfies SupervisorOutput,
-      model: 'claude-sonnet-4-20250514',
-      provider: 'anthropic',
-      latencyMs: 0,
-      eventTime: features.eventTime,
-      processedAt: Date.now(),
-    };
+  /**
+   * Calls agent-gateway to run the full 3-agent pipeline on historical features.
+   * Falls back to null if the gateway is unavailable.
+   */
+  private async evaluateViaAgentGateway(
+    windowId: string,
+    features: FeaturePayload,
+  ): Promise<AgentDecision | null> {
+    const startMs = Date.now();
+
+    try {
+      // 1. Regime evaluation
+      const regimeRes = await this.postToGateway('/api/v1/agent/regime/evaluate', {
+        windowId,
+        features,
+      });
+      const regimeOutput = regimeRes?.parsedOutput ?? regimeRes?.output;
+      if (!regimeOutput) return null;
+
+      // 2. Edge evaluation
+      const edgeRes = await this.postToGateway('/api/v1/agent/edge/evaluate', {
+        windowId,
+        features,
+      });
+      const edgeOutput = edgeRes?.parsedOutput ?? edgeRes?.output;
+      if (!edgeOutput) return null;
+
+      // 3. Supervisor evaluation (receives regime + edge context)
+      const supervisorRes = await this.postToGateway('/api/v1/agent/supervisor/evaluate', {
+        windowId,
+        features,
+        regime: regimeOutput,
+        edge: edgeOutput,
+        riskState: { dailyPnlUsd: 0, openPositionUsd: 0, tradesInWindow: 0, lastTradeTime: null },
+        riskConfig: { maxSizeUsd: 0.5, dailyLossLimitUsd: 10, maxSpreadBps: 300, minDepthScore: 0.1, maxTradesPerWindow: 1 },
+      });
+      const supervisorOutput = supervisorRes?.parsedOutput ?? supervisorRes?.output;
+      if (!supervisorOutput) return null;
+
+      const latencyMs = Date.now() - startMs;
+
+      return {
+        id: `replay-decision-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        windowId,
+        agentType: 'supervisor',
+        input: features as unknown as Record<string, unknown>,
+        output: supervisorOutput as SupervisorOutput,
+        model: (supervisorRes?.model as string) ?? 'unknown',
+        provider: (supervisorRes?.provider as string) ?? 'unknown',
+        latencyMs,
+        eventTime: features.eventTime,
+        processedAt: Date.now(),
+      };
+    } catch {
+      // Gateway unavailable — return null instead of crashing the replay
+      return null;
+    }
+  }
+
+  private async postToGateway(
+    path: string,
+    body: Record<string, unknown>,
+  ): Promise<Record<string, unknown> | null> {
+    const url = `${AGENT_GATEWAY_URL}${path}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    if (!response.ok) return null;
+
+    const json = (await response.json()) as { ok?: boolean; data?: Record<string, unknown> };
+    return json.data ?? (json as Record<string, unknown>);
   }
 
   private computeResults(windowResults: WindowReplayResult[]): ReplayResults {

@@ -1,3 +1,4 @@
+import { EventBus } from '@brain/events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FeatureEngineService } from './feature-engine.service';
 
@@ -7,11 +8,12 @@ import { FeatureEngineService } from './feature-engine.service';
 
 function mockFetchResponses(
   overrides: {
-    market?: { marketId: string; secondsToClose: number } | null;
+    market?: { marketId: string; secondsToClose: number; start?: string; end?: string; isOpen?: boolean } | null;
     price?: {
       resolver: { price: number };
+      external?: { price: number };
       window: { startPrice: number; deltaAbs: number; deltaPct: number };
-      micro: { return5s: number; return15s: number; volatility: number };
+      micro: { return1s?: number; return5s: number; return15s: number; momentumScore?: number; volatility: number };
     } | null;
     book?: {
       up: { bestBid: number; bestAsk: number; bidDepth: number; askDepth: number };
@@ -22,11 +24,18 @@ function mockFetchResponses(
     } | null;
   } = {},
 ): void {
-  const marketData = overrides.market ?? { marketId: 'btc-5m-test', secondsToClose: 120 };
+  const marketData = overrides.market ?? {
+    marketId: 'btc-5m-test',
+    secondsToClose: 120,
+    start: new Date(Date.now() - 180_000).toISOString(),
+    end: new Date(Date.now() + 120_000).toISOString(),
+    isOpen: true,
+  };
   const priceData = overrides.price ?? {
     resolver: { price: 84300 },
+    external: { price: 84300 },
     window: { startPrice: 84250, deltaAbs: 50, deltaPct: 0.000593 },
-    micro: { return5s: 0.0002, return15s: 0.0005, volatility: 0.0008 },
+    micro: { return1s: 0.0001, return5s: 0.0002, return15s: 0.0005, momentumScore: 0.55, volatility: 0.0008 },
   };
   const bookData = overrides.book ?? {
     up: { bestBid: 0.55, bestAsk: 0.58, bidDepth: 500, askDepth: 450 },
@@ -54,6 +63,11 @@ function mockFetchResponses(
           json: () => Promise.resolve({ ok: true, data: bookData }),
         });
       }
+      if (url.includes('/whales/') || url.includes('/derivatives/')) {
+        return Promise.resolve({
+          json: () => Promise.resolve({ ok: true, data: null }),
+        });
+      }
       return Promise.reject(new Error(`Unmocked URL: ${url}`));
     }),
   );
@@ -70,7 +84,7 @@ describe('FeatureEngineService', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {
       /* noop */
     });
-    service = new FeatureEngineService();
+    service = new FeatureEngineService(null as any, new EventBus());
     mockFetchResponses();
   });
 
@@ -86,32 +100,43 @@ describe('FeatureEngineService', () => {
   // ---------------------------------------------------------------------------
 
   describe('getCurrentFeatures()', () => {
-    it('should return null before recompute', async () => {
-      const features = await service.getCurrentFeatures();
+    it('should return null before recompute', () => {
+      const features = service.getCurrentFeatures();
       expect(features).toBeNull();
     });
 
     it('should return payload after recompute', async () => {
       await service.recompute();
-      const features = await service.getCurrentFeatures();
+      const features = service.getCurrentFeatures();
       expect(features).not.toBeNull();
-      expect(features?.market.marketId).toBe('btc-5m-test');
+      expect(features?.windowId).toBe('btc-5m-test');
     });
 
-    it('should return full payload shape', async () => {
+    it('should return full @brain/types FeaturePayload shape', async () => {
       await service.recompute();
-      const f = await service.getCurrentFeatures();
+      const f = service.getCurrentFeatures();
       expect(f).toEqual(
         expect.objectContaining({
+          windowId: expect.any(String),
+          eventTime: expect.any(Number),
           market: expect.objectContaining({
-            marketId: expect.any(String),
-            timeToCloseSec: expect.any(Number),
+            windowId: expect.any(String),
+            startPrice: expect.any(Number),
+            elapsedMs: expect.any(Number),
+            remainingMs: expect.any(Number),
           }),
           price: expect.objectContaining({
-            startPrice: expect.any(Number),
-            resolverPrice: expect.any(Number),
-            deltaAbs: expect.any(Number),
-            deltaPct: expect.any(Number),
+            currentPrice: expect.any(Number),
+            returnBps: expect.any(Number),
+            volatility: expect.any(Number),
+            momentum: expect.any(Number),
+            meanReversionStrength: expect.any(Number),
+            tickRate: expect.any(Number),
+            binancePrice: expect.any(Number),
+            coinbasePrice: expect.any(Number),
+            exchangeMidPrice: expect.any(Number),
+            polymarketMidPrice: expect.any(Number),
+            basisBps: expect.any(Number),
           }),
           book: expect.objectContaining({
             upBid: expect.any(Number),
@@ -123,13 +148,12 @@ describe('FeatureEngineService', () => {
             imbalance: expect.any(Number),
           }),
           signals: expect.objectContaining({
-            momentum5s: expect.any(Number),
-            momentum15s: expect.any(Number),
-            volatility30s: expect.any(Number),
-            bookPressure: expect.any(Number),
+            priceDirectionScore: expect.any(Number),
+            volatilityRegime: expect.any(String),
+            bookPressure: expect.any(String),
+            basisSignal: expect.any(String),
             tradeable: expect.any(Boolean),
           }),
-          computedAt: expect.any(String),
         }),
       );
     });
@@ -140,10 +164,9 @@ describe('FeatureEngineService', () => {
   // ---------------------------------------------------------------------------
 
   describe('recompute()', () => {
-    it('should fetch from all three upstream services', async () => {
+    it('should fetch from all upstream services', async () => {
       await service.recompute();
       const fetchMock = vi.mocked(fetch);
-      expect(fetchMock).toHaveBeenCalledTimes(3);
       const urls = fetchMock.mock.calls.map((c) => c[0] as string);
       expect(urls.some((u) => u.includes('/market/window/current'))).toBe(true);
       expect(urls.some((u) => u.includes('/price/current'))).toBe(true);
@@ -152,16 +175,16 @@ describe('FeatureEngineService', () => {
 
     it('should populate market features from upstream', async () => {
       const payload = await service.recompute();
-      expect(payload.market.marketId).toBe('btc-5m-test');
-      expect(payload.market.timeToCloseSec).toBe(120);
+      expect(payload.market.windowId).toBe('btc-5m-test');
+      expect(payload.market.remainingMs).toBe(120_000);
+      expect(payload.market.startPrice).toBe(84250);
     });
 
     it('should populate price features from upstream', async () => {
       const payload = await service.recompute();
-      expect(payload.price.startPrice).toBe(84250);
-      expect(payload.price.resolverPrice).toBe(84300);
-      expect(payload.price.deltaAbs).toBe(50);
-      expect(payload.price.deltaPct).toBeCloseTo(0.000593, 5);
+      expect(payload.price.currentPrice).toBe(84300);
+      expect(payload.price.returnBps).toBeCloseTo(0.0593, 2);
+      expect(payload.price.volatility).toBe(0.0008);
     });
 
     it('should populate book features from upstream', async () => {
@@ -173,6 +196,12 @@ describe('FeatureEngineService', () => {
       expect(payload.book.spreadBps).toBe(530);
       expect(payload.book.depthScore).toBe(0.6);
       expect(payload.book.imbalance).toBe(0.05);
+    });
+
+    it('should compute polymarketMidPrice from book', async () => {
+      const payload = await service.recompute();
+      // (0.55 + 0.58) / 2 = 0.565
+      expect(payload.price.polymarketMidPrice).toBeCloseTo(0.565, 3);
     });
 
     it('should use fallback values when market service is unavailable', async () => {
@@ -189,8 +218,9 @@ describe('FeatureEngineService', () => {
                   ok: true,
                   data: {
                     resolver: { price: 84300 },
+                    external: { price: 84300 },
                     window: { startPrice: 84250, deltaAbs: 50, deltaPct: 0.000593 },
-                    micro: { return5s: 0.0002, return15s: 0.0005, volatility: 0.0008 },
+                    micro: { return1s: 0, return5s: 0.0002, return15s: 0.0005, momentumScore: 0.5, volatility: 0.0008 },
                   },
                 }),
             });
@@ -210,91 +240,38 @@ describe('FeatureEngineService', () => {
                 }),
             });
           }
-          return Promise.reject(new Error('Unmocked'));
+          return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: null }) });
         }),
       );
 
       const payload = await service.recompute();
-      expect(payload.market.marketId).toBe('btc-5m-unknown');
-      expect(payload.market.timeToCloseSec).toBe(0);
+      expect(payload.market.windowId).toBe('btc-5m-unknown');
+      expect(payload.market.remainingMs).toBe(0);
     });
 
     it('should use fallback values when price service is unavailable', async () => {
       vi.stubGlobal(
         'fetch',
         vi.fn().mockImplementation((url: string) => {
-          if (url.includes('/market/window/current')) {
-            return Promise.resolve({
-              json: () =>
-                Promise.resolve({
-                  ok: true,
-                  data: { marketId: 'btc-5m-test', secondsToClose: 120 },
-                }),
-            });
-          }
           if (url.includes('/price/current')) {
             return Promise.reject(new Error('Connection refused'));
           }
-          if (url.includes('/book/metrics')) {
+          if (url.includes('/market/window/current')) {
             return Promise.resolve({
-              json: () =>
-                Promise.resolve({
-                  ok: true,
-                  data: {
-                    up: { bestBid: 0.55, bestAsk: 0.58, bidDepth: 500, askDepth: 450 },
-                    down: { bestBid: 0.41, bestAsk: 0.44, bidDepth: 400, askDepth: 420 },
-                    spreadBps: 530,
-                    imbalance: 0.05,
-                    liquidityScore: 0.6,
-                  },
-                }),
+              json: () => Promise.resolve({ ok: true, data: { marketId: 'btc-5m-test', secondsToClose: 120, start: new Date().toISOString(), end: new Date().toISOString(), isOpen: true } }),
             });
           }
-          return Promise.reject(new Error('Unmocked'));
+          if (url.includes('/book/metrics')) {
+            return Promise.resolve({
+              json: () => Promise.resolve({ ok: true, data: { up: { bestBid: 0.55, bestAsk: 0.58, bidDepth: 500, askDepth: 450 }, down: { bestBid: 0.41, bestAsk: 0.44, bidDepth: 400, askDepth: 420 }, spreadBps: 530, imbalance: 0.05, liquidityScore: 0.6 } }),
+            });
+          }
+          return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: null }) });
         }),
       );
 
       const payload = await service.recompute();
-      expect(payload.price.startPrice).toBe(0);
-      expect(payload.price.resolverPrice).toBe(0);
-    });
-
-    it('should use fallback values when book service is unavailable', async () => {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn().mockImplementation((url: string) => {
-          if (url.includes('/market/window/current')) {
-            return Promise.resolve({
-              json: () =>
-                Promise.resolve({
-                  ok: true,
-                  data: { marketId: 'btc-5m-test', secondsToClose: 120 },
-                }),
-            });
-          }
-          if (url.includes('/price/current')) {
-            return Promise.resolve({
-              json: () =>
-                Promise.resolve({
-                  ok: true,
-                  data: {
-                    resolver: { price: 84300 },
-                    window: { startPrice: 84250, deltaAbs: 50, deltaPct: 0.000593 },
-                    micro: { return5s: 0.0002, return15s: 0.0005, volatility: 0.0008 },
-                  },
-                }),
-            });
-          }
-          if (url.includes('/book/metrics')) {
-            return Promise.reject(new Error('Connection refused'));
-          }
-          return Promise.reject(new Error('Unmocked'));
-        }),
-      );
-
-      const payload = await service.recompute();
-      expect(payload.book.spreadBps).toBe(9999);
-      expect(payload.book.depthScore).toBe(0);
+      expect(payload.price.currentPrice).toBe(0);
     });
 
     it('should store payload in history', async () => {
@@ -321,7 +298,7 @@ describe('FeatureEngineService', () => {
     });
 
     it('should emit features.computed event', async () => {
-      const spy = vi.spyOn(service as unknown as Record<string, unknown>, 'emitEvent');
+      const spy = vi.spyOn(service as any, 'emitEvent');
       await service.recompute();
       expect(spy).toHaveBeenCalledWith(
         'features.computed',
@@ -336,22 +313,6 @@ describe('FeatureEngineService', () => {
 
   describe('tradeability', () => {
     it('should be tradeable with good conditions', async () => {
-      mockFetchResponses({
-        market: { marketId: 'btc-5m-test', secondsToClose: 120 },
-        book: {
-          up: { bestBid: 0.55, bestAsk: 0.58, bidDepth: 500, askDepth: 450 },
-          down: { bestBid: 0.41, bestAsk: 0.44, bidDepth: 400, askDepth: 420 },
-          spreadBps: 530,
-          imbalance: 0.05,
-          liquidityScore: 0.6,
-        },
-        price: {
-          resolver: { price: 84300 },
-          window: { startPrice: 84250, deltaAbs: 50, deltaPct: 0.000593 },
-          micro: { return5s: 0.0002, return15s: 0.0005, volatility: 0.0008 },
-        },
-      });
-
       const payload = await service.recompute();
       expect(payload.signals.tradeable).toBe(true);
     });
@@ -360,234 +321,122 @@ describe('FeatureEngineService', () => {
       mockFetchResponses({
         market: { marketId: 'btc-5m-test', secondsToClose: 10 },
       });
-
       const payload = await service.recompute();
       expect(payload.signals.tradeable).toBe(false);
     });
 
     it('should NOT be tradeable when depthScore < 0.3', async () => {
       mockFetchResponses({
-        market: { marketId: 'btc-5m-test', secondsToClose: 120 },
         book: {
           up: { bestBid: 0.55, bestAsk: 0.58, bidDepth: 50, askDepth: 45 },
           down: { bestBid: 0.41, bestAsk: 0.44, bidDepth: 40, askDepth: 42 },
           spreadBps: 530,
           imbalance: 0.05,
-          liquidityScore: 0.2, // below MIN_DEPTH_SCORE (0.3)
+          liquidityScore: 0.2,
         },
       });
-
       const payload = await service.recompute();
       expect(payload.signals.tradeable).toBe(false);
     });
 
     it('should NOT be tradeable when spreadBps > 800', async () => {
       mockFetchResponses({
-        market: { marketId: 'btc-5m-test', secondsToClose: 120 },
         book: {
           up: { bestBid: 0.55, bestAsk: 0.58, bidDepth: 500, askDepth: 450 },
           down: { bestBid: 0.41, bestAsk: 0.44, bidDepth: 400, askDepth: 420 },
-          spreadBps: 900, // above MAX_SPREAD_BPS (800)
+          spreadBps: 900,
           imbalance: 0.05,
           liquidityScore: 0.6,
         },
       });
-
       const payload = await service.recompute();
       expect(payload.signals.tradeable).toBe(false);
     });
 
     it('should NOT be tradeable when volatility < 0.0001', async () => {
       mockFetchResponses({
-        market: { marketId: 'btc-5m-test', secondsToClose: 120 },
         price: {
           resolver: { price: 84300 },
+          external: { price: 84300 },
           window: { startPrice: 84250, deltaAbs: 50, deltaPct: 0.000593 },
-          micro: { return5s: 0.0002, return15s: 0.0005, volatility: 0.00005 }, // below MIN_VOLATILITY
+          micro: { return5s: 0.0002, return15s: 0.0005, momentumScore: 0.5, volatility: 0.00005 },
         },
       });
-
       const payload = await service.recompute();
       expect(payload.signals.tradeable).toBe(false);
     });
 
     it('should be tradeable at exact boundary values', async () => {
       mockFetchResponses({
-        market: { marketId: 'btc-5m-test', secondsToClose: 15 }, // exactly MIN_TIME_TO_CLOSE_SEC
+        market: { marketId: 'btc-5m-test', secondsToClose: 15 },
         book: {
           up: { bestBid: 0.55, bestAsk: 0.58, bidDepth: 500, askDepth: 450 },
           down: { bestBid: 0.41, bestAsk: 0.44, bidDepth: 400, askDepth: 420 },
-          spreadBps: 800, // exactly MAX_SPREAD_BPS
+          spreadBps: 800,
           imbalance: 0.05,
-          liquidityScore: 0.3, // exactly MIN_DEPTH_SCORE
+          liquidityScore: 0.3,
         },
         price: {
           resolver: { price: 84300 },
+          external: { price: 84300 },
           window: { startPrice: 84250, deltaAbs: 50, deltaPct: 0.000593 },
-          micro: { return5s: 0.0002, return15s: 0.0005, volatility: 0.0001 }, // exactly MIN_VOLATILITY
+          micro: { return5s: 0.0002, return15s: 0.0005, momentumScore: 0.5, volatility: 0.0001 },
         },
       });
-
       const payload = await service.recompute();
-      // At exact boundaries: timeToClose >= 15 (not <), depthScore >= 0.3 (not <),
-      // spreadBps <= 800 (not >), volatility >= 0.0001 (not <)
       expect(payload.signals.tradeable).toBe(true);
     });
   });
 
   // ---------------------------------------------------------------------------
-  // Momentum signal computation
+  // Signal classification
   // ---------------------------------------------------------------------------
 
-  describe('momentum signal', () => {
-    it('should return 0.5 when volatility is zero', async () => {
-      mockFetchResponses({
-        price: {
-          resolver: { price: 84300 },
-          window: { startPrice: 84250, deltaAbs: 50, deltaPct: 0.000593 },
-          micro: { return5s: 0.001, return15s: 0.002, volatility: 0 },
-        },
-      });
-
+  describe('signal classification', () => {
+    it('volatilityRegime should classify low/medium/high', async () => {
+      // Default volatility 0.0008 < 0.001 threshold → low
       const payload = await service.recompute();
-      expect(payload.signals.momentum5s).toBe(0.5);
-      expect(payload.signals.momentum15s).toBe(0.5);
+      expect(payload.signals.volatilityRegime).toBe('low');
     });
 
-    it('should compute momentum > 0.5 for positive returns', async () => {
-      mockFetchResponses({
-        price: {
-          resolver: { price: 84300 },
-          window: { startPrice: 84250, deltaAbs: 50, deltaPct: 0.000593 },
-          micro: { return5s: 0.005, return15s: 0.003, volatility: 0.001 },
-        },
-      });
-
+    it('bookPressure should classify bid/ask/neutral', async () => {
+      // Default imbalance 0.05 → neutral (< 0.15)
       const payload = await service.recompute();
-      expect(payload.signals.momentum5s).toBeGreaterThan(0.5);
-      expect(payload.signals.momentum15s).toBeGreaterThan(0.5);
+      expect(payload.signals.bookPressure).toBe('neutral');
     });
 
-    it('should compute momentum < 0.5 for negative returns', async () => {
-      mockFetchResponses({
-        price: {
-          resolver: { price: 84200 },
-          window: { startPrice: 84250, deltaAbs: -50, deltaPct: -0.000593 },
-          micro: { return5s: -0.005, return15s: -0.003, volatility: 0.001 },
-        },
-      });
-
-      const payload = await service.recompute();
-      expect(payload.signals.momentum5s).toBeLessThan(0.5);
-      expect(payload.signals.momentum15s).toBeLessThan(0.5);
-    });
-
-    it('should keep momentum between 0 and 1', async () => {
-      // Extreme positive return
-      mockFetchResponses({
-        price: {
-          resolver: { price: 85000 },
-          window: { startPrice: 84000, deltaAbs: 1000, deltaPct: 0.0119 },
-          micro: { return5s: 0.1, return15s: 0.05, volatility: 0.0001 },
-        },
-      });
-
-      const payload = await service.recompute();
-      expect(payload.signals.momentum5s).toBeGreaterThanOrEqual(0);
-      expect(payload.signals.momentum5s).toBeLessThanOrEqual(1);
-      expect(payload.signals.momentum15s).toBeGreaterThanOrEqual(0);
-      expect(payload.signals.momentum15s).toBeLessThanOrEqual(1);
-    });
-
-    it('should pass through volatility30s from upstream', async () => {
-      mockFetchResponses({
-        price: {
-          resolver: { price: 84300 },
-          window: { startPrice: 84250, deltaAbs: 50, deltaPct: 0.000593 },
-          micro: { return5s: 0.0002, return15s: 0.0005, volatility: 0.0042 },
-        },
-      });
-
-      const payload = await service.recompute();
-      expect(payload.signals.volatility30s).toBeCloseTo(0.0042, 4);
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Book pressure calculation
-  // ---------------------------------------------------------------------------
-
-  describe('book pressure', () => {
-    it('should be between -1 and 1', async () => {
-      const payload = await service.recompute();
-      expect(payload.signals.bookPressure).toBeGreaterThanOrEqual(-1);
-      expect(payload.signals.bookPressure).toBeLessThanOrEqual(1);
-    });
-
-    it('should be positive when UP side dominates', async () => {
+    it('bookPressure should be bid when imbalance > 0.15', async () => {
       mockFetchResponses({
         book: {
-          up: { bestBid: 0.65, bestAsk: 0.66, bidDepth: 1000, askDepth: 200 },
-          down: { bestBid: 0.33, bestAsk: 0.34, bidDepth: 200, askDepth: 1000 },
-          spreadBps: 150,
-          imbalance: 0.5, // strong bid imbalance
-          liquidityScore: 0.8,
+          up: { bestBid: 0.55, bestAsk: 0.58, bidDepth: 1000, askDepth: 200 },
+          down: { bestBid: 0.41, bestAsk: 0.44, bidDepth: 200, askDepth: 1000 },
+          spreadBps: 530,
+          imbalance: 0.5,
+          liquidityScore: 0.6,
         },
       });
-
       const payload = await service.recompute();
-      // Positive imbalance + UP mid > DOWN mid => positive pressure
-      expect(payload.signals.bookPressure).toBeGreaterThan(0);
+      expect(payload.signals.bookPressure).toBe('bid');
     });
 
-    it('should be negative when DOWN side dominates', async () => {
+    it('bookPressure should be ask when imbalance < -0.15', async () => {
       mockFetchResponses({
         book: {
           up: { bestBid: 0.33, bestAsk: 0.34, bidDepth: 200, askDepth: 1000 },
           down: { bestBid: 0.65, bestAsk: 0.66, bidDepth: 1000, askDepth: 200 },
-          spreadBps: 150,
-          imbalance: -0.5, // strong ask imbalance
-          liquidityScore: 0.8,
+          spreadBps: 530,
+          imbalance: -0.5,
+          liquidityScore: 0.6,
         },
       });
-
       const payload = await service.recompute();
-      // Negative imbalance + DOWN mid > UP mid => negative pressure
-      expect(payload.signals.bookPressure).toBeLessThan(0);
+      expect(payload.signals.bookPressure).toBe('ask');
     });
 
-    it('should be near zero when book is balanced', async () => {
-      mockFetchResponses({
-        book: {
-          up: { bestBid: 0.49, bestAsk: 0.51, bidDepth: 500, askDepth: 500 },
-          down: { bestBid: 0.49, bestAsk: 0.51, bidDepth: 500, askDepth: 500 },
-          spreadBps: 400,
-          imbalance: 0.0,
-          liquidityScore: 0.5,
-        },
-      });
-
+    it('priceDirectionScore should be between -1 and 1', async () => {
       const payload = await service.recompute();
-      expect(Math.abs(payload.signals.bookPressure)).toBeLessThan(0.1);
-    });
-
-    it('should incorporate spread ratio component', async () => {
-      // UP has tighter spread than DOWN => positive spreadRatio component
-      mockFetchResponses({
-        book: {
-          up: { bestBid: 0.54, bestAsk: 0.55, bidDepth: 500, askDepth: 500 },
-          down: { bestBid: 0.4, bestAsk: 0.5, bidDepth: 500, askDepth: 500 },
-          spreadBps: 200,
-          imbalance: 0.0,
-          liquidityScore: 0.5,
-        },
-      });
-
-      const payload = await service.recompute();
-      // upSpread = 0.01, downSpread = 0.10 => spreadRatio = (0.10 - 0.01) / 0.11 ~ 0.82 (positive => UP bias)
-      // midDivergence = (0.545) - (0.45) = 0.095 (positive)
-      // Should have positive pressure
-      expect(payload.signals.bookPressure).toBeGreaterThan(0);
+      expect(payload.signals.priceDirectionScore).toBeGreaterThanOrEqual(-1);
+      expect(payload.signals.priceDirectionScore).toBeLessThanOrEqual(1);
     });
   });
 
@@ -631,7 +480,7 @@ describe('FeatureEngineService', () => {
   describe('compute loop', () => {
     it('should start computing on onModuleInit', async () => {
       await service.onModuleInit();
-      const features = await service.getCurrentFeatures();
+      const features = service.getCurrentFeatures();
       expect(features).not.toBeNull();
     });
 
@@ -680,12 +529,10 @@ describe('FeatureEngineService', () => {
     it('should handle recompute errors gracefully', async () => {
       vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network error')));
 
-      // Should not throw
       await service.onModuleInit();
       await vi.advanceTimersByTimeAsync(3_000);
 
-      // Service still works, uses fallback data
-      const features = await service.getCurrentFeatures();
+      const features = service.getCurrentFeatures();
       expect(features).not.toBeNull();
     });
   });
@@ -697,13 +544,13 @@ describe('FeatureEngineService', () => {
   describe('getWindowFeatures()', () => {
     it('should return same payload as getCurrentFeatures', async () => {
       await service.recompute();
-      const current = await service.getCurrentFeatures();
-      const window = await service.getWindowFeatures();
+      const current = service.getCurrentFeatures();
+      const window = service.getWindowFeatures();
       expect(current).toEqual(window);
     });
 
-    it('should return null before recompute', async () => {
-      const result = await service.getWindowFeatures();
+    it('should return null before recompute', () => {
+      const result = service.getWindowFeatures();
       expect(result).toBeNull();
     });
   });

@@ -1,4 +1,5 @@
 import { createDb } from '@brain/database';
+import { EventBus } from '@brain/events';
 import { HttpException } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ExecutionService, type OrderInput } from './execution.service';
@@ -27,7 +28,7 @@ describe('ExecutionService', () => {
 
   beforeEach(() => {
     const db = createDb(':memory:');
-    service = new ExecutionService(db);
+    service = new ExecutionService(db, new EventBus());
     vi.spyOn(console, 'log').mockImplementation(() => {
       /* noop */
     });

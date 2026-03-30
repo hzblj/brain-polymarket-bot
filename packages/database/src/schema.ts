@@ -73,6 +73,46 @@ export const bookSnapshots = sqliteTable('book_snapshots', {
   ingestedAt: integer('ingested_at').notNull(),
 });
 
+// ─── Derivatives Snapshots ───────────────────────────────────────────────────
+
+export const derivativesSnapshots = sqliteTable('derivatives_snapshots', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  windowId: text('window_id').notNull(),
+  fundingRate: real('funding_rate').notNull(),
+  fundingPressure: real('funding_pressure').notNull(),
+  openInterestUsd: real('open_interest_usd').notNull(),
+  openInterestChangePct: real('open_interest_change_pct').notNull(),
+  oiTrend: real('oi_trend').notNull(),
+  longLiquidationUsd: real('long_liquidation_usd').notNull(),
+  shortLiquidationUsd: real('short_liquidation_usd').notNull(),
+  liquidationImbalance: real('liquidation_imbalance').notNull(),
+  liquidationIntensity: real('liquidation_intensity').notNull(),
+  derivativesSentiment: real('derivatives_sentiment').notNull(),
+  eventTime: integer('event_time').notNull(),
+  ingestedAt: integer('ingested_at').notNull(),
+});
+
+// ─── Whale Snapshots ────────────────────────────────────────────────────────
+
+export const whaleSnapshots = sqliteTable('whale_snapshots', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  windowId: text('window_id').notNull(),
+  largeTransactionCount: integer('large_transaction_count').notNull(),
+  netExchangeFlowBtc: real('net_exchange_flow_btc').notNull(),
+  exchangeFlowPressure: real('exchange_flow_pressure').notNull(),
+  whaleVolumeBtc: real('whale_volume_btc').notNull(),
+  abnormalActivityScore: real('abnormal_activity_score').notNull(),
+  recentTransactions: text('recent_transactions', { mode: 'json' })
+    .notNull()
+    .$type<Array<Record<string, unknown>>>(),
+  eventTime: integer('event_time').notNull(),
+  ingestedAt: integer('ingested_at').notNull(),
+});
+
 // ─── Feature Snapshots ───────────────────────────────────────────────────────
 
 export const featureSnapshots = sqliteTable('feature_snapshots', {
@@ -304,6 +344,68 @@ export const strategyAssignments = sqliteTable('strategy_assignments', {
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
   updatedAt: text('updated_at')
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+// ─── Trade Analyses ─────────────────────────────────────────────────────────
+
+export const tradeAnalyses = sqliteTable('trade_analyses', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  windowId: text('window_id').notNull(),
+  orderId: text('order_id').notNull(),
+  verdict: text('verdict', { enum: ['profitable', 'unprofitable', 'breakeven', 'unknown'] }).notNull(),
+  pnlUsd: real('pnl_usd').notNull(),
+  pnlBps: real('pnl_bps').notNull(),
+  entryPrice: real('entry_price').notNull(),
+  exitPrice: real('exit_price').notNull(),
+  side: text('side', { enum: ['buy_up', 'buy_down'] }).notNull(),
+  sizeUsd: real('size_usd').notNull(),
+  regimeAtEntry: text('regime_at_entry').notNull(),
+  edgeDirectionAtEntry: text('edge_direction_at_entry').notNull(),
+  edgeMagnitudeAtEntry: real('edge_magnitude_at_entry').notNull(),
+  supervisorConfidence: real('supervisor_confidence').notNull(),
+  edgeAccurate: integer('edge_accurate', { mode: 'boolean' }).notNull(),
+  confidenceCalibration: text('confidence_calibration').notNull(),
+  misleadingSignals: text('misleading_signals', { mode: 'json' }).notNull().$type<string[]>(),
+  correctSignals: text('correct_signals', { mode: 'json' }).notNull().$type<string[]>(),
+  improvementSuggestions: text('improvement_suggestions', { mode: 'json' }).notNull().$type<string[]>(),
+  llmReasoning: text('llm_reasoning').notNull(),
+  model: text('model').notNull(),
+  provider: text('provider').notNull(),
+  latencyMs: integer('latency_ms').notNull(),
+  createdAt: text('created_at')
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+// ─── Daily Reports ──────────────────────────────────────────────────────────
+
+export const dailyReports = sqliteTable('daily_reports', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  periodStart: text('period_start').notNull(),
+  periodEnd: text('period_end').notNull(),
+  totalTrades: integer('total_trades').notNull(),
+  totalPnlUsd: real('total_pnl_usd').notNull(),
+  winRate: real('win_rate').notNull(),
+  avgEdgeMagnitude: real('avg_edge_magnitude').notNull(),
+  maxDrawdownUsd: real('max_drawdown_usd').notNull(),
+  performanceByRegime: text('performance_by_regime', { mode: 'json' }).notNull().$type<Record<string, unknown>>(),
+  performanceByHour: text('performance_by_hour', { mode: 'json' }).notNull().$type<Record<string, unknown>>(),
+  agentAccuracy: text('agent_accuracy', { mode: 'json' }).notNull().$type<Record<string, unknown>>(),
+  riskMetrics: text('risk_metrics', { mode: 'json' }).notNull().$type<Record<string, unknown>>(),
+  patterns: text('patterns', { mode: 'json' }).notNull().$type<string[]>(),
+  suggestions: text('suggestions', { mode: 'json' }).notNull().$type<Array<Record<string, unknown>>>(),
+  executiveSummary: text('executive_summary').notNull(),
+  llmReasoning: text('llm_reasoning').notNull(),
+  model: text('model').notNull(),
+  provider: text('provider').notNull(),
+  latencyMs: integer('latency_ms').notNull(),
+  createdAt: text('created_at')
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
 });

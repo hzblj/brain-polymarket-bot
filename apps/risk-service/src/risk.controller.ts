@@ -7,6 +7,20 @@ export class RiskController {
   constructor(@Inject(RiskService) private readonly riskService: RiskService) {}
 
   /**
+   * GET /api/v1/risk/health
+   * Returns health status of the risk service.
+   */
+  @Get('health')
+  getHealth() {
+    return {
+      ok: true,
+      service: 'risk',
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  /**
    * GET /api/v1/risk/state
    * Returns the current risk state including daily P&L, open exposure, and config.
    */

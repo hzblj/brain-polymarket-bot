@@ -27,45 +27,16 @@ export class GatewayController {
   }
 
   /**
-   * GET /api/v1/strategies
-   * Returns available trading strategies.
+   * Proxy: /api/v1/strategies and /api/v1/strategies/* -> config-service (port 3007)
    */
-  @Get('api/v1/strategies')
-  getStrategies() {
-    return {
-      ok: true,
-      data: [
-        {
-          id: 'btc_5m_momentum_v1',
-          key: 'btc_5m_momentum',
-          name: 'BTC 5-Minute Momentum',
-          description: 'Trades Polymarket BTC 5-minute Up/Down binary markets using regime classification, edge detection, and risk-adjusted sizing.',
-          status: 'active',
-          isDefault: true,
-          latestVersion: 1,
-          createdAt: '2026-03-20T00:00:00Z',
-          updatedAt: new Date().toISOString(),
-        },
-      ],
-    };
+  @All('api/v1/strategies')
+  proxyStrategiesRoot(@Req() req: FastifyRequest, @Res() res: FastifyReply) {
+    return this.gatewayService.proxy(req, res, 'config', 3007);
   }
 
-  /**
-   * GET /api/v1/strategies/:id
-   */
-  @Get('api/v1/strategies/:id')
-  getStrategy() {
-    return {
-      ok: true,
-      data: {
-        id: 'btc_5m_momentum_v1',
-        key: 'btc_5m_momentum',
-        name: 'BTC 5-Minute Momentum',
-        version: 1,
-        agents: ['regime', 'edge', 'supervisor'],
-        riskProfile: { maxSizeUsd: 50, maxSpreadBps: 300, minDepthScore: 0.1 },
-      },
-    };
+  @All('api/v1/strategies/*')
+  proxyStrategies(@Req() req: FastifyRequest, @Res() res: FastifyReply) {
+    return this.gatewayService.proxy(req, res, 'config', 3007);
   }
 
   /**
@@ -146,5 +117,37 @@ export class GatewayController {
   @All('api/v1/replay/*')
   proxyReplay(@Req() req: FastifyRequest, @Res() res: FastifyReply) {
     return this.gatewayService.proxy(req, res, 'replay', 3009);
+  }
+
+  /**
+   * Proxy: /api/v1/derivatives/* -> derivatives-feed-service (port 3013)
+   */
+  @All('api/v1/derivatives/*')
+  proxyDerivatives(@Req() req: FastifyRequest, @Res() res: FastifyReply) {
+    return this.gatewayService.proxy(req, res, 'derivatives-feed', 3013);
+  }
+
+  /**
+   * Proxy: /api/v1/whales/* -> whale-tracker-service (port 3010)
+   */
+  @All('api/v1/whales/*')
+  proxyWhales(@Req() req: FastifyRequest, @Res() res: FastifyReply) {
+    return this.gatewayService.proxy(req, res, 'whale-tracker', 3010);
+  }
+
+  /**
+   * Proxy: /api/v1/analyzer/* -> post-trade-analyzer-service (port 3011)
+   */
+  @All('api/v1/analyzer/*')
+  proxyAnalyzer(@Req() req: FastifyRequest, @Res() res: FastifyReply) {
+    return this.gatewayService.proxy(req, res, 'post-trade-analyzer', 3011);
+  }
+
+  /**
+   * Proxy: /api/v1/optimizer/* -> strategy-optimizer-service (port 3012)
+   */
+  @All('api/v1/optimizer/*')
+  proxyOptimizer(@Req() req: FastifyRequest, @Res() res: FastifyReply) {
+    return this.gatewayService.proxy(req, res, 'strategy-optimizer', 3012);
   }
 }

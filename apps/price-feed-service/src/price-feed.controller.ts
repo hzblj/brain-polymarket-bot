@@ -6,6 +6,20 @@ export class PriceFeedController {
   constructor(@Inject(PriceFeedService) private readonly priceFeedService: PriceFeedService) {}
 
   /**
+   * GET /api/v1/price/health
+   * Returns health status of the price-feed service.
+   */
+  @Get('health')
+  getHealth() {
+    return {
+      ok: true,
+      service: 'price-feed',
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  /**
    * GET /api/v1/price/current
    * Returns the last known prices from resolver and external sources,
    * plus window delta and micro-structure signals.

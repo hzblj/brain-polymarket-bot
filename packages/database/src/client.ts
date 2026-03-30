@@ -207,5 +207,55 @@ function ensureTables(sqlite: Database.Database): void {
       mode TEXT NOT NULL DEFAULT 'paper',
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS trade_analyses (
+      id TEXT PRIMARY KEY,
+      window_id TEXT NOT NULL,
+      order_id TEXT NOT NULL,
+      verdict TEXT NOT NULL,
+      pnl_usd REAL NOT NULL,
+      pnl_bps REAL NOT NULL,
+      entry_price REAL NOT NULL,
+      exit_price REAL NOT NULL,
+      side TEXT NOT NULL,
+      size_usd REAL NOT NULL,
+      regime_at_entry TEXT NOT NULL,
+      edge_direction_at_entry TEXT NOT NULL,
+      edge_magnitude_at_entry REAL NOT NULL,
+      supervisor_confidence REAL NOT NULL,
+      edge_accurate INTEGER NOT NULL,
+      confidence_calibration TEXT NOT NULL,
+      misleading_signals TEXT NOT NULL,
+      correct_signals TEXT NOT NULL,
+      improvement_suggestions TEXT NOT NULL,
+      llm_reasoning TEXT NOT NULL,
+      model TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      latency_ms INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS daily_reports (
+      id TEXT PRIMARY KEY,
+      period_start TEXT NOT NULL,
+      period_end TEXT NOT NULL,
+      total_trades INTEGER NOT NULL,
+      total_pnl_usd REAL NOT NULL,
+      win_rate REAL NOT NULL,
+      avg_edge_magnitude REAL NOT NULL,
+      max_drawdown_usd REAL NOT NULL,
+      performance_by_regime TEXT NOT NULL,
+      performance_by_hour TEXT NOT NULL,
+      agent_accuracy TEXT NOT NULL,
+      risk_metrics TEXT NOT NULL,
+      patterns TEXT NOT NULL,
+      suggestions TEXT NOT NULL,
+      executive_summary TEXT NOT NULL,
+      llm_reasoning TEXT NOT NULL,
+      model TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      latency_ms INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    );
   `);
 }

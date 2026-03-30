@@ -1,5 +1,6 @@
 import { createDb } from '@brain/database';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { EventBus } from '@brain/events';
 import { OrderbookService } from './orderbook.service';
 
 describe('OrderbookService', () => {
@@ -14,7 +15,7 @@ describe('OrderbookService', () => {
     // Mock fetch so token discovery falls through to simulated mode
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network in test')));
     const db = createDb(':memory:');
-    service = new OrderbookService(db);
+    service = new OrderbookService(db, new EventBus());
   });
 
   afterEach(() => {

@@ -1,4 +1,5 @@
 import { DATABASE_CLIENT, type DbClient, fills, riskConfigs, riskDecisions } from '@brain/database';
+import { type BrainEventName, type BrainEventMap, EventBus } from '@brain/events';
 import type { FeaturePayload, RiskConfig, RiskState, SupervisorOutput, UnixMs } from '@brain/types';
 import { Inject, Injectable, type OnModuleInit } from '@nestjs/common';
 import { desc, gte } from 'drizzle-orm';
@@ -43,6 +44,7 @@ export interface RiskConfigUpdate {
 export interface FullRiskState {
   config: RiskConfig;
   state: RiskState;
+  remainingDailyBudgetUsd: number;
   killSwitchActive: boolean;
   tradingEnabled: boolean;
   updatedAt: string;
@@ -52,8 +54,8 @@ export interface FullRiskState {
 
 const STALE_DATA_THRESHOLD_MS = 15_000;
 const DEFAULT_CONFIG: RiskConfig = {
-  maxSizeUsd: 50,
-  dailyLossLimitUsd: 200,
+  maxSizeUsd: 0.5,
+  dailyLossLimitUsd: 10,
   maxSpreadBps: 300,
   minDepthScore: 0.1,
   maxTradesPerWindow: 1,
@@ -71,7 +73,10 @@ export class RiskService implements OnModuleInit {
   private currentWindowId: string | null = null;
   private lastTradeTime: UnixMs | null = null;
 
-  constructor(@Inject(DATABASE_CLIENT) private readonly db: DbClient) {}
+  constructor(
+    @Inject(DATABASE_CLIENT) private readonly db: DbClient,
+    private readonly eventBus: EventBus,
+  ) {}
 
   async onModuleInit(): Promise<void> {
     // Load persisted config and daily P&L from database
@@ -95,6 +100,7 @@ export class RiskService implements OnModuleInit {
         tradesInWindow: this.tradesInCurrentWindow,
         lastTradeTime: this.lastTradeTime,
       },
+      remainingDailyBudgetUsd: this.remainingDailyBudgetUsd,
       killSwitchActive: this.killSwitchActive,
       tradingEnabled: this.tradingEnabled,
       updatedAt: new Date().toISOString(),
@@ -173,7 +179,10 @@ export class RiskService implements OnModuleInit {
     if (!balanceCheck.passed && balanceCheck.reason) rejectionReasons.push(balanceCheck.reason);
 
     const approved = rejectionReasons.length === 0 && proposal.action !== 'hold';
-    const approvedSizeUsd = approved ? Math.min(proposal.sizeUsd, this.config.maxSizeUsd) : 0;
+    // Cap approved size at the smallest of: proposed, max per trade, remaining daily budget
+    const approvedSizeUsd = approved
+      ? Math.min(proposal.sizeUsd, this.config.maxSizeUsd, this.remainingDailyBudgetUsd)
+      : 0;
 
     // Track trade if approved
     if (approved) {
@@ -209,13 +218,12 @@ export class RiskService implements OnModuleInit {
     }
 
     // Emit event
-    this.emitEvent(approved ? 'risk.approved' : 'risk.rejected', {
-      windowId,
-      agentDecisionId,
-      approved,
-      approvedSizeUsd,
-      rejectionReasons,
-    });
+    const riskPayload = { windowId, agentDecisionId, approved, approvedSizeUsd, rejectionReasons };
+    if (approved) {
+      this.emitEvent('risk.approved', riskPayload);
+    } else {
+      this.emitEvent('risk.rejected', riskPayload);
+    }
 
     return result;
   }
@@ -273,7 +281,7 @@ export class RiskService implements OnModuleInit {
     }
 
     this.emitEvent('risk.config.updated', {
-      config: this.config,
+      config: this.config as unknown as Record<string, unknown>,
       tradingEnabled: this.tradingEnabled,
     });
 
@@ -317,8 +325,17 @@ export class RiskService implements OnModuleInit {
       passed,
       reason: passed
         ? null
-        : `Daily loss limit reached: P&L $${this.dailyPnlUsd.toFixed(2)}, limit -$${this.config.dailyLossLimitUsd}`,
+        : `Daily budget exhausted: P&L $${this.dailyPnlUsd.toFixed(2)}, budget $${this.config.dailyLossLimitUsd}. Winnings were reinvested but net losses hit the limit.`,
     };
+  }
+
+  /**
+   * Returns how much of the daily budget remains.
+   * Budget = dailyLossLimitUsd. Winnings are reinvested (increase remaining),
+   * losses reduce it. When remaining <= 0, trading stops for the day.
+   */
+  get remainingDailyBudgetUsd(): number {
+    return Math.max(0, this.config.dailyLossLimitUsd + this.dailyPnlUsd);
   }
 
   private checkDataStaleness(eventTimeMs: number): RiskCheckResult {
@@ -419,8 +436,8 @@ export class RiskService implements OnModuleInit {
     }
   }
 
-  private emitEvent(_event: string, _payload: Record<string, unknown>): void {
-    /* noop */
+  private emitEvent<E extends BrainEventName>(event: E, payload: BrainEventMap[E]): void {
+    this.eventBus.emit(event, payload);
   }
 
   private generateId(): string {

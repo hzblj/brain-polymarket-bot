@@ -1,4 +1,5 @@
 import { bookSnapshots, DATABASE_CLIENT, type DbClient } from '@brain/database';
+import { type BrainEventName, type BrainEventMap, EventBus } from '@brain/events';
 import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { and, desc, gte, lte } from 'drizzle-orm';
 
@@ -98,7 +99,10 @@ export class OrderbookService implements OnModuleInit, OnModuleDestroy {
   private apiSecret: string | null = null;
   private apiPassphrase: string | null = null;
 
-  constructor(@Inject(DATABASE_CLIENT) private readonly db: DbClient) {}
+  constructor(
+    @Inject(DATABASE_CLIENT) private readonly db: DbClient,
+    private readonly eventBus: EventBus,
+  ) {}
 
   async onModuleInit(): Promise<void> {
     this.upTokenId = process.env.POLYMARKET_UP_TOKEN_ID ?? null;
@@ -542,13 +546,8 @@ export class OrderbookService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  private emitEvent(event: string, _payload: Record<string, unknown>): void {
-    // TODO: Wire to @brain/events
-    // this.events.emit(event, payload);
-    // Only log significant events to avoid noise
-    if (event !== 'book.snapshot.updated') {
-      // TODO: log significant events
-    }
+  private emitEvent<E extends BrainEventName>(event: E, payload: BrainEventMap[E]): void {
+    this.eventBus.emit(event, payload);
   }
 }
 

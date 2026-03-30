@@ -1,6 +1,6 @@
 # Brain Polymarket Bot
 
-Polymarket BTC 5-minute Up/Down trading bot. Monorepo s 10 NestJS microservices, LLM agenty (Claude/OpenAI) a deterministickymi risk guardrails.
+Polymarket BTC 5-minute Up/Down trading bot. Monorepo s 13 NestJS microservices, LLM agenty (Claude/OpenAI), deterministickymi risk guardrails a analytickou vrstvou (post-trade analyza + strategy optimalizace).
 
 ## Architektura
 
@@ -19,12 +19,13 @@ Polymarket BTC 5-minute Up/Down trading bot. Monorepo s 10 NestJS microservices,
                     |
                risk-service
                     |
-            execution-service
-                    |
-              [Polymarket CLOB]
+            execution-service ──────► post-trade-analyzer
+                    |                        |
+              [Polymarket CLOB]      strategy-optimizer
+                                     (denni deep analyza)
 ```
 
-**Hlavni zasada:** Services pocitaji realitu. Agenti interpretuju. Risk schvaluje. Execution provadi. LLM nikdy neposlou order.
+**Hlavni zasada:** Services pocitaji realitu. Agenti interpretuju. Risk schvaluje. Execution provadi. Analyzeri se uci. LLM nikdy neposlou order.
 
 ## Services
 
@@ -40,6 +41,9 @@ Polymarket BTC 5-minute Up/Down trading bot. Monorepo s 10 NestJS microservices,
 | config | 3007 | Centralni konfigurace, market config, feature flags, rezimy, reset-defaults |
 | agent-gateway | 3008 | Komunikace s Claude/OpenAI, context, decision validate/log, trace log |
 | replay | 3009 | Prehravani historickych dat, backtest |
+| whale-tracker | 3010 | Sledovani on-chain whale transakci (BTC exchange flows) |
+| post-trade-analyzer | 3011 | LLM analyza kazdeho obchodu (P&L, edge accuracy, misleading signaly) |
+| strategy-optimizer | 3012 | Denni deep analyza, pattern recognition, navrhy na upravu strategie |
 
 ## Shared packages
 
@@ -50,7 +54,7 @@ Polymarket BTC 5-minute Up/Down trading bot. Monorepo s 10 NestJS microservices,
 | @brain/config | NestJS config modul s Zod validaci env vars |
 | @brain/database | Drizzle ORM + SQLite, vsechny tabulky |
 | @brain/logger | Pino logger jako NestJS modul |
-| @brain/events | Typovany EventBus (14 event typu) |
+| @brain/events | Typovany EventBus |
 | @brain/polymarket-client | REST + WebSocket klient pro Polymarket CLOB |
 | @brain/exchange-clients | Binance + Coinbase WebSocket price feedy |
 | @brain/llm-clients | Claude + OpenAI s validovanym structured outputem |
@@ -95,7 +99,7 @@ OPENAI_API_KEY=sk-...
 docker compose up -d
 ```
 
-Vsech 10 services nastartuje s hot-reload. Kazda zmena v `apps/` nebo `packages/` se automaticky projevi.
+Vsechny services nastartuje s hot-reload. Kazda zmena v `apps/` nebo `packages/` se automaticky projevi.
 
 ```bash
 # Logy jedne service
@@ -123,6 +127,8 @@ yarn dev:execution
 yarn dev:config
 yarn dev:agent-gateway
 yarn dev:api-gateway
+yarn dev:post-trade-analyzer
+yarn dev:strategy-optimizer
 ```
 
 ## Paper mode: testovani bez realnch obchodu
@@ -157,6 +163,8 @@ Kazdy krok se uklada do SQLite databaze (`./data/brain.sqlite`):
 | `risk_decisions` | Vyhodnoceni risk-service: schvaleno/zamitnuto a duvody |
 | `orders` | Vsechny ordery (paper i live) |
 | `fills` | Vsechny filly (simulovane i realne) |
+| `trade_analyses` | LLM analyzy kazdeho obchodu (P&L, edge accuracy, signaly) |
+| `daily_reports` | Denni strategy reporty (agregovane statistiky + LLM insights) |
 
 ### Vyhodnoceni na konci dne
 
@@ -295,6 +303,46 @@ curl http://localhost:3008/api/v1/agent/traces
 curl http://localhost:3008/api/v1/agent/traces/<traceId>
 ```
 
+### Post-Trade Analyza
+```bash
+# Analyzovat konkretni obchod (po uzavreni okna)
+curl -X POST http://localhost:3011/api/v1/analyzer/analyze \
+  -H 'Content-Type: application/json' \
+  -d '{"orderId": "ord-123", "windowId": "win-456"}'
+
+# Analyzovat vsechny obchody v okne
+curl -X POST http://localhost:3011/api/v1/analyzer/analyze-window \
+  -H 'Content-Type: application/json' \
+  -d '{"windowId": "win-456"}'
+
+# Seznam analyz (filtry: windowId, verdict, from, to)
+curl http://localhost:3011/api/v1/analyzer/analyses
+curl http://localhost:3011/api/v1/analyzer/analyses?verdict=unprofitable&limit=20
+```
+
+### Strategy Optimalizace
+```bash
+# Vygenerovat denni report (default: poslednich 24h)
+curl -X POST http://localhost:3012/api/v1/optimizer/generate-report \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+
+# Report za konkretni obdobi
+curl -X POST http://localhost:3012/api/v1/optimizer/generate-report \
+  -H 'Content-Type: application/json' \
+  -d '{"periodStart": "2026-03-29T00:00:00Z", "periodEnd": "2026-03-30T00:00:00Z"}'
+
+# Seznam reportu
+curl http://localhost:3012/api/v1/optimizer/reports
+
+# Stav scheduleru
+curl http://localhost:3012/api/v1/optimizer/status
+
+# Zapnout/vypnout automaticky scheduler (default: kazdych 24h)
+curl -X POST http://localhost:3012/api/v1/optimizer/enable
+curl -X POST http://localhost:3012/api/v1/optimizer/disable
+```
+
 ## Testy
 
 ```bash
@@ -357,24 +405,29 @@ npx vitest
 
 ```
 apps/
-  api-gateway/                 # Port 3000
-  market-discovery-service/    # Port 3001
-  price-feed-service/          # Port 3002
-  orderbook-service/           # Port 3003
-  feature-engine-service/      # Port 3004
-  risk-service/                # Port 3005
-  execution-service/           # Port 3006
-  config-service/              # Port 3007
-  agent-gateway-service/       # Port 3008
-  replay-service/              # Port 3009
+  api-gateway/                    # Port 3000
+  market-discovery-service/       # Port 3001
+  price-feed-service/             # Port 3002
+  orderbook-service/              # Port 3003
+  feature-engine-service/         # Port 3004
+  risk-service/                   # Port 3005
+  execution-service/              # Port 3006
+  config-service/                 # Port 3007
+  agent-gateway-service/          # Port 3008
+  replay-service/                 # Port 3009
+  whale-tracker-service/          # Port 3010
+  post-trade-analyzer-service/    # Port 3011
+  strategy-optimizer-service/     # Port 3012
+  pipeline-orchestrator/          # Orchestrace celeho flow
+  dashboard/                      # React monitoring UI
 
 packages/
-  types/           # Sdilene TS typy
-  schemas/         # Zod schemata
-  config/          # NestJS config modul
-  database/        # Drizzle ORM + SQLite
-  logger/          # Pino logger
-  events/          # Typovany EventBus
+  types/              # Sdilene TS typy
+  schemas/            # Zod schemata
+  config/             # NestJS config modul
+  database/           # Drizzle ORM + SQLite
+  logger/             # Pino logger
+  events/             # Typovany EventBus
   polymarket-client/  # Polymarket REST + WS
   exchange-clients/   # Binance + Coinbase WS
   llm-clients/        # Claude + OpenAI

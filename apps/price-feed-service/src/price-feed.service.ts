@@ -1,4 +1,5 @@
 import { DATABASE_CLIENT, type DbClient, priceTicks } from '@brain/database';
+import { type BrainEventName, type BrainEventMap, EventBus } from '@brain/events';
 import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { and, desc, eq, gte, lte } from 'drizzle-orm';
 import WebSocket from 'ws';
@@ -109,7 +110,10 @@ export class PriceFeedService implements OnModuleInit, OnModuleDestroy {
   private readonly wsBaseUrl: string;
   private readonly symbol: string;
 
-  constructor(@Inject(DATABASE_CLIENT) private readonly db: DbClient) {
+  constructor(
+    @Inject(DATABASE_CLIENT) private readonly db: DbClient,
+    private readonly eventBus: EventBus,
+  ) {
     this.wsBaseUrl = process.env.BINANCE_WS_URL ?? 'wss://stream.binance.com:9443/ws';
     this.symbol = (process.env.PRICE_FEED_SYMBOL ?? 'btcusdt').toLowerCase();
   }
@@ -568,8 +572,8 @@ export class PriceFeedService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private emitEvent(_event: string, _payload: Record<string, unknown>): void {
-    /* noop */
+  private emitEvent<E extends BrainEventName>(event: E, payload: BrainEventMap[E]): void {
+    this.eventBus.emit(event, payload);
   }
 }
 

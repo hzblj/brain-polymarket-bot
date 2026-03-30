@@ -1,4 +1,5 @@
 import { DATABASE_CLIENT, type DbClient, markets } from '@brain/database';
+import { type BrainEventName, type BrainEventMap, EventBus } from '@brain/events';
 import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 
@@ -85,7 +86,10 @@ export class MarketDiscoveryService implements OnModuleInit, OnModuleDestroy {
   private readonly apiSecret: string | null;
   private readonly apiPassphrase: string | null;
 
-  constructor(@Inject(DATABASE_CLIENT) private readonly db: DbClient) {
+  constructor(
+    @Inject(DATABASE_CLIENT) private readonly db: DbClient,
+    private readonly eventBus: EventBus,
+  ) {
     this.gammaUrl = process.env.POLYMARKET_GAMMA_URL ?? 'https://gamma-api.polymarket.com';
     this.clobUrl = process.env.POLYMARKET_API_URL ?? 'https://clob.polymarket.com';
     this.apiKey = process.env.POLYMARKET_API_KEY ?? null;
@@ -403,8 +407,8 @@ export class MarketDiscoveryService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private emitEvent(_event: string, _payload: Record<string, unknown>): void {
-    /* noop */
+  private emitEvent<E extends BrainEventName>(event: E, payload: BrainEventMap[E]): void {
+    this.eventBus.emit(event, payload);
   }
 
   /** Simple deterministic hex hash for stub IDs. */

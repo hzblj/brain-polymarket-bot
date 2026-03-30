@@ -132,6 +132,206 @@ export async function getFeedStatus() {
   return await fetchApi<{ name: string; type: string; connected: boolean; latencyMs: number; lastMessage: string | null; messageRate: number | null }[]>('/api/v1/dashboard/feeds');
 }
 
+// ─── Whale Tracker API Functions ─────────────────────────────────────────
+
+export async function getWhaleFeatures() {
+  return await fetchApi<{
+    largeTransactionCount: number;
+    netExchangeFlowBtc: number;
+    exchangeFlowPressure: number;
+    whaleVolumeBtc: number;
+    abnormalActivityScore: number;
+    lastWhaleEventTime: number | null;
+  }>('/api/v1/whales/current');
+}
+
+export async function getWhaleTransactions() {
+  return await fetchApi<{
+    txid: string;
+    amountBtc: number;
+    amountUsd: number;
+    direction: string;
+    fromAddress: string;
+    toAddress: string;
+    isExchangeInflow: boolean;
+    isExchangeOutflow: boolean;
+    eventTime: number;
+  }[]>('/api/v1/whales/transactions?limit=20');
+}
+
+export async function getWhaleHistory() {
+  return await fetchApi<{
+    features: {
+      largeTransactionCount: number;
+      netExchangeFlowBtc: number;
+      exchangeFlowPressure: number;
+      whaleVolumeBtc: number;
+      abnormalActivityScore: number;
+    };
+    eventTime: number;
+  }[]>('/api/v1/whales/history?limit=30');
+}
+
+// ─── Derivatives Feed API Functions ──────────────────────────────────────
+
+export async function getDerivativesFeatures() {
+  return await fetchApi<{
+    fundingRate: number;
+    fundingRateAnnualized: number;
+    fundingPressure: number;
+    openInterestUsd: number;
+    openInterestChangePct: number;
+    oiTrend: number;
+    longLiquidationUsd: number;
+    shortLiquidationUsd: number;
+    liquidationImbalance: number;
+    liquidationIntensity: number;
+    derivativesSentiment: number;
+  }>('/api/v1/derivatives/current');
+}
+
+export async function getDerivativesLiquidations() {
+  return await fetchApi<{
+    symbol: string;
+    side: string;
+    price: number;
+    quantity: number;
+    quantityUsd: number;
+    eventTime: number;
+  }[]>('/api/v1/derivatives/liquidations?limit=30');
+}
+
+export async function getDerivativesHistory() {
+  return await fetchApi<{
+    features: {
+      fundingPressure: number;
+      oiTrend: number;
+      liquidationIntensity: number;
+      derivativesSentiment: number;
+      openInterestUsd: number;
+      longLiquidationUsd: number;
+      shortLiquidationUsd: number;
+    };
+    eventTime: number;
+  }[]>('/api/v1/derivatives/history?limit=30');
+}
+
+// ─── Post-Trade Analyzer API Functions ───────────────────────────────────
+
+export async function getTradeAnalyses(params?: { verdict?: string; limit?: number }) {
+  const query = new URLSearchParams();
+  if (params?.verdict) query.set('verdict', params.verdict);
+  if (params?.limit) query.set('limit', String(params.limit));
+  const qs = query.toString();
+  return await fetchApi<{
+    id: string;
+    windowId: string;
+    orderId: string;
+    verdict: string;
+    pnlUsd: number;
+    pnlBps: number;
+    entryPrice: number;
+    exitPrice: number;
+    side: string;
+    sizeUsd: number;
+    regimeAtEntry: string;
+    edgeDirectionAtEntry: string;
+    edgeMagnitudeAtEntry: number;
+    supervisorConfidence: number;
+    edgeAccurate: boolean;
+    confidenceCalibration: string;
+    misleadingSignals: string[];
+    correctSignals: string[];
+    improvementSuggestions: string[];
+    llmReasoning: string;
+    model: string;
+    provider: string;
+    latencyMs: number;
+    createdAt: string;
+  }[]>(`/api/v1/analyzer/analyses${qs ? `?${qs}` : ''}`);
+}
+
+// ─── Strategy Optimizer API Functions ────────────────────────────────────
+
+export async function getStrategyReports(limit?: number) {
+  const qs = limit ? `?limit=${limit}` : '';
+  return await fetchApi<{
+    id: string;
+    periodStart: string;
+    periodEnd: string;
+    totalTrades: number;
+    totalPnlUsd: number;
+    winRate: number;
+    avgEdgeMagnitude: number;
+    maxDrawdownUsd: number;
+    performanceByRegime: Record<string, { trades: number; pnlUsd: number; winRate: number }>;
+    performanceByHour: Record<string, { trades: number; pnlUsd: number }>;
+    agentAccuracy: { edgePredictionAccuracy: number; confidenceCalibration: number; regimeAccuracy: number };
+    riskMetrics: { rejectionRate: number; topRejectionReasons: string[] };
+    patterns: string[];
+    suggestions: { category: string; suggestion: string; rationale: string; confidence: number; priority: string; autoApplicable: boolean }[];
+    executiveSummary: string;
+    createdAt: string;
+  }[]>(`/api/v1/optimizer/reports${qs}`);
+}
+
+export async function getOptimizerStatus() {
+  return await fetchApi<{
+    enabled: boolean;
+    isRunning: boolean;
+    lastRunAt: string | null;
+    intervalMs: number;
+  }>('/api/v1/optimizer/status');
+}
+
+// ─── Mutations (POST) ───────────────────────────────────────────────────────
+
+async function postApi<T>(path: string, body: Record<string, unknown>): Promise<T | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      throw new ApiError(res.status, path);
+    }
+
+    const json = await res.json();
+    return (json.data as T) ?? null;
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err instanceof ApiError) throw err;
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error(`Timeout: ${path}`);
+    }
+    throw new Error(`Network error: ${path}`);
+  }
+}
+
+export async function switchStrategy(marketConfigId: string, strategyVersionId: string) {
+  return postApi('/api/v1/config/strategy', { marketConfigId, strategyVersionId });
+}
+
+export async function resetDefaultStrategy() {
+  return postApi('/api/v1/config/strategy/reset-default', {});
+}
+
+export async function updateSystemConfig(update: Record<string, unknown>) {
+  return postApi('/api/v1/config', update);
+}
+
+export async function toggleExecutionMode(currentMode: string) {
+  const newMode = currentMode === 'paper' ? 'live' : 'paper';
+  return postApi('/api/v1/config', { trading: { mode: newMode } });
+}
+
 // ─── Config & Strategy API Functions ──────────────────────────────────────
 
 export async function getSystemConfig() {

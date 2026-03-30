@@ -1,4 +1,5 @@
 import { createDb } from '@brain/database';
+import { EventBus } from '@brain/events';
 import type {
   EdgeOutput,
   FeaturePayload,
@@ -8,8 +9,63 @@ import type {
   SupervisorOutput,
 } from '@brain/types';
 import { HttpException } from '@nestjs/common';
+import type { z } from 'zod';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentGatewayService } from './agent-gateway.service';
+
+// ─── Mock LLM Client ─────────────────────────────────────────────────────────
+
+function createMockLlmClient() {
+  const stubResponses: Record<string, unknown> = {
+    regime: {
+      regime: 'mean_reverting',
+      confidence: 0.55,
+      reasoning: 'Price shows moderate mean reversion strength with low directional momentum.',
+    },
+    edge: {
+      direction: 'none',
+      magnitude: 0,
+      confidence: 0.4,
+      reasoning: 'No significant edge detected.',
+    },
+    supervisor: {
+      action: 'hold',
+      sizeUsd: 0,
+      confidence: 0.5,
+      reasoning: 'Holding. No clear edge detected.',
+      regimeSummary: 'Market is in a mean-reverting regime.',
+      edgeSummary: 'No actionable edge identified.',
+    },
+  };
+
+  return {
+    provider: 'openai',
+    evaluate: vi.fn(async (systemPrompt: string, _userPrompt: string, schema: z.ZodSchema) => {
+      // Detect agent type from system prompt
+      let agentType = 'supervisor';
+      if (systemPrompt.startsWith('You are a market regime classification')) agentType = 'regime';
+      else if (systemPrompt.startsWith('You are an edge estimation')) agentType = 'edge';
+
+      const data = schema.parse(stubResponses[agentType]);
+      return {
+        data,
+        model: 'gpt-4o',
+        provider: 'openai',
+        latencyMs: 150,
+        inputTokens: 500,
+        outputTokens: 100,
+      };
+    }),
+  };
+}
+
+// ─── Mock Logger ──────────────────────────────────────────────────────────────
+
+function createMockLogger(): any {
+  const noop = () => {};
+  const logger = { log: noop, info: noop, error: noop, warn: noop, debug: noop, verbose: noop, fatal: noop, child: () => logger };
+  return logger;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -50,6 +106,7 @@ function makeFeaturePayload(overrides: Partial<FeaturePayload> = {}): FeaturePay
       volatilityRegime: 'medium',
       bookPressure: 'neutral',
       basisSignal: 'neutral',
+      tradeable: true,
     },
     ...overrides,
   };
@@ -112,7 +169,10 @@ describe('AgentGatewayService', () => {
     });
 
     const db = createDb(':memory:');
-    service = new AgentGatewayService(db);
+    const eventBus = new EventBus();
+    const mockClient = createMockLlmClient();
+    const mockLogger = createMockLogger();
+    service = new AgentGatewayService(db, eventBus, mockClient as any, mockLogger);
     await service.onModuleInit();
   });
 
@@ -162,8 +222,8 @@ describe('AgentGatewayService', () => {
         features: makeFeaturePayload(),
       });
 
-      expect(trace.model).toBe('claude-sonnet-4-20250514');
-      expect(trace.provider).toBe('anthropic');
+      expect(trace.model).toBe('gpt-4o');
+      expect(trace.provider).toBe('openai');
     });
 
     it('records non-negative latency', async () => {
@@ -418,8 +478,8 @@ describe('AgentGatewayService', () => {
 
       const traces = await service.listTraces();
       for (let i = 1; i < traces.length; i++) {
-        expect(new Date(traces[i - 1]?.createdAt).getTime()).toBeGreaterThanOrEqual(
-          new Date(traces[i]?.createdAt).getTime(),
+        expect(new Date(traces[i - 1]!.createdAt).getTime()).toBeGreaterThanOrEqual(
+          new Date(traces[i]!.createdAt).getTime(),
         );
       }
     });
@@ -516,8 +576,8 @@ describe('AgentGatewayService', () => {
   describe('getContext', () => {
     it('returns provider, model, and cache info', async () => {
       const context = await service.getContext();
-      expect(context.provider).toBe('anthropic');
-      expect(context.model).toBe('claude-sonnet-4-20250514');
+      expect(context.provider).toBe('openai');
+      expect(context.model).toBe('gpt-4o');
       expect(context.cacheSize).toBe(0);
       expect(context.tracesInMemory).toBe(0);
     });
@@ -609,7 +669,10 @@ describe('AgentGatewayService', () => {
 
   describe('onModuleInit', () => {
     it('reads configuration from environment variables', async () => {
-      const envService = new AgentGatewayService();
+      const db = createDb(':memory:');
+      const mockClient = createMockLlmClient();
+      const mockLogger = createMockLogger();
+      const envService = new AgentGatewayService(db, new EventBus(), mockClient as any, mockLogger);
 
       process.env.AGENT_PROVIDER = 'openai';
       process.env.AGENT_MODEL = 'gpt-4o';
@@ -634,7 +697,10 @@ describe('AgentGatewayService', () => {
       delete process.env.AGENT_PROVIDER;
       delete process.env.AGENT_MODEL;
 
-      const defaultService = new AgentGatewayService();
+      const db = createDb(':memory:');
+      const mockClient = createMockLlmClient();
+      const mockLogger = createMockLogger();
+      const defaultService = new AgentGatewayService(db, new EventBus(), mockClient as any, mockLogger);
       await defaultService.onModuleInit();
 
       const trace = await defaultService.evaluateRegime({
@@ -642,8 +708,8 @@ describe('AgentGatewayService', () => {
         features: makeFeaturePayload(),
       });
 
-      expect(trace.provider).toBe('anthropic');
-      expect(trace.model).toBe('claude-sonnet-4-20250514');
+      expect(trace.provider).toBe('openai');
+      expect(trace.model).toBe('gpt-4o');
     });
   });
 
@@ -711,6 +777,132 @@ describe('AgentGatewayService', () => {
       });
 
       expect(t1.id).not.toBe(t2.id);
+    });
+  });
+
+  // ─── Agent Profile Selection ──────────────────────────────────────────────
+
+  describe('agent profile selection', () => {
+    it('uses mean-reversion regime prompt when profile is specified', async () => {
+      const trace = await service.evaluateRegime({
+        windowId: 'win-profile-001',
+        features: makeFeaturePayload(),
+        agentProfile: 'regime-mean-reversion-v1',
+      });
+
+      expect(trace.systemPrompt).toContain('overextended moves and mean-reversion');
+    });
+
+    it('uses basis regime prompt when profile is specified', async () => {
+      const trace = await service.evaluateRegime({
+        windowId: 'win-profile-002',
+        features: makeFeaturePayload({ eventTime: 1700000002000 }),
+        agentProfile: 'regime-basis-v1',
+      });
+
+      expect(trace.systemPrompt).toContain('cross-venue basis analysis');
+    });
+
+    it('uses vol-fade regime prompt when profile is specified', async () => {
+      const trace = await service.evaluateRegime({
+        windowId: 'win-profile-003',
+        features: makeFeaturePayload({ eventTime: 1700000003000 }),
+        agentProfile: 'regime-vol-v1',
+      });
+
+      expect(trace.systemPrompt).toContain('volatility analysis');
+    });
+
+    it('uses default regime prompt when no profile is specified', async () => {
+      const trace = await service.evaluateRegime({
+        windowId: 'win-profile-004',
+        features: makeFeaturePayload({ eventTime: 1700000004000 }),
+      });
+
+      expect(trace.systemPrompt).toContain('market regime classification agent for a Polymarket');
+      expect(trace.systemPrompt).not.toContain('overextended');
+    });
+
+    it('falls back to default prompt for unknown profile', async () => {
+      const trace = await service.evaluateRegime({
+        windowId: 'win-profile-005',
+        features: makeFeaturePayload({ eventTime: 1700000005000 }),
+        agentProfile: 'regime-nonexistent-v99',
+      });
+
+      expect(trace.systemPrompt).toContain('market regime classification agent for a Polymarket');
+    });
+
+    it('uses reversion edge prompt when profile is specified', async () => {
+      const trace = await service.evaluateEdge({
+        windowId: 'win-profile-010',
+        features: makeFeaturePayload({ eventTime: 1700000010000 }),
+        agentProfile: 'edge-reversion-v1',
+      });
+
+      expect(trace.systemPrompt).toContain('mean-reversion pricing');
+    });
+
+    it('uses basis edge prompt when profile is specified', async () => {
+      const trace = await service.evaluateEdge({
+        windowId: 'win-profile-011',
+        features: makeFeaturePayload({ eventTime: 1700000011000 }),
+        agentProfile: 'edge-basis-v1',
+      });
+
+      expect(trace.systemPrompt).toContain('cross-venue basis arbitrage');
+    });
+
+    it('uses vol-fade edge prompt when profile is specified', async () => {
+      const trace = await service.evaluateEdge({
+        windowId: 'win-profile-012',
+        features: makeFeaturePayload({ eventTime: 1700000012000 }),
+        agentProfile: 'edge-vol-fade-v1',
+      });
+
+      expect(trace.systemPrompt).toContain('volatility premium harvesting');
+    });
+
+    it('uses aggressive supervisor prompt when profile is specified', async () => {
+      const trace = await service.evaluateSupervisor({
+        windowId: 'win-profile-020',
+        features: makeFeaturePayload({ eventTime: 1700000020000 }),
+        regime: makeRegimeOutput(),
+        edge: makeEdgeOutput(),
+        riskState: makeRiskState(),
+        riskConfig: makeRiskConfig(),
+        agentProfile: 'supervisor-aggressive-v1',
+      });
+
+      expect(trace.systemPrompt).toContain('mean-reversion strategy');
+    });
+
+    it('uses speed supervisor prompt when profile is specified', async () => {
+      const trace = await service.evaluateSupervisor({
+        windowId: 'win-profile-021',
+        features: makeFeaturePayload({ eventTime: 1700000021000 }),
+        regime: makeRegimeOutput(),
+        edge: makeEdgeOutput(),
+        riskState: makeRiskState(),
+        riskConfig: makeRiskConfig(),
+        agentProfile: 'supervisor-speed-v1',
+      });
+
+      expect(trace.systemPrompt).toContain('basis arbitrage strategy');
+    });
+
+    it('uses patient supervisor prompt when profile is specified', async () => {
+      const trace = await service.evaluateSupervisor({
+        windowId: 'win-profile-022',
+        features: makeFeaturePayload({ eventTime: 1700000022000 }),
+        regime: makeRegimeOutput(),
+        edge: makeEdgeOutput(),
+        riskState: makeRiskState(),
+        riskConfig: makeRiskConfig(),
+        agentProfile: 'supervisor-patient-v1',
+      });
+
+      expect(trace.systemPrompt).toContain('volatility fade strategy');
     });
   });
 });

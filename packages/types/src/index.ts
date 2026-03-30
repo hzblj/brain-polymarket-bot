@@ -107,6 +107,97 @@ export interface BookMetrics {
   depthScore: number;
 }
 
+// ─── Whale Types ────────────────────────────────────────────────────────────
+
+export type WhaleFlowDirection = 'exchange_inflow' | 'exchange_outflow' | 'unknown';
+
+export interface WhaleTransaction {
+  txid: string;
+  amountBtc: number;
+  amountUsd: number;
+  direction: WhaleFlowDirection;
+  fromAddress: string;
+  toAddress: string;
+  isExchangeInflow: boolean;
+  isExchangeOutflow: boolean;
+  eventTime: UnixMs;
+}
+
+export interface WhaleFeatures {
+  /** Number of large transactions (>10 BTC) in the current window */
+  largeTransactionCount: number;
+  /** Net BTC flow to exchanges (positive = inflow = bearish, negative = outflow = bullish) */
+  netExchangeFlowBtc: number;
+  /** Normalized exchange flow pressure: -1 (strong outflow/bullish) to 1 (strong inflow/bearish) */
+  exchangeFlowPressure: number;
+  /** Total BTC volume of whale transactions in the window */
+  whaleVolumeBtc: number;
+  /** 0-1 score: how abnormal is current whale activity vs recent history */
+  abnormalActivityScore: number;
+  /** Timestamp of last whale transaction seen */
+  lastWhaleEventTime: UnixMs | null;
+}
+
+export interface WhaleSnapshot {
+  id: string;
+  windowId: string;
+  features: WhaleFeatures;
+  recentTransactions: WhaleTransaction[];
+  eventTime: UnixMs;
+  ingestedAt: UnixMs;
+}
+
+// ─── Derivatives Types ──────────────────────────────────────────────────────
+
+export interface FundingRateData {
+  symbol: string;
+  fundingRate: number;
+  fundingTime: UnixMs;
+  markPrice: number;
+  indexPrice: number;
+}
+
+export interface OpenInterestData {
+  symbol: string;
+  openInterestBtc: number;
+  openInterestUsd: number;
+  eventTime: UnixMs;
+}
+
+export interface LiquidationEvent {
+  symbol: string;
+  side: 'buy' | 'sell';
+  price: number;
+  quantity: number;
+  quantityUsd: number;
+  eventTime: UnixMs;
+}
+
+export interface DerivativesFeatures {
+  /** Current funding rate (positive = longs pay shorts = bearish, negative = bullish) */
+  fundingRate: number;
+  /** Funding rate annualized percentage */
+  fundingRateAnnualized: number;
+  /** Funding rate signal: -1 (extreme negative) to 1 (extreme positive) */
+  fundingPressure: number;
+  /** Total open interest in USD */
+  openInterestUsd: number;
+  /** OI change over last 5 minutes in percent */
+  openInterestChangePct: number;
+  /** OI trend signal: -1 (rapidly decreasing) to 1 (rapidly increasing) */
+  oiTrend: number;
+  /** Total long liquidation volume in USD over rolling window */
+  longLiquidationUsd: number;
+  /** Total short liquidation volume in USD over rolling window */
+  shortLiquidationUsd: number;
+  /** Net liquidation pressure: positive = more longs liquidated (bearish), negative = more shorts (bullish) */
+  liquidationImbalance: number;
+  /** 0-1 score: how extreme is current liquidation activity vs baseline */
+  liquidationIntensity: number;
+  /** Composite derivatives sentiment: -1 (bearish) to 1 (bullish) */
+  derivativesSentiment: number;
+}
+
 // ─── Feature Types ───────────────────────────────────────────────────────────
 
 export interface MarketFeatures {
@@ -145,6 +236,7 @@ export interface SignalFeatures {
   volatilityRegime: 'low' | 'medium' | 'high';
   bookPressure: 'bid' | 'ask' | 'neutral';
   basisSignal: 'long' | 'short' | 'neutral';
+  tradeable: boolean;
 }
 
 export interface FeaturePayload {
@@ -154,6 +246,8 @@ export interface FeaturePayload {
   price: PriceFeatures;
   book: BookFeatures;
   signals: SignalFeatures;
+  whales?: WhaleFeatures;
+  derivatives?: DerivativesFeatures;
 }
 
 // ─── Agent Types ─────────────────────────────────────────────────────────────
@@ -395,7 +489,11 @@ export type ServiceName =
   | 'execution'
   | 'replay'
   | 'config'
-  | 'api-gateway';
+  | 'api-gateway'
+  | 'whale-tracker'
+  | 'derivatives-feed'
+  | 'post-trade-analyzer'
+  | 'strategy-optimizer';
 
 export type HealthStatus = 'healthy' | 'degraded' | 'unhealthy';
 
@@ -430,5 +528,103 @@ export interface Replay {
   toTime: UnixMs;
   config: ReplayConfig;
   results: ReplayResults | null;
+  createdAt: ISOTimestamp;
+}
+
+// ─── Trade Analysis Types ───────────────────────────────────────────────────
+
+export type AnalysisVerdict = 'profitable' | 'unprofitable' | 'breakeven' | 'unknown';
+export type ConfidenceCalibration = 'overconfident' | 'underconfident' | 'well_calibrated';
+
+export interface TradeAnalysis {
+  id: string;
+  windowId: string;
+  orderId: string;
+  verdict: AnalysisVerdict;
+  pnlUsd: number;
+  pnlBps: number;
+  entryPrice: number;
+  exitPrice: number;
+  side: OrderSide;
+  sizeUsd: number;
+  regimeAtEntry: Regime;
+  edgeDirectionAtEntry: EdgeDirection;
+  edgeMagnitudeAtEntry: number;
+  supervisorConfidence: number;
+  edgeAccurate: boolean;
+  confidenceCalibration: ConfidenceCalibration;
+  misleadingSignals: string[];
+  correctSignals: string[];
+  improvementSuggestions: string[];
+  llmReasoning: string;
+  model: string;
+  provider: string;
+  latencyMs: number;
+  createdAt: ISOTimestamp;
+}
+
+// ─── Strategy Report Types ──────────────────────────────────────────────────
+
+export type SuggestionCategory =
+  | 'risk_limits'
+  | 'position_sizing'
+  | 'agent_prompts'
+  | 'regime_filters'
+  | 'timing'
+  | 'other';
+
+export type SuggestionPriority = 'high' | 'medium' | 'low';
+
+export interface StrategySuggestion {
+  category: SuggestionCategory;
+  suggestion: string;
+  rationale: string;
+  confidence: number;
+  priority: SuggestionPriority;
+  autoApplicable: boolean;
+}
+
+export interface RegimePerformance {
+  trades: number;
+  pnlUsd: number;
+  winRate: number;
+}
+
+export interface HourPerformance {
+  trades: number;
+  pnlUsd: number;
+}
+
+export interface AgentAccuracyMetrics {
+  edgePredictionAccuracy: number;
+  confidenceCalibration: number;
+  regimeAccuracy: number;
+}
+
+export interface RiskMetrics {
+  rejectionRate: number;
+  topRejectionReasons: string[];
+}
+
+export interface DailyReport {
+  id: string;
+  periodStart: ISOTimestamp;
+  periodEnd: ISOTimestamp;
+  totalTrades: number;
+  totalPnlUsd: number;
+  winRate: number;
+  avgEdgeMagnitude: number;
+  maxDrawdownUsd: number;
+  performanceByRegime: Record<string, RegimePerformance>;
+  performanceByHour: Record<string, HourPerformance>;
+  agentAccuracy: AgentAccuracyMetrics;
+  riskMetrics: RiskMetrics;
+  patterns: string[];
+  suggestions: StrategySuggestion[];
+  executiveSummary: string;
+  llmReasoning: string;
+  model: string;
+  provider: string;
+  latencyMs: number;
   createdAt: ISOTimestamp;
 }

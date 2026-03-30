@@ -10,6 +10,20 @@ export class ConfigManagementController {
     @Inject(StrategyService) private readonly strategyService: StrategyService,
   ) {}
 
+  /**
+   * GET /api/v1/config/health
+   * Returns health status of the config service.
+   */
+  @Get('health')
+  getHealth() {
+    return {
+      ok: true,
+      service: 'config',
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+    };
+  }
+
   @Get()
   async getConfig() {
     const config = await this.configManagementService.getEffectiveConfig();

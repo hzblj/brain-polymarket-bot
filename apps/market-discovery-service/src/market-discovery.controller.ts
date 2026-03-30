@@ -6,6 +6,20 @@ export class MarketDiscoveryController {
   constructor(@Inject(MarketDiscoveryService) private readonly marketDiscoveryService: MarketDiscoveryService) {}
 
   /**
+   * GET /api/v1/market/health
+   * Returns health status of the market-discovery service.
+   */
+  @Get('health')
+  getHealth() {
+    return {
+      ok: true,
+      service: 'market-discovery',
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  /**
    * GET /api/v1/market/active
    * Returns the currently active "Bitcoin Up or Down - 5 Minutes" market.
    */
