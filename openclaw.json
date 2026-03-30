@@ -31,33 +31,97 @@
         "id": "brain-ops",
         "default": true,
         "name": "Brain Ops",
-        "model": "openai/gpt-4o",
+        "workspace": "./openclaw/brain-ops",
+        "model": {
+          "primary": "openai/gpt-4o",
+          "fallbacks": ["openai/gpt-4o-mini"]
+        },
         "identity": {
           "name": "Brain Ops",
           "emoji": "🧠",
           "theme": "Trading bot operations manager"
+        },
+        "tools": {
+          "profile": "full",
+          "allow": ["exec", "read", "write", "web_fetch", "web_search", "sessions_list", "sessions_spawn"]
         },
         "sandbox": { "mode": "off" }
       },
       {
         "id": "brain-trader",
         "name": "Brain Trader",
-        "model": "openai/gpt-4o",
+        "workspace": "./openclaw/brain-trader",
+        "model": {
+          "primary": "openai/gpt-4o",
+          "fallbacks": ["openai/gpt-4o-mini"]
+        },
         "identity": {
           "name": "Brain Trader",
           "emoji": "📈",
           "theme": "Monitors trading decisions, P&L, and strategy performance"
+        },
+        "tools": {
+          "profile": "full",
+          "allow": ["exec", "read", "web_fetch", "web_search", "sessions_list"],
+          "deny": ["write", "edit"]
         },
         "sandbox": { "mode": "off" }
       },
       {
         "id": "brain-monitor",
         "name": "Brain Monitor",
-        "model": "openai/gpt-4o-mini",
+        "workspace": "./openclaw/brain-monitor",
+        "model": {
+          "primary": "openai/gpt-4o-mini",
+          "fallbacks": ["openai/gpt-4o-mini"]
+        },
         "identity": {
           "name": "Brain Monitor",
           "emoji": "🔍",
           "theme": "Infrastructure health monitoring and alerting"
+        },
+        "tools": {
+          "profile": "minimal",
+          "allow": ["exec", "read", "web_fetch"]
+        },
+        "sandbox": { "mode": "off" }
+      },
+      {
+        "id": "brain-analyst",
+        "name": "Brain Analyst",
+        "workspace": "./openclaw/brain-analyst",
+        "model": {
+          "primary": "openai/gpt-4o",
+          "fallbacks": ["openai/gpt-4o-mini"]
+        },
+        "identity": {
+          "name": "Brain Analyst",
+          "emoji": "🔬",
+          "theme": "Post-trade analysis and strategy optimization specialist"
+        },
+        "tools": {
+          "profile": "full",
+          "allow": ["exec", "read", "web_fetch", "web_search", "sessions_list"],
+          "deny": ["write", "edit"]
+        },
+        "sandbox": { "mode": "off" }
+      },
+      {
+        "id": "brain-whale",
+        "name": "Brain Whale",
+        "workspace": "./openclaw/brain-whale",
+        "model": {
+          "primary": "openai/gpt-4o-mini",
+          "fallbacks": ["openai/gpt-4o-mini"]
+        },
+        "identity": {
+          "name": "Brain Whale",
+          "emoji": "🐋",
+          "theme": "On-chain whale activity and derivatives market intelligence"
+        },
+        "tools": {
+          "profile": "minimal",
+          "allow": ["exec", "read", "web_fetch"]
         },
         "sandbox": { "mode": "off" }
       }

@@ -12,6 +12,7 @@ import {
   X,
   Monitor,
   Brain,
+  Clock,
 } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
@@ -22,7 +23,9 @@ import {
   updateRiskConfig,
   setKillSwitch as apiSetKillSwitch,
   setTradingMode,
+  updateTradingHours,
 } from "@/lib/api";
+import { useSystemConfig } from "@/lib/hooks";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -93,6 +96,29 @@ export default function SettingsPage() {
 
   // Kill switch
   const [killSwitch, setKillSwitch] = useState(state?.killSwitch ?? false);
+
+  // Trading hours
+  const configQuery = useSystemConfig();
+  const serverHours = (configQuery.data as Record<string, unknown>)?.trading as Record<string, unknown> | undefined;
+  const serverTradingHours = serverHours?.tradingHoursUtc as { enabled?: boolean; startHour?: number; endHour?: number } | undefined;
+
+  const [hoursEnabled, setHoursEnabled] = useState(serverTradingHours?.enabled ?? false);
+  const [startHour, setStartHour] = useState(serverTradingHours?.startHour ?? 0);
+  const [endHour, setEndHour] = useState(serverTradingHours?.endHour ?? 24);
+  const [hoursSaving, setHoursSaving] = useState(false);
+
+  // Sync from server
+  if (serverTradingHours && !hoursSaving) {
+    if (serverTradingHours.enabled !== undefined && serverTradingHours.enabled !== hoursEnabled) {
+      setHoursEnabled(serverTradingHours.enabled);
+    }
+    if (serverTradingHours.startHour !== undefined && serverTradingHours.startHour !== startHour) {
+      setStartHour(serverTradingHours.startHour);
+    }
+    if (serverTradingHours.endHour !== undefined && serverTradingHours.endHour !== endHour) {
+      setEndHour(serverTradingHours.endHour);
+    }
+  }
 
   // Risk config
   const [risk, setRisk] = useState<RiskConfig>(DEFAULT_RISK);
@@ -455,6 +481,98 @@ export default function SettingsPage() {
             <span className="text-xs text-text-muted">
               Unsaved changes
             </span>
+          </div>
+        )}
+      </div>
+
+      {/* ── Row 2b: Trading Hours ──────────────────────────────────────── */}
+      <div className="rounded-lg border border-border bg-surface-1 p-4">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-text-secondary">
+          <Clock className="mr-1.5 inline h-4 w-4" />
+          Trading Hours (UTC)
+        </h2>
+
+        <p className="mb-4 text-xs text-text-muted">
+          When enabled, the pipeline will only call LLM agents and execute trades during the specified UTC hours.
+          Outside these hours, all cycles are skipped — no LLM costs, no trades.
+        </p>
+
+        <div className="flex flex-wrap items-center gap-4">
+          {/* Enable toggle */}
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={hoursEnabled}
+              onChange={(e) => setHoursEnabled(e.target.checked)}
+              className="rounded border-border bg-surface-2 text-accent focus:ring-accent h-4 w-4"
+            />
+            <span className="text-sm text-text-primary">
+              {hoursEnabled ? "Enabled" : "Disabled"}
+            </span>
+          </label>
+
+          {/* Start hour */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-text-muted">From:</span>
+            <select
+              value={startHour}
+              onChange={(e) => setStartHour(Number(e.target.value))}
+              disabled={!hoursEnabled}
+              className="rounded border border-border bg-surface-2 px-2 py-1 text-sm text-text-primary focus:border-accent focus:outline-none disabled:opacity-40"
+            >
+              {Array.from({ length: 24 }, (_, i) => (
+                <option key={i} value={i}>
+                  {String(i).padStart(2, "0")}:00
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* End hour */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-text-muted">To:</span>
+            <select
+              value={endHour}
+              onChange={(e) => setEndHour(Number(e.target.value))}
+              disabled={!hoursEnabled}
+              className="rounded border border-border bg-surface-2 px-2 py-1 text-sm text-text-primary focus:border-accent focus:outline-none disabled:opacity-40"
+            >
+              {Array.from({ length: 24 }, (_, i) => (
+                <option key={i} value={i}>
+                  {String(i).padStart(2, "0")}:00
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Save button */}
+          <button
+            type="button"
+            onClick={async () => {
+              setHoursSaving(true);
+              try {
+                await updateTradingHours({
+                  enabled: hoursEnabled,
+                  startHour,
+                  endHour,
+                });
+              } finally {
+                setHoursSaving(false);
+              }
+            }}
+            className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/80 transition-colors disabled:opacity-40"
+            disabled={hoursSaving}
+          >
+            {hoursSaving ? "Saving..." : "Save Trading Hours"}
+          </button>
+        </div>
+
+        {hoursEnabled && (
+          <div className="mt-3 rounded bg-accent/5 border border-accent/20 px-3 py-2">
+            <p className="text-xs text-accent">
+              Trading active: <span className="font-mono font-bold">{String(startHour).padStart(2, "0")}:00 — {String(endHour).padStart(2, "0")}:00 UTC</span>
+              {startHour > endHour && " (overnight)"}
+            </p>
           </div>
         )}
       </div>

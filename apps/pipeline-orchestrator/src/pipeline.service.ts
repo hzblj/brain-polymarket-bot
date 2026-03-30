@@ -7,6 +7,7 @@ const FEATURE_ENGINE_URL = process.env.FEATURE_ENGINE_URL ?? 'http://localhost:3
 const AGENT_GATEWAY_URL = process.env.AGENT_GATEWAY_URL ?? 'http://localhost:3008';
 const RISK_SERVICE_URL = process.env.RISK_SERVICE_URL ?? 'http://localhost:3005';
 const EXECUTION_SERVICE_URL = process.env.EXECUTION_SERVICE_URL ?? 'http://localhost:3006';
+const CONFIG_SERVICE_URL = process.env.CONFIG_SERVICE_URL ?? 'http://localhost:3007';
 
 const PIPELINE_INTERVAL_MS = Number(process.env.PIPELINE_INTERVAL_MS) || 2_000;
 const EXECUTION_MODE = (process.env.EXECUTION_MODE ?? 'paper') as 'paper' | 'live' | 'disabled';
@@ -143,7 +144,25 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
     const cycle = this.cycleCount;
 
     try {
-      // 0. Check dependency health
+      // 0a. Check trading hours
+      const configData: ServiceResponse = await this.fetchJson(`${CONFIG_SERVICE_URL}/api/v1/config`);
+      const tradingHours = configData?.trading?.tradingHoursUtc;
+      if (tradingHours?.enabled) {
+        const currentHourUtc = new Date().getUTCHours();
+        const { startHour, endHour } = tradingHours;
+        const outsideHours = startHour <= endHour
+          ? (currentHourUtc < startHour || currentHourUtc >= endHour)
+          : (currentHourUtc < startHour && currentHourUtc >= endHour); // overnight range e.g. 22-6
+        if (outsideHours) {
+          return this.finishCycle(cycle, startMs, 'skipped', {
+            reason: 'Outside trading hours',
+            currentHourUtc,
+            allowedRange: `${startHour}:00-${endHour}:00 UTC`,
+          });
+        }
+      }
+
+      // 0b. Check dependency health
       const health = await this.checkDependencyHealth();
       if (!health.ok) {
         this.logger.warn(`Dependency health check failed: ${health.down.join(', ')}`);

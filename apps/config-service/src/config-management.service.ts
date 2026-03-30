@@ -16,6 +16,12 @@ import { z } from 'zod';
 
 // ─── Zod Schemas for Config Validation ───────────────────────────────────────
 
+const TradingHoursSchema = z.object({
+  enabled: z.boolean().optional(),
+  startHour: z.number().int().min(0).max(23).optional(),
+  endHour: z.number().int().min(0).max(23).optional(),
+});
+
 const TradingConfigSchema = z.object({
   edgeThresholdMin: z.number().min(0).max(1).optional(),
   edgeThresholdStrong: z.number().min(0).max(1).optional(),
@@ -23,6 +29,7 @@ const TradingConfigSchema = z.object({
   minDepthScore: z.number().nonnegative().optional(),
   maxSizeUsd: z.number().positive().optional(),
   mode: z.enum(['disabled', 'paper', 'live']).optional(),
+  tradingHoursUtc: TradingHoursSchema.optional(),
 });
 
 const RiskConfigSchema = z.object({
@@ -75,6 +82,12 @@ export type SystemConfigUpdate = z.infer<typeof SystemConfigUpdateSchema>;
 
 // ─── Config Shape ────────────────────────────────────────────────────────────
 
+interface TradingHoursUtc {
+  enabled: boolean;
+  startHour: number;
+  endHour: number;
+}
+
 interface TradingConfig {
   edgeThresholdMin: number;
   edgeThresholdStrong: number;
@@ -82,6 +95,7 @@ interface TradingConfig {
   minDepthScore: number;
   maxSizeUsd: number;
   mode: ExecutionMode;
+  tradingHoursUtc: TradingHoursUtc;
 }
 
 interface RiskConfig {
@@ -141,6 +155,11 @@ const DEFAULT_TRADING: TradingConfig = {
   minDepthScore: 0.1,
   maxSizeUsd: 0.5,
   mode: 'disabled',
+  tradingHoursUtc: {
+    enabled: false,
+    startHour: 0,
+    endHour: 24,
+  },
 };
 
 const DEFAULT_RISK: RiskConfig = {
@@ -335,7 +354,14 @@ export class ConfigManagementService implements OnModuleInit {
 
     // Merge trading config
     if (data.trading) {
-      this.trading = { ...this.trading, ...this.stripUndefined(data.trading) };
+      const { tradingHoursUtc, ...restTrading } = data.trading;
+      this.trading = { ...this.trading, ...this.stripUndefined(restTrading) };
+      if (tradingHoursUtc) {
+        this.trading.tradingHoursUtc = {
+          ...this.trading.tradingHoursUtc,
+          ...this.stripUndefined(tradingHoursUtc),
+        };
+      }
     }
 
     // Merge risk config

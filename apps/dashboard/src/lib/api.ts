@@ -350,6 +350,10 @@ export async function setTradingMode(mode: 'disabled' | 'paper' | 'live') {
   return postApi('/api/v1/config', { trading: { mode } });
 }
 
+export async function updateTradingHours(hours: { enabled: boolean; startHour: number; endHour: number }) {
+  return postApi('/api/v1/config', { trading: { tradingHoursUtc: hours } });
+}
+
 // ─── Config & Strategy API Functions ──────────────────────────────────────
 
 export async function getSystemConfig() {

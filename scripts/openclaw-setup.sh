@@ -207,17 +207,166 @@ Format as a structured report with sections and key numbers highlighted." \
 
 echo "  ✅ Weekly review cron (Sunday 10:00 CET)"
 
+# ─── 8. Post-Trade Analysis — every hour ────────────────────────────────────
+# Analyzes completed trades, signal quality, confidence calibration.
+
+openclaw cron add \
+  --name "brain-post-trade-analysis" \
+  --cron "0 * * * *" \
+  --session "session:brain-analyst" \
+  --agent brain-analyst \
+  --message "Analyze recent trades from the Brain Polymarket Bot.
+
+Fetch:
+1. ${API_GATEWAY}/api/v1/analyzer/analyses?limit=20 — recent trade analyses
+2. ${API_GATEWAY}/api/v1/dashboard/trades/closed — trade outcomes
+
+Summarize:
+- Edge prediction accuracy (% correct direction)
+- Confidence calibration (do high-confidence trades win more?)
+- Top misleading signals
+- Top correct signals
+- Any actionable improvement suggestions
+
+ONLY report if there are new trades since last check. If no new trades, say nothing." \
+  --model "openai/gpt-4o-mini" \
+  --announce \
+  --enabled
+
+echo "  ✅ Post-trade analysis cron (hourly)"
+
+# ─── 9. Whale Activity Alert — every 3 minutes ─────────────────────────────
+# Alerts on unusual whale activity that could impact BTC price.
+
+openclaw cron add \
+  --name "brain-whale-alert" \
+  --cron "*/3 * * * *" \
+  --session isolated \
+  --agent brain-whale \
+  --message "Check for significant whale activity.
+
+Fetch ${API_GATEWAY}/api/v1/whales/current and evaluate:
+
+- If abnormalActivityScore > 0.5: ALERT with details
+- If |netExchangeFlowBtc| > 30 BTC: ALERT with direction
+- If largeTransactionCount > 5 in current window: ALERT
+
+Also fetch ${API_GATEWAY}/api/v1/whales/transactions?limit=5 for details on notable transactions.
+
+If nothing significant, say NOTHING." \
+  --model "openai/gpt-4o-mini" \
+  --announce \
+  --enabled
+
+echo "  ✅ Whale activity alert cron (every 3 min)"
+
+# ─── 10. Derivatives Sentiment — every 5 minutes ───────────────────────────
+# Monitors funding rates, liquidations, and derivatives sentiment.
+
+openclaw cron add \
+  --name "brain-derivatives-monitor" \
+  --cron "*/5 * * * *" \
+  --session isolated \
+  --agent brain-whale \
+  --message "Check derivatives market conditions.
+
+Fetch ${API_GATEWAY}/api/v1/derivatives/current and evaluate:
+
+- If |fundingRate| > 0.02%: ALERT — extreme funding
+- If liquidationIntensity > 0.6: ALERT — liquidation cascade
+- If |derivativesSentiment| > 0.7: ALERT — strong directional signal
+
+If nothing notable, say NOTHING. Only report actionable signals." \
+  --model "openai/gpt-4o-mini" \
+  --announce \
+  --enabled
+
+echo "  ✅ Derivatives monitor cron (every 5 min)"
+
+# ─── 11. Market Sentiment Composite — every 10 minutes ─────────────────────
+# Combines whale + derivatives + market data for composite sentiment.
+
+openclaw cron add \
+  --name "brain-sentiment-composite" \
+  --cron "*/10 * * * *" \
+  --session "session:brain-sentiment" \
+  --agent brain-whale \
+  --message "Generate composite market sentiment.
+
+Fetch in parallel:
+1. ${API_GATEWAY}/api/v1/whales/current — whale features
+2. ${API_GATEWAY}/api/v1/derivatives/current — derivatives features
+3. ${API_GATEWAY}/api/v1/dashboard/snapshot — market prices
+4. ${API_GATEWAY}/api/v1/dashboard/pipeline — current agent decision
+
+Compute sentiment score from:
+- Exchange flow pressure (25%)
+- Funding pressure inverted (25%)
+- Liquidation imbalance inverted (20%)
+- OI trend aligned with price (15%)
+- Whale abnormality × flow direction (15%)
+
+ONLY report if:
+- Composite score > 0.5 or < -0.5 (strong signal)
+- OR sentiment CONTRADICTS current agent decision direction
+Otherwise say nothing." \
+  --model "openai/gpt-4o-mini" \
+  --announce \
+  --enabled
+
+echo "  ✅ Sentiment composite cron (every 10 min)"
+
+# ─── 12. Analytics Health — every 10 minutes ───────────────────────────────
+# Checks health of analytical services specifically.
+
+openclaw cron add \
+  --name "brain-analytics-health" \
+  --cron "*/10 * * * *" \
+  --session isolated \
+  --agent brain-monitor \
+  --message "Check health of analytical services.
+
+Fetch:
+1. ${API_GATEWAY}/api/v1/whales/health
+2. ${API_GATEWAY}/api/v1/derivatives/health
+3. ${API_GATEWAY}/api/v1/optimizer/status
+
+Check:
+- Are whale-tracker and derivatives-feed WebSockets connected?
+- Has optimizer run in the last 48 hours (if enabled)?
+- Any service returning errors?
+
+ONLY report problems. If all healthy, say nothing." \
+  --model "openai/gpt-4o-mini" \
+  --announce \
+  --enabled
+
+echo "  ✅ Analytics health cron (every 10 min)"
+
 echo ""
 echo "🎉 OpenClaw setup complete!"
 echo ""
-echo "Cron jobs created:"
-echo "  • brain-health-check      — every 2 min (unhealthy services)"
-echo "  • brain-pnl-report        — every 30 min (P&L summary)"
-echo "  • brain-strategy-monitor  — every 15 min (agent decisions)"
-echo "  • brain-morning-brief     — daily 8:00 CET (daily brief)"
-echo "  • brain-budget-alert      — every 5 min (budget warnings)"
-echo "  • brain-restart-detector  — every 10 min (service restarts)"
-echo "  • brain-weekly-review     — Sunday 10:00 CET (weekly analysis)"
+echo "Cron jobs created (12 total):"
+echo ""
+echo "  🔍 brain-monitor:"
+echo "    • brain-health-check       — every 2 min  (service health)"
+echo "    • brain-budget-alert        — every 5 min  (budget warnings)"
+echo "    • brain-restart-detector    — every 10 min (service restarts)"
+echo "    • brain-analytics-health    — every 10 min (analytics services)"
+echo ""
+echo "  📈 brain-trader:"
+echo "    • brain-pnl-report          — every 30 min (P&L summary)"
+echo "    • brain-strategy-monitor    — every 15 min (agent decisions)"
+echo "    • brain-morning-brief       — daily 8:00   (daily brief)"
+echo "    • brain-weekly-review       — Sunday 10:00 (weekly analysis)"
+echo ""
+echo "  🔬 brain-analyst:"
+echo "    • brain-post-trade-analysis — hourly        (trade analysis)"
+echo ""
+echo "  🐋 brain-whale:"
+echo "    • brain-whale-alert         — every 3 min  (whale activity)"
+echo "    • brain-derivatives-monitor — every 5 min  (funding/liqs)"
+echo "    • brain-sentiment-composite — every 10 min (composite signal)"
 echo ""
 echo "Manage jobs: openclaw cron list"
 echo "View runs:   openclaw cron runs"
