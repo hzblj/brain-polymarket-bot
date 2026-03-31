@@ -402,16 +402,23 @@ export class RiskService implements OnModuleInit {
   // ─── Internal Helpers ──────────────────────────────────────────────────────
 
   private async loadDailyPnl(): Promise<void> {
+    // Fetch resolved orders from execution service for real P&L
     try {
+      const LOCAL_HOST = process.env.LOCAL_IP ?? 'localhost';
+      const EXECUTION_URL = process.env.EXECUTION_SERVICE_URL ?? `http://${LOCAL_HOST}:3006`;
+      const res = await fetch(`${EXECUTION_URL}/api/v1/execution/resolved?limit=100`, {
+        signal: AbortSignal.timeout(3_000),
+      });
+      if (!res.ok) return;
+      const json = (await res.json()) as { ok: boolean; data: Array<{ pnlUsd: number; resolvedAt: string }> };
+      if (!json.ok || !Array.isArray(json.data)) return;
+
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
-      const todayIso = todayStart.toISOString();
-      const todayFills = await this.db.select().from(fills).where(gte(fills.filledAt, todayIso));
-      // Simple P&L: sum of fill sizes (positive for wins, negative for losses)
-      // In production, compute actual P&L from entry/exit. For now, keep in-memory value if no fills.
-      if (todayFills.length > 0) {
-        this.dailyPnlUsd = todayFills.reduce((sum, f) => sum + f.fillSizeUsd, 0);
-      }
+      const todayTrades = json.data.filter(
+        (t) => new Date(t.resolvedAt).getTime() >= todayStart.getTime(),
+      );
+      this.dailyPnlUsd = todayTrades.reduce((sum, t) => sum + (t.pnlUsd ?? 0), 0);
     } catch {
       // Keep in-memory value
     }

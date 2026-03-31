@@ -284,36 +284,86 @@ export class DashboardService {
   // ─── Metrics ──────────────────────────────────────────────────────────────
 
   async getTodayMetrics() {
-    const [fills, riskState] = await Promise.all([
-      this.fetch('execution', '/api/v1/execution/fills?limit=100'),
+    const [resolved, riskState] = await Promise.all([
+      this.fetch('execution', '/api/v1/execution/resolved?limit=100'),
       this.fetch('risk', '/api/v1/risk/state'),
     ]);
-    return this.computeMetrics(fills, riskState as Rec | null);
+
+    const trades = Array.isArray(resolved) ? (resolved as Rec[]) : [];
+    const realizedPnl = trades.reduce((sum, t) => sum + num(t.pnlUsd), 0);
+    const tradeCount = trades.length;
+    const winCount = trades.filter((t) => str(t.outcome) === 'win').length;
+    const lossCount = trades.filter((t) => str(t.outcome) === 'loss').length;
+
+    const sumWins = trades.filter((t) => num(t.pnlUsd) > 0).reduce((s, t) => s + num(t.pnlUsd), 0);
+    const sumLosses = Math.abs(trades.filter((t) => num(t.pnlUsd) < 0).reduce((s, t) => s + num(t.pnlUsd), 0));
+
+    return {
+      realizedPnl,
+      unrealizedPnl: num(val(riskState, 'state', 'openPositionUsd') as number),
+      tradeCount,
+      winCount,
+      lossCount,
+      breakevenCount: tradeCount - winCount - lossCount,
+      winRate: tradeCount > 0 ? winCount / tradeCount : 0,
+      profitFactor: sumLosses > 0 ? sumWins / sumLosses : 0,
+      avgPnl: tradeCount > 0 ? realizedPnl / tradeCount : 0,
+      maxDrawdown: num(val(riskState, 'state', 'dailyPnlUsd') as number),
+    };
   }
 
   async getSimulationSummary() {
-    const [fills, riskState] = await Promise.all([
-      this.fetch('execution', '/api/v1/execution/fills?limit=100'),
+    const [resolved, riskState] = await Promise.all([
+      this.fetch('execution', '/api/v1/execution/resolved?limit=100'),
       this.fetch('risk', '/api/v1/risk/state'),
     ]);
 
-    const paperFills = Array.isArray(fills) ? fills.filter((f: Rec) => f.mode === 'paper') : [];
-    const metrics = this.computeMetrics(paperFills, riskState as Rec | null);
+    const trades = Array.isArray(resolved) ? (resolved as Rec[]) : [];
+    const paperTrades = trades.filter((t) => t.mode === 'paper');
+
+    const realizedPnl = paperTrades.reduce((sum, t) => sum + num(t.pnlUsd), 0);
+    const tradeCount = paperTrades.length;
+    const winCount = paperTrades.filter((t) => str(t.outcome) === 'win').length;
+    const lossCount = paperTrades.filter((t) => str(t.outcome) === 'loss').length;
+    const winRate = tradeCount > 0 ? winCount / tradeCount : 0;
+
+    const sumWins = paperTrades.filter((t) => num(t.pnlUsd) > 0).reduce((s, t) => s + num(t.pnlUsd), 0);
+    const sumLosses = Math.abs(paperTrades.filter((t) => num(t.pnlUsd) < 0).reduce((s, t) => s + num(t.pnlUsd), 0));
+    const profitFactor = sumLosses > 0 ? sumWins / sumLosses : 0;
+
+    const avgDurationMs = tradeCount > 0
+      ? paperTrades.reduce((sum, t) => sum + num(t.durationMs), 0) / tradeCount
+      : 0;
 
     let currentWinStreak = 0;
-    for (const fill of paperFills) {
-      if (num((fill as Rec).pnlUsd) > 0) currentWinStreak++;
+    for (const t of paperTrades) {
+      if (str(t.outcome) === 'win') currentWinStreak++;
+      else break;
+    }
+
+    let currentLossStreak = 0;
+    for (const t of paperTrades) {
+      if (str(t.outcome) === 'loss') currentLossStreak++;
       else break;
     }
 
     return {
-      ...metrics,
-      paperTradesToday: paperFills.length,
-      avgHoldTime: 'N/A',
+      realizedPnl,
+      unrealizedPnl: num(val(riskState, 'state', 'openPositionUsd') as number),
+      tradeCount,
+      winCount,
+      lossCount,
+      breakevenCount: tradeCount - winCount - lossCount,
+      winRate,
+      profitFactor,
+      avgPnl: tradeCount > 0 ? realizedPnl / tradeCount : 0,
+      maxDrawdown: num(val(riskState, 'state', 'dailyPnlUsd') as number),
+      paperTradesToday: tradeCount,
+      avgHoldTime: avgDurationMs > 0 ? `${Math.round(avgDurationMs / 1000)}s` : 'N/A',
       falsePositiveRate: 0,
       noTradeRate: 0,
       currentWinStreak,
-      currentLossStreak: 0,
+      currentLossStreak,
       greenDayStreak: 0,
     };
   }
