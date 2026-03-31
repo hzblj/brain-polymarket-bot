@@ -27,6 +27,11 @@ COPY apps/risk-service/package.json apps/risk-service/package.json
 COPY apps/execution-service/package.json apps/execution-service/package.json
 COPY apps/config-service/package.json apps/config-service/package.json
 COPY apps/replay-service/package.json apps/replay-service/package.json
+COPY apps/whale-tracker-service/package.json apps/whale-tracker-service/package.json
+COPY apps/post-trade-analyzer-service/package.json apps/post-trade-analyzer-service/package.json
+COPY apps/strategy-optimizer-service/package.json apps/strategy-optimizer-service/package.json
+COPY apps/derivatives-feed-service/package.json apps/derivatives-feed-service/package.json
+COPY apps/pipeline-orchestrator/package.json apps/pipeline-orchestrator/package.json
 COPY apps/dashboard/package.json apps/dashboard/package.json
 
 RUN yarn install --immutable
@@ -35,6 +40,7 @@ RUN yarn install --immutable
 COPY tsconfig.json ./
 COPY packages packages
 COPY apps apps
+COPY scripts scripts
 
 # ─── Dev target: tsx watch with hot-reload ──────────────────────────────────
 FROM base AS dev
