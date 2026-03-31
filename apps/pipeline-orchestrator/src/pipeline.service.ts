@@ -190,11 +190,11 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
         });
       }
 
-      // Skip if we already traded this window
+      // Skip if we already evaluated or traded this window
       if (this.lastTradeWindowId === windowId) {
         return this.finishCycle(cycle, startMs, 'skipped', {
           windowId,
-          reason: 'Already traded this window',
+          reason: 'Already evaluated this window',
         });
       }
 
@@ -261,6 +261,9 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
         sizeUsd: Number(decision.sizeUsd ?? 0),
         confidence: Number(decision.confidence),
       });
+
+      // Mark this window as evaluated (regardless of hold/trade)
+      this.lastTradeWindowId = windowId;
 
       // 5. If hold, stop here
       if (decision.action === 'hold') {

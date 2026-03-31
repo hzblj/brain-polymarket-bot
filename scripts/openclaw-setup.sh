@@ -4,39 +4,15 @@ set -euo pipefail
 # ─── OpenClaw Setup for Brain Polymarket Bot ─────────────────────────────────
 # Run this after `openclaw onboard` to set up all cron jobs and automations.
 # Usage: bash scripts/openclaw-setup.sh
+#
+# Note: This runs on the Pi where Docker + OpenClaw live.
+# API gateway is at localhost:3000 (Docker internal).
 
 echo "🧠 Setting up OpenClaw for Brain Polymarket Bot..."
 
-LOCAL_IP="${LOCAL_IP:-localhost}"
-API_GATEWAY="http://${LOCAL_IP}:3000"
+API_GATEWAY="http://localhost:3000"
 
-# ─── 1. Health Check — every 2 minutes ──────────────────────────────────────
-# Pings all 14 services and alerts if any are unhealthy.
-
-openclaw cron add \
-  --name "brain-health-check" \
-  --cron "*/2 * * * *" \
-  --session isolated \
-  --agent brain-monitor \
-  --message "Run a health check on the Brain Polymarket Bot.
-
-Fetch ${API_GATEWAY}/api/v1/dashboard/health and analyze the response.
-
-For each service, check:
-- status: 'healthy', 'degraded', or 'unhealthy'
-- latencyMs: flag anything over 2000ms
-
-Services to check: market-discovery, price-feed, orderbook, feature-engine, risk, execution, config, agent-gateway, replay, whale-tracker, derivatives-feed, post-trade-analyzer, strategy-optimizer, dashboard, api-gateway.
-
-ONLY report if there's a problem. If all services are healthy, respond with nothing.
-If any service is unhealthy or degraded, report which ones and their latency." \
-  --model "openai/gpt-4o-mini" \
-  --announce \
-
-
-echo "  ✅ Health check cron (every 2 min)"
-
-# ─── 2. P&L Report — every 30 minutes ──────────────────────────────────────
+# ─── 1. P&L Report — every 30 minutes ──────────────────────────────────────
 # Tracks daily P&L, win rate, remaining budget.
 
 openclaw cron add \
@@ -60,12 +36,11 @@ Report a concise summary:
 
 If daily budget is below \$2, warn me. If kill switch is on, alert immediately." \
   --model "openai/gpt-4o-mini" \
-  --announce \
-
+  --announce
 
 echo "  ✅ P&L report cron (every 30 min)"
 
-# ─── 3. Strategy Monitor — every 15 minutes ────────────────────────────────
+# ─── 2. Strategy Monitor — every 15 minutes ────────────────────────────────
 # Checks which strategy is active and recent agent decisions.
 
 openclaw cron add \
@@ -87,12 +62,11 @@ Summarize:
 
 ONLY report if there's something notable. If everything is routine holds with no trades, say nothing." \
   --model "openai/gpt-4o-mini" \
-  --announce \
-
+  --announce
 
 echo "  ✅ Strategy monitor cron (every 15 min)"
 
-# ─── 4. Morning Brief — daily at 8:00 AM ───────────────────────────────────
+# ─── 3. Morning Brief — daily at 8:00 AM ───────────────────────────────────
 # Comprehensive daily summary of yesterday's performance.
 
 openclaw cron add \
@@ -122,60 +96,11 @@ Create a brief report:
 Keep it concise — max 10 lines." \
   --model "openai/gpt-4o" \
   --thinking "low" \
-  --announce \
-
+  --announce
 
 echo "  ✅ Morning brief cron (daily 8:00 CET)"
 
-# ─── 5. Budget Alert — every 5 minutes ─────────────────────────────────────
-# Alerts when daily budget is critically low or exhausted.
-
-openclaw cron add \
-  --name "brain-budget-alert" \
-  --cron "*/5 * * * *" \
-  --session isolated \
-  --agent brain-monitor \
-  --message "Check if the trading budget is critically low.
-
-Fetch ${API_GATEWAY}/api/v1/risk/state and check:
-- remainingDailyBudgetUsd
-- killSwitchActive
-- tradingEnabled
-
-Rules:
-- If remainingDailyBudgetUsd <= 0: ALERT '🛑 Daily budget exhausted! Trading stopped.'
-- If remainingDailyBudgetUsd < 2 and > 0: WARN '⚠️ Budget low: \$X.XX remaining'
-- If killSwitchActive is true: ALERT '🚨 Kill switch is ON!'
-- If tradingEnabled is false: WARN '⏸️ Trading is disabled'
-- Otherwise: say nothing (no alert needed)" \
-  --model "openai/gpt-4o-mini" \
-  --announce \
-
-
-echo "  ✅ Budget alert cron (every 5 min)"
-
-# ─── 6. Service Restart Detector — every 10 minutes ────────────────────────
-# Detects if services restarted unexpectedly.
-
-openclaw cron add \
-  --name "brain-restart-detector" \
-  --cron "*/10 * * * *" \
-  --session "session:brain-restarts" \
-  --agent brain-monitor \
-  --message "Check for service restarts or connectivity issues.
-
-Fetch ${API_GATEWAY}/api/v1/dashboard/health and compare with previous check.
-
-If any service went from healthy to unhealthy, or latency increased by >3x from last check, report it. Remember the state for next comparison.
-
-If everything is stable, say nothing." \
-  --model "openai/gpt-4o-mini" \
-  --announce \
-
-
-echo "  ✅ Restart detector cron (every 10 min)"
-
-# ─── 7. Weekly Strategy Review — Sundays at 10:00 AM ───────────────────────
+# ─── 4. Weekly Strategy Review — Sundays at 10:00 AM ───────────────────────
 # Deep analysis of weekly performance per strategy.
 
 openclaw cron add \
@@ -203,12 +128,11 @@ Analyze:
 Format as a structured report with sections and key numbers highlighted." \
   --model "openai/gpt-4o" \
   --thinking "high" \
-  --announce \
-
+  --announce
 
 echo "  ✅ Weekly review cron (Sunday 10:00 CET)"
 
-# ─── 8. Post-Trade Analysis — every hour ────────────────────────────────────
+# ─── 5. Post-Trade Analysis — every hour ────────────────────────────────────
 # Analyzes completed trades, signal quality, confidence calibration.
 
 openclaw cron add \
@@ -231,12 +155,11 @@ Summarize:
 
 ONLY report if there are new trades since last check. If no new trades, say nothing." \
   --model "openai/gpt-4o-mini" \
-  --announce \
-
+  --announce
 
 echo "  ✅ Post-trade analysis cron (hourly)"
 
-# ─── 9. Whale Activity Alert — every 3 minutes ─────────────────────────────
+# ─── 6. Whale Activity Alert — every 3 minutes ─────────────────────────────
 # Alerts on unusual whale activity that could impact BTC price.
 
 openclaw cron add \
@@ -262,12 +185,11 @@ Additional blockchain alerts:
 
 If nothing significant, say NOTHING." \
   --model "openai/gpt-4o-mini" \
-  --announce \
-
+  --announce
 
 echo "  ✅ Whale activity alert cron (every 3 min)"
 
-# ─── 10. Derivatives Sentiment — every 5 minutes ───────────────────────────
+# ─── 7. Derivatives Sentiment — every 5 minutes ───────────────────────────
 # Monitors funding rates, liquidations, and derivatives sentiment.
 
 openclaw cron add \
@@ -285,12 +207,11 @@ Fetch ${API_GATEWAY}/api/v1/derivatives/current and evaluate:
 
 If nothing notable, say NOTHING. Only report actionable signals." \
   --model "openai/gpt-4o-mini" \
-  --announce \
-
+  --announce
 
 echo "  ✅ Derivatives monitor cron (every 5 min)"
 
-# ─── 11. Market Sentiment Composite — every 10 minutes ─────────────────────
+# ─── 8. Market Sentiment Composite — every 10 minutes ─────────────────────
 # Combines whale + derivatives + market data for composite sentiment.
 
 openclaw cron add \
@@ -320,48 +241,14 @@ ONLY report if:
 - OR sentiment CONTRADICTS current agent decision direction
 Otherwise say nothing." \
   --model "openai/gpt-4o-mini" \
-  --announce \
-
+  --announce
 
 echo "  ✅ Sentiment composite cron (every 10 min)"
-
-# ─── 12. Analytics Health — every 10 minutes ───────────────────────────────
-# Checks health of analytical services specifically.
-
-openclaw cron add \
-  --name "brain-analytics-health" \
-  --cron "*/10 * * * *" \
-  --session isolated \
-  --agent brain-monitor \
-  --message "Check health of analytical services.
-
-Fetch:
-1. ${API_GATEWAY}/api/v1/whales/health
-2. ${API_GATEWAY}/api/v1/derivatives/health
-3. ${API_GATEWAY}/api/v1/optimizer/status
-
-Check:
-- Are whale-tracker and derivatives-feed WebSockets connected?
-- Has optimizer run in the last 48 hours (if enabled)?
-- Any service returning errors?
-
-ONLY report problems. If all healthy, say nothing." \
-  --model "openai/gpt-4o-mini" \
-  --announce \
-
-
-echo "  ✅ Analytics health cron (every 10 min)"
 
 echo ""
 echo "🎉 OpenClaw setup complete!"
 echo ""
-echo "Cron jobs created (12 total):"
-echo ""
-echo "  🔍 brain-monitor:"
-echo "    • brain-health-check       — every 2 min  (service health)"
-echo "    • brain-budget-alert        — every 5 min  (budget warnings)"
-echo "    • brain-restart-detector    — every 10 min (service restarts)"
-echo "    • brain-analytics-health    — every 10 min (analytics services)"
+echo "Cron jobs created (8 total):"
 echo ""
 echo "  📈 brain-trader:"
 echo "    • brain-pnl-report          — every 30 min (P&L summary)"
@@ -379,4 +266,3 @@ echo "    • brain-sentiment-composite — every 10 min (composite signal)"
 echo ""
 echo "Manage jobs: openclaw cron list"
 echo "View runs:   openclaw cron runs"
-echo "Dashboard:   openclaw dashboard"

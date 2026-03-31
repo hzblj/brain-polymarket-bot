@@ -30,7 +30,7 @@ const HISTORY_BUFFER_SIZE = 300;
 const DEFAULT_MIN_TIME_TO_CLOSE_SEC = 15;
 const DEFAULT_MIN_DEPTH_SCORE = 0.3;
 const DEFAULT_MAX_SPREAD_BPS = 800;
-const DEFAULT_MIN_VOLATILITY = 0.0001;
+const DEFAULT_MIN_VOLATILITY = 0;
 
 const CONFIG_SERVICE_URL = process.env.CONFIG_SERVICE_URL ?? `http://${LOCAL_HOST}:3007`;
 const CONFIG_REFRESH_INTERVAL_MS = 30_000;
@@ -261,9 +261,10 @@ export class FeatureEngineService implements OnModuleInit, OnModuleDestroy {
         data: { trading?: { maxSpreadBps?: number; minDepthScore?: number } } | null;
       };
       if (json.ok && json.data?.trading) {
-        const t = json.data.trading;
-        if (t.maxSpreadBps !== undefined) this.thresholds.maxSpreadBps = t.maxSpreadBps;
-        if (t.minDepthScore !== undefined) this.thresholds.minDepthScore = t.minDepthScore;
+        const t = json.data.trading as Record<string, unknown>;
+        if (t.maxSpreadBps !== undefined) this.thresholds.maxSpreadBps = t.maxSpreadBps as number;
+        if (t.minDepthScore !== undefined) this.thresholds.minDepthScore = t.minDepthScore as number;
+        if (t.minVolatility !== undefined) this.thresholds.minVolatility = t.minVolatility as number;
       }
     } catch {
       /* config service unavailable — keep current thresholds */
