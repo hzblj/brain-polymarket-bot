@@ -51,7 +51,7 @@ export class OpenAIClient implements LlmClient {
         const response = await this.client.chat.completions.create({
           model: useModel,
           temperature: this.temperature,
-          max_tokens: 2048,
+          max_completion_tokens: 2048,
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
