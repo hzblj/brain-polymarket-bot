@@ -372,8 +372,16 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
     const totalValueBtc = (tx.value ?? 0) / 1e8;
 
     // Track notable transactions (>1 BTC) for blockchain activity
+    // WS mempool-blocks txs have limited data - pass vin/vout if available
     if (totalValueBtc >= NOTABLE_THRESHOLD_BTC) {
-      this.addNotableTransaction(tx.txid ?? `ws-${Date.now()}`, totalValueBtc, tx.vin, tx.vout);
+      const hasAddresses = tx.vin?.some(v => v.prevout?.scriptpubkey_address) ||
+                           tx.vout?.some(v => v.scriptpubkey_address);
+      this.addNotableTransaction(
+        tx.txid ?? `ws-${Date.now()}`,
+        totalValueBtc,
+        hasAddresses ? tx.vin : undefined,
+        hasAddresses ? tx.vout : undefined,
+      );
     }
 
     // Track whale transactions (>10 BTC) separately
@@ -464,8 +472,14 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
       this.seenTxids = new Set(entries.slice(-25_000));
     }
 
-    const isExchangeInflow = this.isExchangeAddress(vout);
-    const isExchangeOutflow = this.isExchangeAddress(vin);
+    let isExchangeInflow = this.isExchangeAddress(vout);
+    let isExchangeOutflow = this.isExchangeAddress(vin);
+
+    // If no vin/vout provided (from REST API) and tx is large enough, fetch full tx detail
+    if (!vin && !vout && amountBtc >= 10) {
+      this.enrichTransactionAsync(txid, amountBtc);
+      return; // Will be added after enrichment
+    }
 
     let direction: WhaleFlowDirection = 'unknown';
     if (isExchangeInflow && !isExchangeOutflow) direction = 'exchange_inflow';
@@ -480,6 +494,51 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
       isExchangeOutflow,
       eventTime: Date.now(),
     });
+  }
+
+  /** Fetch full tx details from mempool.space to detect exchange addresses */
+  private async enrichTransactionAsync(txid: string, amountBtc: number): Promise<void> {
+    try {
+      const txDetail = await this.fetchJson<{
+        txid: string;
+        vin: Array<{ prevout?: { scriptpubkey_address?: string } }>;
+        vout: Array<{ scriptpubkey_address?: string; value?: number }>;
+      }>(`${MEMPOOL_API_URL}/api/tx/${txid}`);
+
+      if (!txDetail) return;
+
+      const isExchangeInflow = this.isExchangeAddress(txDetail.vout as MempoolVout[]);
+      const isExchangeOutflow = this.isExchangeAddress(txDetail.vin as MempoolVin[]);
+
+      let direction: WhaleFlowDirection = 'unknown';
+      if (isExchangeInflow && !isExchangeOutflow) direction = 'exchange_inflow';
+      else if (isExchangeOutflow && !isExchangeInflow) direction = 'exchange_outflow';
+
+      this.notableTransactions.push({
+        txid,
+        amountBtc,
+        amountUsd: amountBtc * this.btcPriceUsd,
+        direction,
+        isExchangeInflow,
+        isExchangeOutflow,
+        eventTime: Date.now(),
+      });
+
+      if (direction !== 'unknown') {
+        this.logger.info('Exchange flow detected', { txid, amountBtc, direction });
+      }
+    } catch {
+      // Best effort - add without enrichment
+      this.notableTransactions.push({
+        txid,
+        amountBtc,
+        amountUsd: amountBtc * this.btcPriceUsd,
+        direction: 'unknown',
+        isExchangeInflow: false,
+        isExchangeOutflow: false,
+        eventTime: Date.now(),
+      });
+    }
   }
 
   private addWhaleTransaction(tx: MempoolWsTransaction, totalValueBtc: number): void {
