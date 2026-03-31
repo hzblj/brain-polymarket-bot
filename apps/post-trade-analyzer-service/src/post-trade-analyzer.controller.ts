@@ -9,6 +9,11 @@ export class PostTradeAnalyzerController {
     private readonly analyzerService: PostTradeAnalyzerService,
   ) {}
 
+  @Get('health')
+  health() {
+    return { ok: true, service: 'post-trade-analyzer', timestamp: new Date().toISOString() };
+  }
+
   @Post('analyze')
   @HttpCode(200)
   async analyze(@Body() body: AnalyzeRequest) {
