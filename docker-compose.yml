@@ -26,7 +26,7 @@ services:
       - PRICE_FEED_HOST=price-feed
       - ORDERBOOK_HOST=orderbook
       - FEATURE_ENGINE_HOST=feature-engine
-      - RISK_HOST=risk
+      - RISK_HOST=risk-service
       - EXECUTION_HOST=execution
       - CONFIG_HOST=config
       - AGENT_GATEWAY_HOST=agent-gateway
@@ -42,7 +42,7 @@ services:
       - orderbook
       - feature-engine
       - agent-gateway
-      - risk
+      - risk-service
       - execution
       - config
       - replay
@@ -110,7 +110,7 @@ services:
     environment:
       - DATABASE_PATH=./data/agent-gateway.sqlite
 
-  risk:
+  risk-service:
     <<: *service-base
     container_name: brain-risk
     command: yarn tsx watch apps/risk-service/src/main.ts
@@ -173,13 +173,13 @@ services:
       - EXECUTION_SERVICE_URL=http://execution:3006
       - FEATURE_ENGINE_URL=http://feature-engine:3004
       - AGENT_GATEWAY_URL=http://agent-gateway:3008
-      - RISK_SERVICE_URL=http://risk:3005
+      - RISK_SERVICE_URL=http://risk-service:3005
       - MARKET_DISCOVERY_URL=http://market-discovery:3001
     depends_on:
       - execution
       - feature-engine
       - agent-gateway
-      - risk
+      - risk-service
       - market-discovery
 
   strategy-optimizer:
@@ -192,7 +192,7 @@ services:
       - DATABASE_PATH=./data/strategy-optimizer.sqlite
       - POST_TRADE_ANALYZER_URL=http://post-trade-analyzer:3011
       - EXECUTION_SERVICE_URL=http://execution:3006
-      - RISK_SERVICE_URL=http://risk:3005
+      - RISK_SERVICE_URL=http://risk-service:3005
       - CONFIG_SERVICE_URL=http://config:3007
       - OPTIMIZER_INTERVAL_MS=86400000
     depends_on:
@@ -218,7 +218,7 @@ services:
     environment:
       - FEATURE_ENGINE_URL=http://feature-engine:3004
       - AGENT_GATEWAY_URL=http://agent-gateway:3008
-      - RISK_SERVICE_URL=http://risk:3005
+      - RISK_SERVICE_URL=http://risk-service:3005
       - EXECUTION_SERVICE_URL=http://execution:3006
       - CONFIG_SERVICE_URL=http://config:3007
       - MARKET_SERVICE_URL=http://market-discovery:3001
@@ -226,7 +226,7 @@ services:
       - feature-engine
       - agent-gateway
       - market-discovery
-      - risk
+      - risk-service
       - execution
       - config
 
