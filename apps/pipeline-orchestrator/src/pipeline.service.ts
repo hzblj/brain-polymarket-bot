@@ -380,6 +380,8 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(`Cycle #${cycle}: ${stage}`, JSON.stringify(details));
     } else if (stage === 'executed') {
       this.logger.log(`Cycle #${cycle}: TRADE EXECUTED in ${result.durationMs}ms`);
+    } else if (stage === 'risk_rejected') {
+      this.logger.warn(`Cycle #${cycle}: RISK REJECTED`, JSON.stringify(details));
     }
 
     return result;

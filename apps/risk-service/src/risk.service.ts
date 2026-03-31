@@ -52,7 +52,7 @@ export interface FullRiskState {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const STALE_DATA_THRESHOLD_MS = 15_000;
+const STALE_DATA_THRESHOLD_MS = 30_000;
 const DEFAULT_CONFIG: RiskConfig = {
   maxSizeUsd: 0.5,
   dailyLossLimitUsd: 10,
