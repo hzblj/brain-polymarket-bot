@@ -21,6 +21,7 @@ import {
   Flame,
   Microscope,
   BrainCircuit,
+  Terminal,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -29,6 +30,7 @@ const NAV_ITEMS = [
   { href: "/whales", label: "Whale Tracker", icon: Waves },
   { href: "/derivatives", label: "Derivatives", icon: Flame },
   { href: "/agents", label: "Agents", icon: Bot },
+  { href: "/logs", label: "Live Logs", icon: Terminal },
   { href: "/trades", label: "Trades", icon: ArrowRightLeft },
   { href: "/simulation", label: "Simulation", icon: FlaskConical },
   { href: "/performance", label: "Performance", icon: TrendingUp },
