@@ -6,7 +6,7 @@ import {
 } from '@brain/database';
 import { type BrainEventName, type BrainEventMap, EventBus } from '@brain/events';
 import type { ExecutionMode, OrderSide, OrderStatus, UnixMs } from '@brain/types';
-import { HttpException, HttpStatus, Inject, Injectable, type OnModuleInit } from '@nestjs/common';
+import { HttpException, HttpStatus, Inject, Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { desc, eq, inArray } from 'drizzle-orm';
 
 // ─── Input / Output Types ────────────────────────────────────────────────────
@@ -63,11 +63,15 @@ interface Position {
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const _DATA_FRESHNESS_THRESHOLD_MS = 10_000;
+const RESOLUTION_POLL_MS = 5_000;
+const LOCAL_HOST = process.env.LOCAL_IP ?? 'localhost';
+const PRICE_SERVICE_URL = process.env.PRICE_SERVICE_URL ?? `http://${LOCAL_HOST}:3002`;
 
 @Injectable()
-export class ExecutionService implements OnModuleInit {
+export class ExecutionService implements OnModuleInit, OnModuleDestroy {
   private orders: Map<string, InternalOrder> = new Map();
   private positions: Map<string, Position> = new Map();
+  private resolutionTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     @Inject(DATABASE_CLIENT) private readonly db: DbClient,
@@ -75,8 +79,103 @@ export class ExecutionService implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
-    // Load open orders and positions from database
     await this.loadOpenOrders();
+    this.startResolutionLoop();
+  }
+
+  onModuleDestroy(): void {
+    if (this.resolutionTimer) {
+      clearInterval(this.resolutionTimer);
+      this.resolutionTimer = null;
+    }
+  }
+
+  // ─── Window Resolution ──────────────────────────────────────────────────────
+
+  private startResolutionLoop(): void {
+    this.resolutionTimer = setInterval(async () => {
+      await this.resolveExpiredPositions();
+    }, RESOLUTION_POLL_MS);
+  }
+
+  private async resolveExpiredPositions(): Promise<void> {
+    // Find filled orders that haven't been resolved yet
+    for (const order of this.orders.values()) {
+      if (order.status !== 'filled') continue;
+
+      // Check if window has expired (5 min from creation)
+      const createdMs = new Date(order.createdAt).getTime();
+      const windowEndMs = createdMs + 5 * 60 * 1000;
+      if (Date.now() < windowEndMs) continue;
+
+      // Already resolved
+      if ((order as InternalOrder & { resolved?: boolean }).resolved) continue;
+
+      // Fetch current price vs start price to determine outcome
+      try {
+        const res = await fetch(`${PRICE_SERVICE_URL}/api/v1/price/current`, {
+          signal: AbortSignal.timeout(3_000),
+        });
+        if (!res.ok) continue;
+        const json = (await res.json()) as { ok: boolean; data?: { window?: { startPrice: number; deltaAbs: number }; resolver?: { price: number } } };
+        if (!json.ok || !json.data?.window || !json.data?.resolver) continue;
+
+        const startPrice = json.data.window.startPrice;
+        const currentPrice = json.data.resolver.price;
+        const wentUp = currentPrice > startPrice;
+
+        // Determine P&L for binary option
+        const isWin =
+          (order.side === 'buy_up' && wentUp) ||
+          (order.side === 'buy_down' && !wentUp);
+
+        const pnlUsd = isWin
+          ? (1 - order.entryPrice) * order.filledSizeUsd
+          : -order.entryPrice * order.filledSizeUsd;
+
+        // Update order
+        order.status = 'resolved' as OrderStatus;
+        order.updatedAt = new Date().toISOString();
+        (order as InternalOrder & { resolved?: boolean; pnlUsd?: number; outcome?: string }).resolved = true;
+        (order as InternalOrder & { pnlUsd?: number }).pnlUsd = pnlUsd;
+        (order as InternalOrder & { outcome?: string }).outcome = isWin ? 'win' : 'loss';
+
+        // Remove from open positions
+        const posKey = `${order.marketId}:${order.side}`;
+        this.positions.delete(posKey);
+
+        // Persist
+        try {
+          await this.db
+            .update(ordersTable)
+            .set({ status: 'resolved' as string, updatedAt: order.updatedAt })
+            .where(eq(ordersTable.id, order.id));
+          // Add resolution fill with exit price
+          await this.db.insert(fillsTable).values({
+            id: `fill-resolve-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            orderId: order.id,
+            fillPrice: isWin ? 1 : 0,
+            fillSizeUsd: Math.abs(pnlUsd),
+            filledAt: new Date().toISOString(),
+          });
+        } catch {
+          /* best-effort */
+        }
+
+        this.emitEvent('order.resolved', {
+          orderId: order.id,
+          mode: order.mode,
+          side: order.side,
+          pnlUsd,
+          outcome: isWin ? 'win' : 'loss',
+          entryPrice: order.entryPrice,
+          startPrice,
+          endPrice: currentPrice,
+        });
+      } catch {
+        /* retry next cycle */
+      }
+    }
   }
 
   // ─── Public API ──────────────────────────────────────────────────────────────

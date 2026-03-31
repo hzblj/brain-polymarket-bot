@@ -44,6 +44,7 @@ export interface BrainEventMap {
   'order.created': { orderId: string; mode: string; side: string };
   'order.filled': { orderId: string; mode: string; fillPrice: number; fillSizeUsd: number };
   'order.cancelled': { orderId: string; mode: string };
+  'order.resolved': { orderId: string; mode: string; side: string; pnlUsd: number; outcome: string; entryPrice: number; startPrice: number; endPrice: number };
 
   // Analysis events
   'trade.analysis.completed': { analysisId: string; windowId: string; orderId: string; profitable: boolean; pnlUsd: number };

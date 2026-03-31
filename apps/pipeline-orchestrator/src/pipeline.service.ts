@@ -307,8 +307,10 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
           side,
           mode: executionMode,
           sizeUsd: riskEval.approvedSizeUsd,
-          maxEntryPrice: side === 'UP' ? (features.book?.upAsk ?? 0.55) : (features.book?.downAsk ?? 0.55),
-          mustExecuteBeforeSec: Math.max(((features.market?.timeToCloseSec as number) ?? 60) - 15, 5),
+          maxEntryPrice: side === 'UP'
+            ? (features.book?.upAsk > 0 ? features.book.upAsk : 0.55)
+            : (features.book?.downAsk > 0 ? features.book.downAsk : 0.55),
+          mustExecuteBeforeSec: Math.max(Math.floor(((features.market?.remainingMs as number) ?? 60000) / 1000) - 15, 5),
           source: 'pipeline-orchestrator',
           windowId,
           riskDecisionId: riskEval.id,
