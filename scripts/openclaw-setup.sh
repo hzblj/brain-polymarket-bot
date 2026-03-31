@@ -32,7 +32,7 @@ ONLY report if there's a problem. If all services are healthy, respond with noth
 If any service is unhealthy or degraded, report which ones and their latency." \
   --model "openai/gpt-4o-mini" \
   --announce \
-  --enabled
+
 
 echo "  ✅ Health check cron (every 2 min)"
 
@@ -61,7 +61,7 @@ Report a concise summary:
 If daily budget is below \$2, warn me. If kill switch is on, alert immediately." \
   --model "openai/gpt-4o-mini" \
   --announce \
-  --enabled
+
 
 echo "  ✅ P&L report cron (every 30 min)"
 
@@ -88,7 +88,7 @@ Summarize:
 ONLY report if there's something notable. If everything is routine holds with no trades, say nothing." \
   --model "openai/gpt-4o-mini" \
   --announce \
-  --enabled
+
 
 echo "  ✅ Strategy monitor cron (every 15 min)"
 
@@ -123,7 +123,7 @@ Keep it concise — max 10 lines." \
   --model "openai/gpt-4o" \
   --thinking "low" \
   --announce \
-  --enabled
+
 
 echo "  ✅ Morning brief cron (daily 8:00 CET)"
 
@@ -150,7 +150,7 @@ Rules:
 - Otherwise: say nothing (no alert needed)" \
   --model "openai/gpt-4o-mini" \
   --announce \
-  --enabled
+
 
 echo "  ✅ Budget alert cron (every 5 min)"
 
@@ -171,7 +171,7 @@ If any service went from healthy to unhealthy, or latency increased by >3x from 
 If everything is stable, say nothing." \
   --model "openai/gpt-4o-mini" \
   --announce \
-  --enabled
+
 
 echo "  ✅ Restart detector cron (every 10 min)"
 
@@ -204,7 +204,7 @@ Format as a structured report with sections and key numbers highlighted." \
   --model "openai/gpt-4o" \
   --thinking "high" \
   --announce \
-  --enabled
+
 
 echo "  ✅ Weekly review cron (Sunday 10:00 CET)"
 
@@ -232,7 +232,7 @@ Summarize:
 ONLY report if there are new trades since last check. If no new trades, say nothing." \
   --model "openai/gpt-4o-mini" \
   --announce \
-  --enabled
+
 
 echo "  ✅ Post-trade analysis cron (hourly)"
 
@@ -263,7 +263,7 @@ Additional blockchain alerts:
 If nothing significant, say NOTHING." \
   --model "openai/gpt-4o-mini" \
   --announce \
-  --enabled
+
 
 echo "  ✅ Whale activity alert cron (every 3 min)"
 
@@ -286,7 +286,7 @@ Fetch ${API_GATEWAY}/api/v1/derivatives/current and evaluate:
 If nothing notable, say NOTHING. Only report actionable signals." \
   --model "openai/gpt-4o-mini" \
   --announce \
-  --enabled
+
 
 echo "  ✅ Derivatives monitor cron (every 5 min)"
 
@@ -321,7 +321,7 @@ ONLY report if:
 Otherwise say nothing." \
   --model "openai/gpt-4o-mini" \
   --announce \
-  --enabled
+
 
 echo "  ✅ Sentiment composite cron (every 10 min)"
 
@@ -348,7 +348,7 @@ Check:
 ONLY report problems. If all healthy, say nothing." \
   --model "openai/gpt-4o-mini" \
   --announce \
-  --enabled
+
 
 echo "  ✅ Analytics health cron (every 10 min)"
 
