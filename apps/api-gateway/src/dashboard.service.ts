@@ -198,6 +198,13 @@ export class DashboardService {
     const edge = edgeWindowMatch ? rawEdge : null;
     const supervisor = supervisorWindowMatch ? rawSupervisor : null;
 
+    // Pipeline orchestrator status for context
+    const pipeRec = pipelineStatus as Rec | null;
+    const pipeStage = str(val(pipeRec, 'lastResult', 'stage') as string);
+    const pipeDetails = (val(pipeRec, 'lastResult', 'details') as Rec) ?? {};
+    const pipeRunning = !!pipeRec?.running;
+    const pipeCycles = num(pipeRec?.cycleCount as number);
+
     // Risk step: derive from pipeline result when available, fall back to general state
     const riskRec = riskState as Rec | null;
     const hasRiskData = !!riskRec;
@@ -218,13 +225,6 @@ export class DashboardService {
     const positions = Array.isArray(latestPositions) ? latestPositions : [];
     const latestPosition = (positions[0] as Rec | undefined) ?? null;
     const hasExecution = !!latestPosition;
-
-    // Pipeline orchestrator status for context
-    const pipeRec = pipelineStatus as Rec | null;
-    const pipeStage = str(val(pipeRec, 'lastResult', 'stage') as string);
-    const pipeDetails = (val(pipeRec, 'lastResult', 'details') as Rec) ?? {};
-    const pipeRunning = !!pipeRec?.running;
-    const pipeCycles = num(pipeRec?.cycleCount as number);
 
     // For pending agent steps, show pipeline stage as context
     const pendingValue = pipeStage === 'not_tradeable' ? 'not tradeable'
