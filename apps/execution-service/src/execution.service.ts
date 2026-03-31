@@ -560,7 +560,7 @@ export class ExecutionService implements OnModuleInit, OnModuleDestroy {
       const openOrders = await this.db
         .select()
         .from(ordersTable)
-        .where(inArray(ordersTable.status, ['pending', 'placed', 'partial']));
+        .where(inArray(ordersTable.status, ['pending', 'placed', 'partial', 'filled']));
       for (const r of openOrders) {
         const dbFills = await this.db.select().from(fillsTable).where(eq(fillsTable.orderId, r.id));
         this.orders.set(r.id, {
@@ -589,8 +589,12 @@ export class ExecutionService implements OnModuleInit, OnModuleDestroy {
           filledSizeUsd: dbFills.reduce((sum, f) => sum + f.fillSizeUsd, 0),
         });
       }
-      if (openOrders.length > 0) {
-        // TODO: send cancellation to exchange
+      // Rebuild positions for filled orders awaiting resolution
+      for (const r of openOrders) {
+        if (r.status === 'filled') {
+          const order = this.orders.get(r.id);
+          if (order) this.updatePosition(order);
+        }
       }
     } catch (_error) {
       /* best-effort reconciliation */

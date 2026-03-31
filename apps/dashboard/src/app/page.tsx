@@ -31,7 +31,19 @@ import {
   useSimulationSummary,
   useBlockchainActivity,
   useDerivativesFeatures,
+  usePriceHistory,
 } from "@/lib/hooks";
+
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+  ReferenceLine,
+} from "recharts";
 
 import {
   formatUsd,
@@ -41,6 +53,94 @@ import {
   formatTimeAgo,
   formatPrice,
 } from "@/lib/formatters";
+
+const CHART_COLORS = {
+  accent: '#00e639',
+  negative: '#ef4444',
+  grid: '#2e2e33',
+  text: '#71717a',
+  startLine: '#f59e0b',
+};
+
+function BtcPriceChart({ startPrice }: { startPrice: number }) {
+  const { data: history, isLoading } = usePriceHistory('5m');
+
+  if (isLoading || !history || history.length === 0) {
+    return (
+      <div className="lg:col-span-5 rounded-lg border border-border bg-surface-1 p-4">
+        <div className="h-[180px] flex items-center justify-center text-text-muted text-sm">
+          Loading BTC chart...
+        </div>
+      </div>
+    );
+  }
+
+  const chartData = history.map((pt) => ({
+    ...pt,
+    label: new Date(pt.time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+  }));
+
+  const lastPrice = chartData[chartData.length - 1]?.resolverPrice ?? 0;
+  const isUp = lastPrice > startPrice;
+
+  return (
+    <div className="lg:col-span-5 rounded-lg border border-border bg-surface-1 p-4">
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
+          BTC/USD
+        </h2>
+        <div className="flex items-center gap-3 text-xs">
+          <span className="text-text-muted">Start: ${formatPrice(startPrice, 2)}</span>
+          <span className={isUp ? 'text-positive font-bold' : 'text-negative font-bold'}>
+            Now: ${formatPrice(lastPrice, 2)} {isUp ? '▲' : '▼'}
+          </span>
+        </div>
+      </div>
+      <ResponsiveContainer width="100%" height={180}>
+        <LineChart data={chartData}>
+          <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} />
+          <XAxis
+            dataKey="label"
+            tick={{ fill: CHART_COLORS.text, fontSize: 10 }}
+            axisLine={false}
+            tickLine={false}
+            interval="preserveStartEnd"
+          />
+          <YAxis
+            tick={{ fill: CHART_COLORS.text, fontSize: 10 }}
+            axisLine={false}
+            tickLine={false}
+            domain={['dataMin - 5', 'dataMax + 5']}
+            tickFormatter={(v: number) => v.toFixed(0)}
+            width={55}
+          />
+          <Tooltip
+            contentStyle={{ background: '#111113', border: '1px solid #2e2e33', borderRadius: 6, fontSize: 12 }}
+            labelStyle={{ color: CHART_COLORS.text }}
+            formatter={(v: number) => [`$${formatPrice(v, 2)}`, 'BTC']}
+          />
+          {startPrice > 0 && (
+            <ReferenceLine
+              y={startPrice}
+              stroke={CHART_COLORS.startLine}
+              strokeDasharray="4 4"
+              strokeWidth={1}
+              label={{ value: 'Start', fill: CHART_COLORS.startLine, fontSize: 10, position: 'left' }}
+            />
+          )}
+          <Line
+            type="monotone"
+            dataKey="resolverPrice"
+            stroke={isUp ? CHART_COLORS.accent : CHART_COLORS.negative}
+            strokeWidth={2}
+            dot={false}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
 
 export default function OverviewPage() {
   const system = useSystemState();
@@ -181,6 +281,9 @@ export default function OverviewPage() {
             <p className="text-text-muted text-sm">Loading...</p>
           )}
         </div>
+
+        {/* BTC Price Chart */}
+        <BtcPriceChart startPrice={m?.startPrice ?? 0} />
 
         {/* Live Market Snapshot */}
         <div className="lg:col-span-2 rounded-lg border border-accent/20 bg-surface-2/60 backdrop-blur-sm p-4 glow-accent">
