@@ -1,8 +1,13 @@
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (typeof window !== 'undefined'
-    ? `http://${window.location.hostname}:3000`
-    : 'http://localhost:3000');
+function resolveApiBase(): string {
+  // Build-time env (baked into Next.js bundle)
+  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
+  // Client-side: use same hostname as the browser (works for any IP/domain)
+  if (typeof window !== 'undefined') return `http://${window.location.hostname}:3000`;
+  // SSR fallback
+  return 'http://localhost:3000';
+}
+
+const API_BASE = resolveApiBase();
 
 class ApiError extends Error {
   constructor(public status: number, path: string) {
