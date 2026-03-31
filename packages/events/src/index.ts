@@ -49,6 +49,7 @@ export interface BrainEventMap {
   // Analysis events
   'trade.analysis.completed': { analysisId: string; windowId: string; orderId: string; profitable: boolean; pnlUsd: number };
   'strategy.report.generated': { reportId: string; periodStart: string; periodEnd: string; totalPnlUsd: number; tradeCount: number };
+  'strategy.suggestion.applied': { category: string; suggestion: string; confidence: number };
 }
 
 export type BrainEventName = keyof BrainEventMap;

@@ -12,6 +12,7 @@ import {
   resetDefaultStrategy,
   toggleExecutionMode,
 } from '@/lib/api';
+import { Download } from 'lucide-react';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -154,7 +155,35 @@ export default function StrategiesPage() {
 
   return (
     <div className="space-y-6 p-6">
-      <PageHeader title="Strategies & Config" subtitle="Runtime configuration and strategy management" />
+      <PageHeader
+        title="Strategies & Config"
+        subtitle="Runtime configuration and strategy management"
+        actions={
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const base = typeof window !== 'undefined' ? `http://${window.location.hostname}:3000` : '';
+                const res = await fetch(`${base}/api/v1/config/export`);
+                const json = await res.json();
+                const blob = new Blob([JSON.stringify(json.data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `brain-config-${new Date().toISOString().slice(0, 10)}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+              } catch (err) {
+                toast.error(`Export failed: ${(err as Error).message}`);
+              }
+            }}
+            className="flex items-center gap-1.5 rounded-md bg-surface-2 px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-3 transition-colors"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Export Config
+          </button>
+        }
+      />
 
       {/* Row 1: Config + Feature Flags */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">

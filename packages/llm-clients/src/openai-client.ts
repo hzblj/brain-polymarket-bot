@@ -34,7 +34,9 @@ export class OpenAIClient implements LlmClient {
     systemPrompt: string,
     userPrompt: string,
     schema: z.ZodSchema<T>,
+    options?: { model?: string },
   ): Promise<LlmResponse<T>> {
+    const useModel = options?.model ?? this.model;
     const startTime = Date.now();
     const jsonSchema = zodToJsonSchema(schema);
 
@@ -47,7 +49,7 @@ export class OpenAIClient implements LlmClient {
         }
 
         const response = await this.client.chat.completions.create({
-          model: this.model,
+          model: useModel,
           temperature: this.temperature,
           max_tokens: 2048,
           messages: [
@@ -84,7 +86,7 @@ export class OpenAIClient implements LlmClient {
         const usage = response.usage;
 
         this.logger.debug('OpenAI evaluation complete', {
-          model: this.model,
+          model: useModel,
           latencyMs,
           inputTokens: usage?.prompt_tokens ?? 0,
           outputTokens: usage?.completion_tokens ?? 0,
@@ -92,7 +94,7 @@ export class OpenAIClient implements LlmClient {
 
         return {
           data: parsed,
-          model: this.model,
+          model: useModel,
           provider: this.provider,
           latencyMs,
           inputTokens: usage?.prompt_tokens ?? 0,

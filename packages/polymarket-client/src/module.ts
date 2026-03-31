@@ -65,11 +65,16 @@ export class PolymarketClientModule {
       });
     }
 
+    const exports = [PolymarketRestClient, PolymarketWsClient];
+    if (options.privateKey) {
+      exports.push(PolymarketClobClient as any);
+    }
+
     return {
       module: PolymarketClientModule,
       global: true,
       providers,
-      exports: [PolymarketRestClient, PolymarketWsClient, PolymarketClobClient],
+      exports,
     };
   }
 }

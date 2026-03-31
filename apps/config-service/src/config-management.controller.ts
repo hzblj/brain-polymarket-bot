@@ -63,6 +63,26 @@ export class ConfigManagementController {
     return { ok: true, data: flags };
   }
 
+  @Get('export')
+  async exportAll() {
+    const config = await this.configManagementService.getConfig();
+    const strategies = await this.strategyService.listStrategies();
+    const strategyDetails = await Promise.all(
+      (strategies ?? []).map(async (s: Record<string, unknown>) => {
+        const versions = await this.strategyService.listVersions(s.id as string).catch(() => []);
+        return { ...s, versions };
+      }),
+    );
+    return {
+      ok: true,
+      data: {
+        exportedAt: new Date().toISOString(),
+        config,
+        strategies: strategyDetails,
+      },
+    };
+  }
+
   // ─── Strategy Endpoints ──────────────────────────────────────────────────
 
   @Get('strategy')

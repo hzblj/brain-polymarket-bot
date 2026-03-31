@@ -23,5 +23,6 @@ export interface LlmClient {
     systemPrompt: string,
     userPrompt: string,
     schema: z.ZodSchema<T>,
+    options?: { model?: string },
   ): Promise<LlmResponse<T>>;
 }

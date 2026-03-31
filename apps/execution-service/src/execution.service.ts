@@ -186,6 +186,11 @@ export class ExecutionService implements OnModuleInit, OnModuleDestroy {
           startPrice,
           endPrice: currentPrice,
         });
+
+        // Auto-trigger post-trade analysis
+        this.triggerPostTradeAnalysis(order.id, order.windowId).catch(() => {
+          /* best-effort */
+        });
       } catch {
         /* retry next cycle */
       }
@@ -544,6 +549,29 @@ export class ExecutionService implements OnModuleInit, OnModuleDestroy {
     return resolved
       .sort((a, b) => new Date(b.resolvedAt).getTime() - new Date(a.resolvedAt).getTime())
       .slice(0, limit);
+  }
+
+  // ─── Post-Trade Analysis Trigger ────────────────────────────────────────────
+
+  private static readonly ANALYZER_URL = process.env.POST_TRADE_ANALYZER_URL
+    ?? `http://${process.env.LOCAL_IP ?? 'localhost'}:3011`;
+
+  private async triggerPostTradeAnalysis(orderId: string, windowId: string): Promise<void> {
+    try {
+      const res = await fetch(`${ExecutionService.ANALYZER_URL}/api/v1/analyzer/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, windowId }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (res.ok) {
+        this.logger.log(`Post-trade analysis triggered for order ${orderId}`);
+      } else {
+        this.logger.warn(`Post-trade analysis failed: HTTP ${res.status}`);
+      }
+    } catch (err) {
+      this.logger.warn(`Post-trade analysis trigger failed: ${(err as Error).message}`);
+    }
   }
 
   // ─── Internal Helpers ──────────────────────────────────────────────────────

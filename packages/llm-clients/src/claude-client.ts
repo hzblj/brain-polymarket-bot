@@ -33,6 +33,7 @@ export class ClaudeClient implements LlmClient {
     systemPrompt: string,
     userPrompt: string,
     schema: z.ZodSchema<T>,
+    options?: { model?: string },
   ): Promise<LlmResponse<T>> {
     const startTime = Date.now();
     const jsonSchema = zodToJsonSchema(schema);

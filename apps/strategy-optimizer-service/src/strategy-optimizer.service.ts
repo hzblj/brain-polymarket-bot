@@ -111,9 +111,12 @@ const DEFAULT_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 @Injectable()
 export class StrategyOptimizerService implements OnModuleInit, OnModuleDestroy {
   private schedulerTimer: ReturnType<typeof setInterval> | null = null;
+  private tradeCountTimer: ReturnType<typeof setInterval> | null = null;
   private schedulerEnabled = true;
   private lastRunAt: string | null = null;
   private isRunning = false;
+  private lastKnownTradeCount = 0;
+  private tradesPerOptimization = parseInt(process.env.TRADES_PER_OPTIMIZATION ?? '10', 10);
 
   constructor(
     @Inject(DATABASE_CLIENT) private readonly db: DbClient,
@@ -135,9 +138,16 @@ export class StrategyOptimizerService implements OnModuleInit, OnModuleDestroy {
       }
     }, intervalMs);
 
+    // Also poll for new trades every 60s — trigger optimization after N trades
+    this.tradeCountTimer = setInterval(async () => {
+      if (!this.schedulerEnabled || this.isRunning) return;
+      await this.checkTradeCountTrigger();
+    }, 60_000);
+
     this.logger.info('Strategy optimizer scheduler started', {
       intervalMs,
       enabled: this.schedulerEnabled,
+      tradesPerOptimization: this.tradesPerOptimization,
     });
   }
 
@@ -145,6 +155,35 @@ export class StrategyOptimizerService implements OnModuleInit, OnModuleDestroy {
     if (this.schedulerTimer) {
       clearInterval(this.schedulerTimer);
       this.schedulerTimer = null;
+    }
+    if (this.tradeCountTimer) {
+      clearInterval(this.tradeCountTimer);
+      this.tradeCountTimer = null;
+    }
+  }
+
+  private async checkTradeCountTrigger(): Promise<void> {
+    try {
+      const res = await fetch(`${EXECUTION_SERVICE_URL}/api/v1/execution/resolved?limit=100`, {
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (!res.ok) return;
+      const json = (await res.json()) as { ok: boolean; data: unknown[] };
+      if (!json.ok) return;
+
+      const currentCount = json.data.length;
+      const newTrades = currentCount - this.lastKnownTradeCount;
+
+      if (newTrades >= this.tradesPerOptimization && this.lastKnownTradeCount > 0) {
+        this.logger.info(`${newTrades} new trades since last optimization — triggering report`);
+        this.lastKnownTradeCount = currentCount;
+        await this.generateReport({});
+      } else if (this.lastKnownTradeCount === 0) {
+        // First check — just record count
+        this.lastKnownTradeCount = currentCount;
+      }
+    } catch {
+      /* best-effort */
     }
   }
 
@@ -278,6 +317,12 @@ export class StrategyOptimizerService implements OnModuleInit, OnModuleDestroy {
         suggestionsCount: report.suggestions.length,
       });
 
+      // 8. Auto-apply safe suggestions if enabled
+      const autoApplyEnabled = process.env.AUTO_APPLY_ENABLED === 'true';
+      if (autoApplyEnabled) {
+        await this.autoApplySuggestions(report.suggestions);
+      }
+
       return report;
     } finally {
       this.isRunning = false;
@@ -333,6 +378,111 @@ export class StrategyOptimizerService implements OnModuleInit, OnModuleDestroy {
   setSchedulerEnabled(enabled: boolean): void {
     this.schedulerEnabled = enabled;
     this.logger.info(`Scheduler ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  // ─── Private: Auto-Apply Suggestions ────────────────────────────────────
+
+  private async autoApplySuggestions(suggestions: StrategySuggestion[]): Promise<void> {
+    const applicable = suggestions.filter(
+      (s) => s.autoApplicable && s.confidence >= 0.5 && s.priority !== 'low',
+    );
+
+    if (applicable.length === 0) {
+      this.logger.info('No auto-applicable suggestions');
+      return;
+    }
+
+    this.logger.info(`Auto-applying ${applicable.length} suggestions`);
+
+    for (const s of applicable) {
+      try {
+        const configUpdate = this.suggestionToConfigUpdate(s);
+        if (!configUpdate) {
+          this.logger.debug('Suggestion not mappable to config', { suggestion: s.suggestion });
+          continue;
+        }
+
+        const res = await fetch(`${CONFIG_SERVICE_URL}/api/v1/config`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(configUpdate),
+          signal: AbortSignal.timeout(5_000),
+        });
+
+        if (res.ok) {
+          this.logger.info('Auto-applied suggestion', {
+            category: s.category,
+            suggestion: s.suggestion,
+            config: configUpdate,
+          });
+
+          this.eventBus.emit('strategy.suggestion.applied', {
+            category: s.category,
+            suggestion: s.suggestion,
+            confidence: s.confidence,
+          });
+        } else {
+          this.logger.warn(`Failed to apply suggestion: HTTP ${res.status}`);
+        }
+      } catch (err) {
+        this.logger.warn(`Failed to apply suggestion: ${(err as Error).message}`);
+      }
+    }
+  }
+
+  /**
+   * Maps a text suggestion to a concrete config update.
+   * Parses numbers from suggestion text for known parameter names.
+   */
+  private suggestionToConfigUpdate(s: StrategySuggestion): Record<string, unknown> | null {
+    const text = s.suggestion.toLowerCase();
+
+    const extractNum = (match: RegExpMatchArray | null): number | null => {
+      const val = match?.[1];
+      return val ? parseFloat(val) : null;
+    };
+
+    // Risk limit changes
+    if (s.category === 'risk_limits') {
+      const maxSize = extractNum(text.match(/maxsizeusd.*?(\d+\.?\d*)/i) ?? text.match(/max.*size.*\$?(\d+\.?\d*)/i));
+      if (maxSize !== null) return { risk: { maxSizeUsd: maxSize } };
+
+      const lossLimit = extractNum(text.match(/dailylosslimit.*?(\d+\.?\d*)/i) ?? text.match(/daily.*loss.*limit.*\$?(\d+\.?\d*)/i));
+      if (lossLimit !== null) return { risk: { dailyLossLimitUsd: lossLimit } };
+
+      const maxTrades = extractNum(text.match(/maxtradesperwindow.*?(\d+)/i) ?? text.match(/max.*trades.*window.*?(\d+)/i));
+      if (maxTrades !== null) return { risk: { maxTradesPerWindow: Math.round(maxTrades) } };
+    }
+
+    // Position sizing
+    if (s.category === 'position_sizing') {
+      const size = extractNum(text.match(/\$?(\d+\.?\d*)/));
+      if (size !== null) return { risk: { maxSizeUsd: size } };
+    }
+
+    // Regime filters / trading thresholds
+    if (s.category === 'regime_filters') {
+      const spread = extractNum(text.match(/spread.*?(\d+)/i));
+      if (spread !== null) return { trading: { maxSpreadBps: Math.round(spread) } };
+
+      const depth = extractNum(text.match(/depth.*?(\d+\.?\d*)/i));
+      if (depth !== null) return { trading: { minDepthScore: depth } };
+    }
+
+    // Timing
+    if (s.category === 'timing') {
+      const startHour = extractNum(text.match(/start.*?(\d{1,2})\s*(?::00)?\s*utc/i));
+      const endHour = extractNum(text.match(/end.*?(\d{1,2})\s*(?::00)?\s*utc/i));
+      if (startHour !== null && endHour !== null) {
+        return {
+          trading: {
+            tradingHoursUtc: { enabled: true, startHour: Math.round(startHour), endHour: Math.round(endHour) },
+          },
+        };
+      }
+    }
+
+    return null;
   }
 
   // ─── Private: Data Fetching ──────────────────────────────────────────────

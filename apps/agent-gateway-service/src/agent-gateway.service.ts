@@ -665,6 +665,7 @@ export class AgentGatewayService implements OnModuleInit {
   // Default config — will be overridden by env / config-service
   private provider: 'anthropic' | 'openai' = 'openai';
   private model = 'gpt-4o';
+  private supervisorModel: string | undefined;
   private temperature = 0;
   private timeoutMs = 30_000;
   private maxRetries = 2;
@@ -683,6 +684,7 @@ export class AgentGatewayService implements OnModuleInit {
     // Load config from env
     this.provider = (process.env.AGENT_PROVIDER as 'anthropic' | 'openai') ?? this.provider;
     this.model = process.env.AGENT_MODEL ?? this.model;
+    this.supervisorModel = process.env.SUPERVISOR_MODEL;
     this.temperature = process.env.AGENT_TEMPERATURE
       ? parseFloat(process.env.AGENT_TEMPERATURE)
       : this.temperature;
@@ -973,7 +975,9 @@ export class AgentGatewayService implements OnModuleInit {
     try {
       this.logger.debug('Calling agent', { agentType, windowId });
 
-      const response = await this.llmClient.evaluate(systemPrompt, userPrompt, schema);
+      // Use supervisor-specific model if available
+      const modelOverride = agentType === 'supervisor' ? this.supervisorModel : undefined;
+      const response = await this.llmClient.evaluate(systemPrompt, userPrompt, schema, modelOverride ? { model: modelOverride } : undefined);
       const parsedOutput = response.data as T;
       const rawResponse = JSON.stringify(parsedOutput);
       const latencyMs = Date.now() - startMs;

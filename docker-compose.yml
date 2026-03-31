@@ -128,8 +128,10 @@ services:
     environment:
       - DATABASE_PATH=./data/execution.sqlite
       - PRICE_SERVICE_URL=http://price-feed:3002
+      - POST_TRADE_ANALYZER_URL=http://post-trade-analyzer:3011
     depends_on:
       - price-feed
+      - post-trade-analyzer
 
   config:
     <<: *service-base
