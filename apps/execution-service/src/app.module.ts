@@ -1,11 +1,13 @@
 import { DatabaseModule } from '@brain/database';
 import { EventBusModule } from '@brain/events';
+import { LoggerModule } from '@brain/logger';
 import { PolymarketClientModule } from '@brain/polymarket-client';
 import { Module } from '@nestjs/common';
 import { ExecutionModule } from './execution.module';
 
 @Module({
   imports: [
+    LoggerModule.forService('execution-service'),
     EventBusModule,
     DatabaseModule.forRoot(),
     PolymarketClientModule.forRoot({
