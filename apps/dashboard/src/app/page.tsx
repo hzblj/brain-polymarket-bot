@@ -67,7 +67,7 @@ function BtcPriceChart({ startPrice }: { startPrice: number }) {
 
   if (isLoading || !history || history.length === 0) {
     return (
-      <div className="lg:col-span-5 rounded-lg border border-border bg-surface-1 p-4">
+      <div className="rounded-lg border border-border bg-surface-1 p-4">
         <div className="h-[180px] flex items-center justify-center text-text-muted text-sm">
           Loading BTC chart...
         </div>
@@ -84,7 +84,7 @@ function BtcPriceChart({ startPrice }: { startPrice: number }) {
   const isUp = lastPrice > startPrice;
 
   return (
-    <div className="lg:col-span-5 rounded-lg border border-border bg-surface-1 p-4">
+    <div className="rounded-lg border border-border bg-surface-1 p-4">
       <div className="flex items-center justify-between mb-2">
         <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
           BTC/USD
@@ -256,36 +256,39 @@ export default function OverviewPage() {
         />
       </div>
 
-      {/* ── Row 1: Pipeline + Market Snapshot ──────────────────────── */}
+      {/* ── Row 1: Pipeline + Chart + Market Snapshot ─────────────── */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-        {/* Live Decision Pipeline */}
-        <div className="lg:col-span-3 rounded-lg border border-border bg-surface-1 p-4">
-          <h2 className="mb-3 text-sm font-semibold text-text-secondary uppercase tracking-wider">
-            Live Decision Pipeline
-          </h2>
-          {pipe ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-              {pipe.map((step) => (
-                <PipelineStep
-                  key={step.label}
-                  label={step.label}
-                  status={step.status as "pending" | "running" | "success" | "failed" | "skipped"}
-                  value={step.value ?? undefined}
-                  confidence={step.confidence ?? undefined}
-                  timestamp={step.timestamp ?? undefined}
-                  detail={step.detail ?? null}
-                />
-              ))}
-            </div>
-          ) : (
-            <p className="text-text-muted text-sm">Loading...</p>
-          )}
+        {/* Left: Pipeline + Chart stacked */}
+        <div className="lg:col-span-3 flex flex-col gap-4">
+          {/* Live Decision Pipeline */}
+          <div className="rounded-lg border border-border bg-surface-1 p-4">
+            <h2 className="mb-3 text-sm font-semibold text-text-secondary uppercase tracking-wider">
+              Live Decision Pipeline
+            </h2>
+            {pipe ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                {pipe.map((step) => (
+                  <PipelineStep
+                    key={step.label}
+                    label={step.label}
+                    status={step.status as "pending" | "running" | "success" | "failed" | "skipped"}
+                    value={step.value ?? undefined}
+                    confidence={step.confidence ?? undefined}
+                    timestamp={step.timestamp ?? undefined}
+                    detail={step.detail ?? null}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="text-text-muted text-sm">Loading...</p>
+            )}
+          </div>
+
+          {/* BTC Price Chart */}
+          <BtcPriceChart startPrice={m?.startPrice ?? 0} />
         </div>
 
-        {/* BTC Price Chart */}
-        <BtcPriceChart startPrice={m?.startPrice ?? 0} />
-
-        {/* Live Market Snapshot */}
+        {/* Right: Live Market Snapshot */}
         <div className="lg:col-span-2 rounded-lg border border-accent/20 bg-surface-2/60 backdrop-blur-sm p-4 glow-accent">
           <h2 className="mb-4 text-sm font-semibold text-accent uppercase tracking-wider">
             Live Market Snapshot
