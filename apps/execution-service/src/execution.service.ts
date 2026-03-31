@@ -24,6 +24,7 @@ export interface OrderInput {
   riskDecisionId?: string;
   tokenId?: string;
   conditionId?: string;
+  startPrice?: number;
 }
 
 interface InternalOrder {
@@ -40,6 +41,7 @@ interface InternalOrder {
   polymarketOrderId: string | null;
   source: string;
   mustExecuteBeforeMs: UnixMs;
+  startPrice: number | null;
   createdAt: string;
   updatedAt: string;
   fills: InternalFill[];
@@ -125,16 +127,18 @@ export class ExecutionService implements OnModuleInit, OnModuleDestroy {
       // Already resolved
       if ((order as InternalOrder & { resolved?: boolean }).resolved) continue;
 
-      // Fetch current price vs start price to determine outcome
+      // Fetch resolver price to determine outcome
       try {
         const res = await fetch(`${PRICE_SERVICE_URL}/api/v1/price/current`, {
           signal: AbortSignal.timeout(3_000),
         });
         if (!res.ok) continue;
         const json = (await res.json()) as { ok: boolean; data?: { window?: { startPrice: number; deltaAbs: number }; resolver?: { price: number } } };
-        if (!json.ok || !json.data?.window || !json.data?.resolver) continue;
+        if (!json.ok || !json.data?.resolver) continue;
 
-        const startPrice = json.data.window.startPrice;
+        // Use startPrice saved at order creation; fall back to price-feed window (less accurate)
+        const startPrice = order.startPrice ?? json.data.window?.startPrice;
+        if (startPrice == null) continue;
         const currentPrice = json.data.resolver.price;
         const wentUp = currentPrice > startPrice;
 
@@ -601,6 +605,7 @@ export class ExecutionService implements OnModuleInit, OnModuleDestroy {
       polymarketOrderId: null,
       source: input.source,
       mustExecuteBeforeMs: now.getTime() + input.mustExecuteBeforeSec * 1000,
+      startPrice: input.startPrice ?? null,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
       fills: [],
@@ -698,6 +703,7 @@ export class ExecutionService implements OnModuleInit, OnModuleDestroy {
           polymarketOrderId: r.polymarketOrderId,
           source: 'database',
           mustExecuteBeforeMs: 0,
+          startPrice: null,
           createdAt: r.createdAt,
           updatedAt: r.updatedAt,
           fills: dbFills.map((f) => ({

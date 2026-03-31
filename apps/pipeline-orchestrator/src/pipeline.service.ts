@@ -326,6 +326,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
           source: 'pipeline-orchestrator',
           windowId,
           riskDecisionId: riskEval.id,
+          startPrice: features.market?.startPrice ?? features.price?.currentPrice ?? 0,
           tokenId,
           conditionId,
         },
