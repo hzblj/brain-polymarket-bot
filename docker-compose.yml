@@ -131,7 +131,6 @@ services:
       - POST_TRADE_ANALYZER_URL=http://post-trade-analyzer:3011
     depends_on:
       - price-feed
-      - post-trade-analyzer
 
   config:
     <<: *service-base
