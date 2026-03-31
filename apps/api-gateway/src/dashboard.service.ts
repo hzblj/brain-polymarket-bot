@@ -169,7 +169,7 @@ export class DashboardService {
   // ─── Pipeline ─────────────────────────────────────────────────────────────
 
   async getPipeline() {
-    const [regimeTraces, edgeTraces, supervisorTraces, riskState, latestPositions, currentWindow] =
+    const [regimeTraces, edgeTraces, supervisorTraces, riskState, latestPositions, currentWindow, pipelineStatus] =
       await Promise.all([
         this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=regime&limit=1'),
         this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=edge&limit=1'),
@@ -177,6 +177,7 @@ export class DashboardService {
         this.fetch('risk', '/api/v1/risk/state'),
         this.fetch('execution', '/api/v1/execution/positions'),
         this.fetch('market-discovery', '/api/v1/market/active'),
+        this.fetch('pipeline-orchestrator', '/api/v1/pipeline/status'),
       ]);
 
     // Get current window ID from market discovery
@@ -210,10 +211,30 @@ export class DashboardService {
     const latestPosition = (positions[0] as Rec | undefined) ?? null;
     const hasExecution = !!latestPosition;
 
+    // Pipeline orchestrator status for context
+    const pipeRec = pipelineStatus as Rec | null;
+    const pipeStage = str(val(pipeRec, 'lastResult', 'stage') as string);
+    const pipeDetails = (val(pipeRec, 'lastResult', 'details') as Rec) ?? {};
+    const pipeRunning = !!pipeRec?.running;
+    const pipeCycles = num(pipeRec?.cycleCount as number);
+
+    // For pending agent steps, show pipeline stage as context
+    const pendingValue = pipeStage === 'not_tradeable' ? 'not tradeable'
+      : pipeStage === 'skipped' ? str(pipeDetails.reason as string, 'skipped')
+      : pipeStage === 'error' ? str(pipeDetails.reason as string, 'error')
+      : pipeStage === 'no_features' ? 'no data'
+      : pipeRunning ? 'evaluating...'
+      : pipeCycles > 0 ? 'waiting for window'
+      : null;
+
+    const pendingStatus = pipeStage === 'error' ? 'failed' as const
+      : pipeRunning ? 'running' as const
+      : 'pending' as const;
+
     return [
-      traceToStep('Regime', regime, 'regime'),
-      traceToStep('Edge', edge, 'direction'),
-      traceToStep('Supervisor', supervisor, 'action'),
+      regime ? traceToStep('Regime', regime, 'regime') : { label: 'Regime', status: pendingStatus, value: pendingValue, confidence: null, timestamp: null },
+      edge ? traceToStep('Edge', edge, 'direction') : { label: 'Edge', status: pendingStatus, value: pendingValue, confidence: null, timestamp: null },
+      supervisor ? traceToStep('Supervisor', supervisor, 'action') : { label: 'Supervisor', status: pendingStatus, value: pendingValue, confidence: null, timestamp: null },
       {
         label: 'Risk',
         status: hasRiskData ? 'success' : 'pending',
