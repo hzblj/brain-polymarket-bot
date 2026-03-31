@@ -103,9 +103,12 @@ export class ExecutionService implements OnModuleInit, OnModuleDestroy {
     for (const order of this.orders.values()) {
       if (order.status !== 'filled') continue;
 
-      // Check if window has expired (5 min from creation)
-      const createdMs = new Date(order.createdAt).getTime();
-      const windowEndMs = createdMs + 5 * 60 * 1000;
+      // Check if window has expired
+      // Use mustExecuteBeforeMs as proxy for window end (set by pipeline from remainingMs)
+      // Add 15s buffer to ensure window is fully closed
+      const windowEndMs = order.mustExecuteBeforeMs > 0
+        ? order.mustExecuteBeforeMs + 15_000
+        : new Date(order.createdAt).getTime() + 5 * 60 * 1000;
       if (Date.now() < windowEndMs) continue;
 
       // Already resolved
