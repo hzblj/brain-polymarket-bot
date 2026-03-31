@@ -112,55 +112,54 @@ export class ExecutionService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async resolveExpiredPositions(): Promise<void> {
-    // Find filled orders that haven't been resolved yet
     for (const order of this.orders.values()) {
       if (order.status !== 'filled') continue;
-
-      // Check if window has expired
-      // Use mustExecuteBeforeMs as proxy for window end (set by pipeline from remainingMs)
-      // Add 15s buffer to ensure window is fully closed
-      const windowEndMs = order.mustExecuteBeforeMs > 0
-        ? order.mustExecuteBeforeMs + 15_000
-        : new Date(order.createdAt).getTime() + 5 * 60 * 1000;
-      if (Date.now() < windowEndMs) continue;
 
       // Already resolved
       if ((order as InternalOrder & { resolved?: boolean }).resolved) continue;
 
-      // Fetch resolver price to determine outcome
+      // Compute exact window end time from order creation + remaining time
+      const windowEndMs = order.mustExecuteBeforeMs > 0
+        ? order.mustExecuteBeforeMs + 15_000  // mustExecuteBeforeMs ≈ window end - 15s, add buffer back
+        : new Date(order.createdAt).getTime() + 5 * 60 * 1000;
+
+      // Wait until window is fully closed + 5s buffer for price propagation
+      if (Date.now() < windowEndMs + 5_000) continue;
+
       try {
-        const res = await fetch(`${PRICE_SERVICE_URL}/api/v1/price/current`, {
-          signal: AbortSignal.timeout(3_000),
-        });
-        if (!res.ok) continue;
-        const json = (await res.json()) as { ok: boolean; data?: { window?: { startPrice: number; deltaAbs: number }; resolver?: { price: number } } };
-        if (!json.ok || !json.data?.resolver) continue;
+        // Fetch end-of-window price from price history for accurate resolution
+        const endPrice = await this.fetchWindowEndPrice(windowEndMs);
+        if (endPrice == null) continue;
 
-        // Use startPrice saved at order creation; fall back to price-feed window (less accurate)
-        const startPrice = order.startPrice ?? json.data.window?.startPrice;
-        if (startPrice == null) continue;
-        const currentPrice = json.data.resolver.price;
-        const wentUp = currentPrice > startPrice;
+        // Use startPrice saved at order creation
+        const startPrice = order.startPrice;
+        if (startPrice == null) {
+          this.logger.warn(`Order ${order.id} missing startPrice, skipping resolution`);
+          continue;
+        }
 
-        // Determine P&L for binary option
+        const wentUp = endPrice > startPrice;
         const isWin =
           (order.side === 'buy_up' && wentUp) ||
           (order.side === 'buy_down' && !wentUp);
 
+        // P&L for binary option: win pays (1 - entry), loss costs entry
         const pnlUsd = isWin
           ? (1 - order.entryPrice) * order.filledSizeUsd
           : -order.entryPrice * order.filledSizeUsd;
 
-        // Update order
-        order.status = 'filled'; // Keep as filled in memory, DB tracks resolved via updatedAt
         order.updatedAt = new Date().toISOString();
         (order as InternalOrder & { resolved?: boolean; pnlUsd?: number; outcome?: string }).resolved = true;
         (order as InternalOrder & { pnlUsd?: number }).pnlUsd = pnlUsd;
         (order as InternalOrder & { outcome?: string }).outcome = isWin ? 'win' : 'loss';
 
-        // Remove from open positions
         const posKey = `${order.marketId}:${order.side}`;
         this.positions.delete(posKey);
+
+        this.logger.log(
+          `Resolved ${order.id}: ${order.side} start=$${startPrice.toFixed(2)} end=$${endPrice.toFixed(2)} ` +
+          `${wentUp ? 'UP' : 'DOWN'} → ${isWin ? 'WIN' : 'LOSS'} P&L=$${pnlUsd.toFixed(4)}`,
+        );
 
         // Persist
         try {
@@ -168,7 +167,6 @@ export class ExecutionService implements OnModuleInit, OnModuleDestroy {
             .update(ordersTable)
             .set({ status: 'filled', updatedAt: order.updatedAt })
             .where(eq(ordersTable.id, order.id));
-          // Add resolution fill with exit price
           await this.db.insert(fillsTable).values({
             id: `fill-resolve-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             orderId: order.id,
@@ -188,10 +186,9 @@ export class ExecutionService implements OnModuleInit, OnModuleDestroy {
           outcome: isWin ? 'win' : 'loss',
           entryPrice: order.entryPrice,
           startPrice,
-          endPrice: currentPrice,
+          endPrice,
         });
 
-        // Auto-trigger post-trade analysis
         this.triggerPostTradeAnalysis(order.id, order.windowId).catch(() => {
           /* best-effort */
         });
@@ -199,6 +196,61 @@ export class ExecutionService implements OnModuleInit, OnModuleDestroy {
         /* retry next cycle */
       }
     }
+  }
+
+  /**
+   * Fetches the BTC price at (or near) the window end time from price history.
+   * Falls back to current resolver price if history is unavailable.
+   */
+  private async fetchWindowEndPrice(windowEndMs: number): Promise<number | null> {
+    // Try price history first — get the price closest to window end
+    try {
+      const from = new Date(windowEndMs - 10_000).toISOString();
+      const to = new Date(windowEndMs + 5_000).toISOString();
+      const historyRes = await fetch(
+        `${PRICE_SERVICE_URL}/api/v1/price/history?from=${from}&to=${to}&source=resolver&interval=1s`,
+        { signal: AbortSignal.timeout(3_000) },
+      );
+      if (historyRes.ok) {
+        const historyJson = (await historyRes.json()) as {
+          ok: boolean;
+          data?: { ticks?: Array<{ timestamp: string; price: number }> } | Array<{ timestamp: string; price: number }>;
+        };
+        if (historyJson.ok && historyJson.data) {
+          const ticks = Array.isArray(historyJson.data)
+            ? historyJson.data
+            : (historyJson.data.ticks ?? []);
+          if (ticks.length > 0) {
+            // Find tick closest to window end
+            let closest = ticks[0];
+            let closestDiff = Math.abs(new Date(closest.timestamp).getTime() - windowEndMs);
+            for (const tick of ticks) {
+              const diff = Math.abs(new Date(tick.timestamp).getTime() - windowEndMs);
+              if (diff < closestDiff) {
+                closest = tick;
+                closestDiff = diff;
+              }
+            }
+            return closest.price;
+          }
+        }
+      }
+    } catch {
+      /* fall through to current price */
+    }
+
+    // Fallback: use current resolver price (less accurate but better than nothing)
+    try {
+      const res = await fetch(`${PRICE_SERVICE_URL}/api/v1/price/current`, {
+        signal: AbortSignal.timeout(3_000),
+      });
+      if (!res.ok) return null;
+      const json = (await res.json()) as { ok: boolean; data?: { resolver?: { price: number } } };
+      if (json.ok && json.data?.resolver) return json.data.resolver.price;
+    } catch {
+      /* ignore */
+    }
+    return null;
   }
 
   // ─── Public API ──────────────────────────────────────────────────────────────
@@ -212,8 +264,9 @@ export class ExecutionService implements OnModuleInit, OnModuleDestroy {
 
     const order = this.createOrder(input, 'paper');
 
-    // Simulate immediate fill at maxEntryPrice (paper mode uses mid price simulation)
-    const simulatedFillPrice = input.maxEntryPrice;
+    // Simulate fill at ask price + 1% slippage to approximate live execution
+    const slippageFactor = 1.01;
+    const simulatedFillPrice = Math.min(input.maxEntryPrice * slippageFactor, 0.99);
     const fill = this.createFill(order.id, simulatedFillPrice, input.sizeUsd);
 
     order.fills.push(fill);
