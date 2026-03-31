@@ -29,6 +29,8 @@ import {
   useServiceHealth,
   useTodayMetrics,
   useSimulationSummary,
+  useBlockchainActivity,
+  useDerivativesFeatures,
 } from "@/lib/hooks";
 
 import {
@@ -58,6 +60,8 @@ export default function OverviewPage() {
   const services = health.data;
   const today = metrics.data;
   const sim = simulation.data;
+  const bc = useBlockchainActivity().data;
+  const deriv = useDerivativesFeatures().data;
 
   const totalUnrealized =
     open?.reduce((sum, t) => sum + t.unrealizedPnl, 0) ?? 0;
@@ -428,6 +432,48 @@ export default function OverviewPage() {
           )}
         </div>
       </div>
+
+      {/* ── Derivatives Strip ─────────────────────────────────────── */}
+      {deriv && (
+        <div className="rounded-lg border border-border bg-surface-1 p-4">
+          <h2 className="mb-3 text-sm font-semibold text-text-secondary uppercase tracking-wider">
+            Derivatives (Binance Futures)
+          </h2>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-4">
+            <SnapshotRow label="Funding Rate" value={`${(deriv.fundingRate * 100).toFixed(4)}%`} />
+            <SnapshotRow label="Funding (Annual)" value={`${(deriv.fundingRateAnnualized * 100).toFixed(1)}%`} />
+            <SnapshotRow label="Open Interest" value={`$${formatPrice(deriv.openInterestUsd / 1e9, 2)}B`} />
+            <SnapshotRow label="OI Change" value={`${deriv.openInterestChangePct >= 0 ? '+' : ''}${formatPrice(deriv.openInterestChangePct, 2)}%`} />
+            <SnapshotRow label="Long Liqs" value={`$${formatPrice(deriv.longLiquidationUsd / 1000, 0)}K`} />
+            <SnapshotRow label="Short Liqs" value={`$${formatPrice(deriv.shortLiquidationUsd / 1000, 0)}K`} />
+            <SnapshotRow label="Liq Intensity" value={`${(deriv.liquidationIntensity * 100).toFixed(0)}%`} />
+            <SnapshotRow label="Sentiment" value={
+              deriv.derivativesSentiment > 0.3 ? `Bullish (${(deriv.derivativesSentiment * 100).toFixed(0)}%)`
+              : deriv.derivativesSentiment < -0.3 ? `Bearish (${(deriv.derivativesSentiment * 100).toFixed(0)}%)`
+              : `Neutral (${(deriv.derivativesSentiment * 100).toFixed(0)}%)`
+            } />
+          </div>
+        </div>
+      )}
+
+      {/* ── Blockchain Activity Strip ──────────────────────────────── */}
+      {bc && (
+        <div className="rounded-lg border border-border bg-surface-1 p-4">
+          <h2 className="mb-3 text-sm font-semibold text-text-secondary uppercase tracking-wider">
+            Blockchain Activity
+          </h2>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-4">
+            <SnapshotRow label="Mempool Txs" value={bc.mempool.txCount.toLocaleString()} />
+            <SnapshotRow label="Fastest Fee" value={`${bc.fees.fastest} sat/vB`} />
+            <SnapshotRow label="Latest Block" value={bc.latestBlock ? `#${bc.latestBlock.height.toLocaleString()}` : '—'} />
+            <SnapshotRow label="Notable Txs" value={`${bc.notableTransactions.total} (${formatPrice(bc.notableTransactions.totalBtc, 0)} BTC)`} />
+            <SnapshotRow label="Exchange In" value={bc.notableTransactions.exchangeInflows.count > 0 ? `${bc.notableTransactions.exchangeInflows.count} (${formatPrice(bc.notableTransactions.exchangeInflows.btc, 1)} BTC)` : '—'} />
+            <SnapshotRow label="Exchange Out" value={bc.notableTransactions.exchangeOutflows.count > 0 ? `${bc.notableTransactions.exchangeOutflows.count} (${formatPrice(bc.notableTransactions.exchangeOutflows.btc, 1)} BTC)` : '—'} />
+            <SnapshotRow label="Tx Trend" value={`${bc.trend.txCountChange > 0 ? '↑' : bc.trend.txCountChange < 0 ? '↓' : '→'} ${(bc.trend.txCountChange * 100).toFixed(0)}%`} />
+            <SnapshotRow label="Fee Trend" value={`${bc.trend.feeChange > 0 ? '↑' : bc.trend.feeChange < 0 ? '↓' : '→'} ${(bc.trend.feeChange * 100).toFixed(0)}%`} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

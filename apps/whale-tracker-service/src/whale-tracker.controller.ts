@@ -1,9 +1,9 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Inject, Query } from '@nestjs/common';
 import { WhaleTrackerService } from './whale-tracker.service';
 
 @Controller('api/v1/whales')
 export class WhaleTrackerController {
-  constructor(private readonly whaleTrackerService: WhaleTrackerService) {}
+  constructor(@Inject(WhaleTrackerService) private readonly whaleTrackerService: WhaleTrackerService) {}
 
   @Get('current')
   getCurrentFeatures() {
@@ -22,6 +22,18 @@ export class WhaleTrackerController {
     return { ok: true, data: this.whaleTrackerService.getHistory(n) };
   }
 
+  /** Live blockchain activity — 1h rolling window of mempool, fees, notable txs */
+  @Get('blockchain')
+  getBlockchainActivity() {
+    return { ok: true, data: this.whaleTrackerService.getBlockchainActivity() };
+  }
+
+  /** LLM-ready text summary of blockchain activity */
+  @Get('llm-summary')
+  getLlmSummary() {
+    return { ok: true, data: this.whaleTrackerService.getLlmSummary() };
+  }
+
   @Get('status')
   getStatus() {
     return { ok: true, data: this.whaleTrackerService.getStatus() };
@@ -34,7 +46,7 @@ export class WhaleTrackerController {
       ok: true,
       data: {
         service: 'whale-tracker',
-        status: status.connected ? 'healthy' : 'degraded',
+        status: status.connected || status.mempoolConnected ? 'healthy' : 'degraded',
         ...status,
       },
     };

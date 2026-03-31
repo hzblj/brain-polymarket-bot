@@ -13,7 +13,7 @@ interface ServiceEndpoint {
   healthPath: string;
 }
 
-const DEFAULT_HOST = process.env.SERVICE_HOST ?? 'localhost';
+const DEFAULT_HOST = process.env.SERVICE_HOST ?? process.env.LOCAL_IP ?? 'localhost';
 
 const SERVICE_REGISTRY: ServiceEndpoint[] = [
   {
@@ -69,6 +69,36 @@ const SERVICE_REGISTRY: ServiceEndpoint[] = [
     port: 3009,
     host: process.env.REPLAY_HOST ?? DEFAULT_HOST,
     healthPath: '/api/v1/replay/summary',
+  },
+  {
+    name: 'whale-tracker',
+    port: 3010,
+    host: process.env.WHALE_TRACKER_HOST ?? DEFAULT_HOST,
+    healthPath: '/api/v1/whales/health',
+  },
+  {
+    name: 'post-trade-analyzer',
+    port: 3011,
+    host: process.env.POST_TRADE_ANALYZER_HOST ?? DEFAULT_HOST,
+    healthPath: '/api/v1/analyzer/health',
+  },
+  {
+    name: 'strategy-optimizer',
+    port: 3012,
+    host: process.env.STRATEGY_OPTIMIZER_HOST ?? DEFAULT_HOST,
+    healthPath: '/api/v1/optimizer/status',
+  },
+  {
+    name: 'derivatives-feed',
+    port: 3013,
+    host: process.env.DERIVATIVES_FEED_HOST ?? DEFAULT_HOST,
+    healthPath: '/api/v1/derivatives/current',
+  },
+  {
+    name: 'pipeline-orchestrator',
+    port: 3014,
+    host: process.env.PIPELINE_HOST ?? DEFAULT_HOST,
+    healthPath: '/api/v1/pipeline/status',
   },
 ];
 

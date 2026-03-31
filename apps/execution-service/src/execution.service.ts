@@ -71,7 +71,7 @@ export class ExecutionService implements OnModuleInit {
 
   constructor(
     @Inject(DATABASE_CLIENT) private readonly db: DbClient,
-    private readonly eventBus: EventBus,
+    @Inject(EventBus) private readonly eventBus: EventBus,
   ) {}
 
   async onModuleInit(): Promise<void> {

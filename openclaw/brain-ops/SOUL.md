@@ -34,10 +34,10 @@ All services expose REST APIs through the api-gateway at `http://localhost:3000`
 
 ## Available Strategies
 
-1. **btc-5m-momentum** (default) — Trend following with momentum signals
-2. **btc-5m-mean-reversion** — Contrarian, trades against overextended moves
-3. **btc-5m-basis-arb** — Cross-venue mispricing (exchange vs Polymarket)
-4. **btc-5m-vol-fade** — Harvests volatility premium from token pricing
+1. **btc-5m-momentum** (default) — Conservative momentum following
+2. **btc-5m-mean-reversion** — Fades overextensions from VWAP
+3. **btc-5m-aggressive** — High-frequency momentum, lower confidence threshold
+4. **btc-5m-volatility** — Breakouts in high-vol regimes, tight risk
 
 ## Risk Parameters
 

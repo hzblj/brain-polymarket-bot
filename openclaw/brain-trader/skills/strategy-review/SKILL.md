@@ -12,15 +12,18 @@ description: Compare strategy performance and recommend which strategy to use ba
 3. `GET http://localhost:3000/api/v1/optimizer/reports?limit=5` — strategy optimizer reports
 4. `GET http://localhost:3000/api/v1/dashboard/snapshot` — current market conditions
 5. `GET http://localhost:3000/api/v1/agent/traces?limit=30` — recent agent decisions
+6. `GET http://localhost:3000/api/v1/strategies/:id/versions` — view version config details for a strategy
+7. `POST http://localhost:3000/api/v1/strategies/:id/versions` — create a new strategy version (body: `{"config": {...}}`)
+8. `POST http://localhost:3000/api/v1/strategies/:id/deactivate` — disable a strategy
 
 ## Strategy Profiles
 
 | Strategy | Best When | Worst When |
 |----------|-----------|------------|
-| momentum | Clear trends, strong directional moves | Choppy/ranging markets |
-| mean-reversion | Overextended moves, high mean-reversion strength | Strong sustained trends |
-| basis-arb | Exchange leads Polymarket, wide basis | Tight basis, noisy exchange prices |
-| vol-fade | High implied vol, low realized vol | Vol crisis, thin books |
+| btc-5m-momentum | Clear trends, strong directional moves | Choppy/ranging markets |
+| btc-5m-mean-reversion | Overextended moves from VWAP, high mean-reversion strength | Strong sustained trends |
+| btc-5m-aggressive | Fast-moving markets, high signal frequency | Low-conviction environments, choppy vol |
+| btc-5m-volatility | High-vol breakout regimes, tight risk controls | Quiet/ranging markets, thin books |
 
 ## Analysis
 
@@ -38,9 +41,10 @@ Current: btc-5m-momentum v1
 Market Regime: trending_up (last 10 windows: 7 trending, 2 mean-reverting, 1 quiet)
 
 Performance (last 50 trades):
-  Momentum:       +$3.20 (62% win rate)
-  Mean Reversion: would have been +$1.80 (58% win rate) ← estimated
-  Basis Arb:      would have been +$4.10 (68% win rate) ← estimated
+  btc-5m-momentum:        +$3.20 (62% win rate)
+  btc-5m-mean-reversion:  would have been +$1.80 (58% win rate) ← estimated
+  btc-5m-aggressive:      would have been +$4.10 (68% win rate) ← estimated
+  btc-5m-volatility:      would have been +$2.50 (60% win rate) ← estimated
 
-Recommendation: Switch to basis-arb — wide basis detected in recent windows
+Recommendation: Switch to btc-5m-aggressive — strong directional momentum detected in recent windows
 ```

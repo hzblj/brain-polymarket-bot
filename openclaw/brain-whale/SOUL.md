@@ -18,6 +18,15 @@ Monitors mempool for large BTC transactions via mempool.space WebSocket:
 - `whaleVolumeBtc`: total whale volume
 - `abnormalActivityScore`: 0-1, how unusual current activity is
 
+### Blockchain Activity (API gateway)
+Real-time mempool, fee, and block data via `GET /api/v1/whales/blockchain`:
+- `mempool`: `txCount`, `totalFeeBtc`, `vsize` — mempool congestion snapshot
+- `fees`: `fastest`, `halfHour`, `hour`, `economy`, `minimum` — sat/vB fee tiers
+- `latestBlock`: `height`, `txCount`, `size`, `timestamp` — most recent confirmed block
+- `notableTransactions`: `totalBtc`, `totalUsd`, `exchangeInflows`, `exchangeOutflows`, `largest` — large-tx breakdown for the window
+- `trend`: `txCountChange`, `volumeChange`, `feeChange` — directional changes vs prior window
+- `window`: `durationMs`, `startTime` — observation window metadata
+
 ### Derivatives Feed (port 3013)
 Monitors Binance futures via WebSocket:
 - `fundingRate`: current funding rate (positive = longs pay shorts = crowded long)
@@ -32,6 +41,8 @@ Monitors Binance futures via WebSocket:
 
 | Signal | Bullish | Bearish |
 |--------|---------|---------|
+| Blockchain fees | Low/stable fees (calm) | Fee spike (rush/panic) |
+| Mempool | Low congestion | Surging tx count / vsize |
 | Exchange flow | Net outflow (hodling) | Net inflow (selling) |
 | Funding rate | Negative (shorts pay) | Very positive (crowded long) |
 | OI trend | Rising + positive funding | Rising + negative price |

@@ -1,6 +1,7 @@
 import { DATABASE_CLIENT, type DbClient, featureSnapshots } from '@brain/database';
 import { type BrainEventName, type BrainEventMap, EventBus } from '@brain/events';
 import type {
+  BlockchainActivity,
   BookFeatures,
   FeaturePayload,
   MarketFeatures,
@@ -15,11 +16,12 @@ import { and, desc, gte, lte } from 'drizzle-orm';
 // Service base URLs (configurable via @brain/config)
 // ---------------------------------------------------------------------------
 
-const MARKET_SERVICE_URL = process.env.MARKET_SERVICE_URL ?? 'http://localhost:3001';
-const PRICE_SERVICE_URL = process.env.PRICE_SERVICE_URL ?? 'http://localhost:3002';
-const BOOK_SERVICE_URL = process.env.BOOK_SERVICE_URL ?? 'http://localhost:3003';
-const WHALE_SERVICE_URL = process.env.WHALE_SERVICE_URL ?? 'http://localhost:3010';
-const DERIVATIVES_SERVICE_URL = process.env.DERIVATIVES_SERVICE_URL ?? 'http://localhost:3013';
+const LOCAL_HOST = process.env.LOCAL_IP ?? 'localhost';
+const MARKET_SERVICE_URL = process.env.MARKET_SERVICE_URL ?? `http://${LOCAL_HOST}:3001`;
+const PRICE_SERVICE_URL = process.env.PRICE_SERVICE_URL ?? `http://${LOCAL_HOST}:3002`;
+const BOOK_SERVICE_URL = process.env.BOOK_SERVICE_URL ?? `http://${LOCAL_HOST}:3003`;
+const WHALE_SERVICE_URL = process.env.WHALE_SERVICE_URL ?? `http://${LOCAL_HOST}:3010`;
+const DERIVATIVES_SERVICE_URL = process.env.DERIVATIVES_SERVICE_URL ?? `http://${LOCAL_HOST}:3013`;
 
 const RECOMPUTE_INTERVAL_MS = 1_000;
 const HISTORY_BUFFER_SIZE = 300;
@@ -30,7 +32,7 @@ const DEFAULT_MIN_DEPTH_SCORE = 0.3;
 const DEFAULT_MAX_SPREAD_BPS = 800;
 const DEFAULT_MIN_VOLATILITY = 0.0001;
 
-const CONFIG_SERVICE_URL = process.env.CONFIG_SERVICE_URL ?? 'http://localhost:3007';
+const CONFIG_SERVICE_URL = process.env.CONFIG_SERVICE_URL ?? `http://${LOCAL_HOST}:3007`;
 const CONFIG_REFRESH_INTERVAL_MS = 30_000;
 
 interface HistoryQuery {
@@ -60,7 +62,7 @@ export class FeatureEngineService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     @Inject(DATABASE_CLIENT) private readonly db: DbClient,
-    private readonly eventBus: EventBus,
+    @Inject(EventBus) private readonly eventBus: EventBus,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -123,12 +125,13 @@ export class FeatureEngineService implements OnModuleInit, OnModuleDestroy {
    * and running signal computations.
    */
   async recompute(): Promise<FeaturePayload> {
-    const [marketData, priceData, bookData, whaleData, derivativesData] = await Promise.all([
+    const [marketData, priceData, bookData, whaleData, derivativesData, blockchainData] = await Promise.all([
       this.fetchMarketData(),
       this.fetchPriceData(),
       this.fetchBookData(),
       this.fetchWhaleData(),
       this.fetchDerivativesData(),
+      this.fetchBlockchainActivity(),
     ]);
 
     const now = Date.now();
@@ -165,7 +168,7 @@ export class FeatureEngineService implements OnModuleInit, OnModuleDestroy {
         : 0,
     };
 
-    // Build book features (same shape — no mapping needed)
+    // Build book features
     const book: BookFeatures = {
       upBid: bookData.upBid,
       upAsk: bookData.upAsk,
@@ -174,6 +177,8 @@ export class FeatureEngineService implements OnModuleInit, OnModuleDestroy {
       spreadBps: bookData.spreadBps,
       depthScore: bookData.depthScore,
       imbalance: bookData.imbalance,
+      bidDepthUsd: bookData.bidDepthUsd,
+      askDepthUsd: bookData.askDepthUsd,
     };
 
     // Compute derived signals
@@ -188,6 +193,7 @@ export class FeatureEngineService implements OnModuleInit, OnModuleDestroy {
       signals,
       ...(whaleData ? { whales: whaleData } : {}),
       ...(derivativesData ? { derivatives: derivativesData } : {}),
+      ...(blockchainData ? { blockchain: blockchainData } : {}),
     };
 
     this.currentPayload = payload;
@@ -426,6 +432,8 @@ export class FeatureEngineService implements OnModuleInit, OnModuleDestroy {
           spreadBps: json.data.spreadBps,
           depthScore: json.data.liquidityScore,
           imbalance: json.data.imbalance,
+          bidDepthUsd: json.data.up.bidDepth + json.data.down.bidDepth,
+          askDepthUsd: json.data.up.askDepth + json.data.down.askDepth,
         };
       }
     } catch {
@@ -439,6 +447,8 @@ export class FeatureEngineService implements OnModuleInit, OnModuleDestroy {
       spreadBps: 9999,
       depthScore: 0,
       imbalance: 0,
+      bidDepthUsd: 0,
+      askDepthUsd: 0,
     };
   }
 
@@ -465,6 +475,17 @@ export class FeatureEngineService implements OnModuleInit, OnModuleDestroy {
       }
     } catch {
       // Whale tracker is optional — degrade gracefully
+    }
+    return null;
+  }
+
+  private async fetchBlockchainActivity(): Promise<BlockchainActivity | null> {
+    try {
+      const res = await fetch(`${WHALE_SERVICE_URL}/api/v1/whales/blockchain`);
+      const json = (await res.json()) as { ok: boolean; data: BlockchainActivity | null };
+      if (json.ok && json.data) return json.data;
+    } catch {
+      // Blockchain activity is optional
     }
     return null;
   }
@@ -505,6 +526,8 @@ interface RawBookData {
   spreadBps: number;
   depthScore: number;
   imbalance: number;
+  bidDepthUsd: number;
+  askDepthUsd: number;
 }
 
 interface RawDerivativesData {

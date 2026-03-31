@@ -9,10 +9,10 @@ Switch between available trading strategies. Always confirm with the user before
 
 ## Available Strategies
 
-1. `btc-5m-momentum` — Trend following (default)
-2. `btc-5m-mean-reversion` — Contrarian / mean reversion
-3. `btc-5m-basis-arb` — Cross-venue basis arbitrage
-4. `btc-5m-vol-fade` — Volatility premium harvesting
+1. `btc-5m-momentum` — Conservative momentum following (default)
+2. `btc-5m-mean-reversion` — Fades overextensions from VWAP
+3. `btc-5m-aggressive` — High-frequency momentum, lower confidence threshold
+4. `btc-5m-volatility` — Breakouts in high-vol regimes, tight risk
 
 ## Steps
 
@@ -22,6 +22,12 @@ Switch between available trading strategies. Always confirm with the user before
 4. Switch: `POST http://localhost:3000/api/v1/config/strategy` with `{"marketConfigId": "<id>", "strategyVersionId": "<versionId>"}`
 5. Verify by fetching strategy again
 6. Report: old strategy → new strategy, version, key parameters
+
+## Inspecting and Editing Strategy Config
+
+- View version config: `GET http://localhost:3000/api/v1/strategies/:id/versions`
+- Create a new version with edited params: `POST http://localhost:3000/api/v1/strategies/:id/versions` with body `{"config": {...}}`
+- Disable a strategy: `POST http://localhost:3000/api/v1/strategies/:id/deactivate`
 
 ## Reset to Default
 

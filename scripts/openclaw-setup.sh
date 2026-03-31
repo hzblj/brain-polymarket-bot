@@ -7,7 +7,8 @@ set -euo pipefail
 
 echo "🧠 Setting up OpenClaw for Brain Polymarket Bot..."
 
-API_GATEWAY="http://localhost:3000"
+LOCAL_IP="${LOCAL_IP:-localhost}"
+API_GATEWAY="http://${LOCAL_IP}:3000"
 
 # ─── 1. Health Check — every 2 minutes ──────────────────────────────────────
 # Pings all 14 services and alerts if any are unhealthy.
@@ -25,7 +26,7 @@ For each service, check:
 - status: 'healthy', 'degraded', or 'unhealthy'
 - latencyMs: flag anything over 2000ms
 
-Services to check: market-discovery, price-feed, orderbook, feature-engine, risk, execution, config, agent-gateway, replay.
+Services to check: market-discovery, price-feed, orderbook, feature-engine, risk, execution, config, agent-gateway, replay, whale-tracker, derivatives-feed, post-trade-analyzer, strategy-optimizer, dashboard, api-gateway.
 
 ONLY report if there's a problem. If all services are healthy, respond with nothing.
 If any service is unhealthy or degraded, report which ones and their latency." \
@@ -251,7 +252,13 @@ Fetch ${API_GATEWAY}/api/v1/whales/current and evaluate:
 - If |netExchangeFlowBtc| > 30 BTC: ALERT with direction
 - If largeTransactionCount > 5 in current window: ALERT
 
-Also fetch ${API_GATEWAY}/api/v1/whales/transactions?limit=5 for details on notable transactions.
+Also fetch:
+- ${API_GATEWAY}/api/v1/whales/transactions?limit=5 for details on notable transactions
+- ${API_GATEWAY}/api/v1/whales/blockchain for mempool activity, fee spikes, and on-chain exchange flows
+
+Additional blockchain alerts:
+- If fee trend (feeChange) > 50%: ALERT — fee spike may indicate network stress
+- If notableTransactions.exchangeInflows.btc > 20: ALERT — large exchange deposit (bearish)
 
 If nothing significant, say NOTHING." \
   --model "openai/gpt-4o-mini" \
@@ -298,13 +305,15 @@ Fetch in parallel:
 2. ${API_GATEWAY}/api/v1/derivatives/current — derivatives features
 3. ${API_GATEWAY}/api/v1/dashboard/snapshot — market prices
 4. ${API_GATEWAY}/api/v1/dashboard/pipeline — current agent decision
+5. ${API_GATEWAY}/api/v1/whales/blockchain — on-chain activity (mempool, fees, exchange flows)
 
 Compute sentiment score from:
-- Exchange flow pressure (25%)
-- Funding pressure inverted (25%)
-- Liquidation imbalance inverted (20%)
+- Exchange flow pressure (20%)
+- Funding pressure inverted (20%)
+- Liquidation imbalance inverted (15%)
 - OI trend aligned with price (15%)
 - Whale abnormality × flow direction (15%)
+- Blockchain on-chain confirmation (15%) — fee trends + exchange inflows/outflows from mempool
 
 ONLY report if:
 - Composite score > 0.5 or < -0.5 (strong signal)

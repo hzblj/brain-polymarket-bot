@@ -74,8 +74,8 @@ export class DerivativesFeedService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     @Inject(DATABASE_CLIENT) private readonly db: DbClient,
-    private readonly eventBus: EventBus,
-    logger: BrainLoggerService,
+    @Inject(EventBus) private readonly eventBus: EventBus,
+    @Inject(BrainLoggerService) logger: BrainLoggerService,
   ) {
     this.logger = logger.child('DerivativesFeedService');
   }

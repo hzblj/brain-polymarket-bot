@@ -92,7 +92,7 @@ export class OrderbookService implements OnModuleInit, OnModuleDestroy {
   private upTokenId: string | null = null;
   private downTokenId: string | null = null;
   private apiUrl = 'https://clob.polymarket.com';
-  private marketDiscoveryUrl = 'http://localhost:3001';
+  private marketDiscoveryUrl = `http://${process.env.LOCAL_IP ?? 'localhost'}:3001`;
 
   /** Polymarket API auth headers. */
   private apiKey: string | null = null;
@@ -101,14 +101,14 @@ export class OrderbookService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     @Inject(DATABASE_CLIENT) private readonly db: DbClient,
-    private readonly eventBus: EventBus,
+    @Inject(EventBus) private readonly eventBus: EventBus,
   ) {}
 
   async onModuleInit(): Promise<void> {
     this.upTokenId = process.env.POLYMARKET_UP_TOKEN_ID ?? null;
     this.downTokenId = process.env.POLYMARKET_DOWN_TOKEN_ID ?? null;
     this.apiUrl = process.env.POLYMARKET_API_URL ?? 'https://clob.polymarket.com';
-    this.marketDiscoveryUrl = process.env.MARKET_SERVICE_URL ?? `http://${process.env.MARKET_DISCOVERY_HOST ?? 'localhost'}:3001`;
+    this.marketDiscoveryUrl = process.env.MARKET_SERVICE_URL ?? `http://${process.env.MARKET_DISCOVERY_HOST ?? process.env.LOCAL_IP ?? 'localhost'}:3001`;
 
     // Auth headers
     this.apiKey = process.env.POLYMARKET_API_KEY ?? null;

@@ -88,7 +88,7 @@ export class MarketDiscoveryService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     @Inject(DATABASE_CLIENT) private readonly db: DbClient,
-    private readonly eventBus: EventBus,
+    @Inject(EventBus) private readonly eventBus: EventBus,
   ) {
     this.gammaUrl = process.env.POLYMARKET_GAMMA_URL ?? 'https://gamma-api.polymarket.com';
     this.clobUrl = process.env.POLYMARKET_API_URL ?? 'https://clob.polymarket.com';

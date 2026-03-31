@@ -1,9 +1,9 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Inject, Query } from '@nestjs/common';
 import { DerivativesFeedService } from './derivatives-feed.service';
 
 @Controller('api/v1/derivatives')
 export class DerivativesFeedController {
-  constructor(private readonly service: DerivativesFeedService) {}
+  constructor(@Inject(DerivativesFeedService) private readonly service: DerivativesFeedService) {}
 
   @Get('current')
   getCurrentFeatures() {

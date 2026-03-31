@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
@@ -9,7 +10,20 @@ async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter());
 
   app.enableShutdownHooks();
-  app.enableCors({ origin: ['http://localhost:3100', 'http://localhost:3000'] });
+
+  // Manual CORS via Fastify hook — enableCors() doesn't work reliably with Fastify adapter
+  const fastify = app.getHttpAdapter().getInstance();
+  fastify.addHook('onRequest', async (request: any, reply: any) => {
+    const origin = request.headers.origin;
+    if (origin) {
+      reply.header('access-control-allow-origin', origin);
+      reply.header('access-control-allow-methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+      reply.header('access-control-allow-headers', 'content-type,authorization');
+    }
+    if (request.method === 'OPTIONS') {
+      reply.status(204).send();
+    }
+  });
 
   await app.listen(PORT, '0.0.0.0');
 }

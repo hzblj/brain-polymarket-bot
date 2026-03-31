@@ -20,12 +20,17 @@ import {
   getWhaleFeatures,
   getWhaleTransactions,
   getWhaleHistory,
+  getBlockchainActivity,
   getDerivativesFeatures,
   getDerivativesLiquidations,
   getDerivativesHistory,
   getTradeAnalyses,
   getStrategyReports,
   getOptimizerStatus,
+  getAgentTraces,
+  getAgentContext,
+  getReplaySummary,
+  getRiskState,
 } from './api';
 
 // ─── Live data hooks (2-5s refetch) ────────────────────────────────────────
@@ -156,6 +161,14 @@ export function useWhaleHistory() {
   });
 }
 
+export function useBlockchainActivity() {
+  return useQuery({
+    queryKey: ['blockchainActivity'],
+    queryFn: getBlockchainActivity,
+    refetchInterval: 15_000,
+  });
+}
+
 // ─── Derivatives feed hooks (3-5s refetch) ───────────────────────────────
 
 export function useDerivativesFeatures() {
@@ -205,6 +218,40 @@ export function useOptimizerStatus() {
     queryKey: ['optimizerStatus'],
     queryFn: getOptimizerStatus,
     refetchInterval: 10_000,
+  });
+}
+
+// ─── Agent & Replay hooks (5-10s refetch) ────────────────────────────────
+
+export function useAgentTraces(agentType?: string) {
+  return useQuery({
+    queryKey: ['agentTraces', agentType],
+    queryFn: () => getAgentTraces({ agentType, limit: 50 }),
+    refetchInterval: 5_000,
+  });
+}
+
+export function useAgentContext() {
+  return useQuery({
+    queryKey: ['agentContext'],
+    queryFn: getAgentContext,
+    refetchInterval: 10_000,
+  });
+}
+
+export function useReplaySummary() {
+  return useQuery({
+    queryKey: ['replaySummary'],
+    queryFn: getReplaySummary,
+    refetchInterval: 30_000,
+  });
+}
+
+export function useRiskState() {
+  return useQuery({
+    queryKey: ['riskState'],
+    queryFn: getRiskState,
+    refetchInterval: 5_000,
   });
 }
 

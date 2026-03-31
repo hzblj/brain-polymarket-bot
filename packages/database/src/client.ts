@@ -55,6 +55,19 @@ function ensureTables(sqlite: Database.Database): void {
       ingested_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS whale_snapshots (
+      id TEXT PRIMARY KEY,
+      window_id TEXT NOT NULL,
+      large_transaction_count INTEGER NOT NULL,
+      net_exchange_flow_btc REAL NOT NULL,
+      exchange_flow_pressure REAL NOT NULL,
+      whale_volume_btc REAL NOT NULL,
+      abnormal_activity_score REAL NOT NULL,
+      recent_transactions TEXT NOT NULL,
+      event_time INTEGER NOT NULL,
+      ingested_at INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS book_snapshots (
       id TEXT PRIMARY KEY,
       window_id TEXT NOT NULL REFERENCES market_windows(id),

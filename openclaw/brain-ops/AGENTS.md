@@ -21,7 +21,8 @@ Primary agent for the Brain Polymarket Bot. Handles configuration, strategy swit
 - `GET /api/v1/dashboard/snapshot` — market data snapshot
 - `GET /api/v1/config` — full system config
 - `GET /api/v1/config/strategy` — active strategy
-- `GET /api/v1/strategies` — list all strategies
+- `GET /api/v1/strategies` — list all strategies (`btc-5m-momentum`, `btc-5m-mean-reversion`, `btc-5m-aggressive`, `btc-5m-volatility`)
+- `GET /api/v1/whales/blockchain` — blockchain activity (large on-chain BTC transactions)
 - `GET /api/v1/risk/state` — risk state, remaining budget
 - `GET /api/v1/agent/traces?limit=10` — recent agent decisions
 

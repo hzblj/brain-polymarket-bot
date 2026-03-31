@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   Settings,
   Shield,
@@ -17,7 +17,7 @@ import {
 
 import { PageHeader } from "@/components/layout/page-header";
 import { StatusBadge } from "@/components/badges/status-badge";
-import { useSystemState } from "@/lib/hooks";
+import { useSystemState, useSystemConfig, useRiskState } from "@/lib/hooks";
 import { formatUsd } from "@/lib/formatters";
 import {
   updateRiskConfig,
@@ -25,7 +25,6 @@ import {
   setTradingMode,
   updateTradingHours,
 } from "@/lib/api";
-import { useSystemConfig } from "@/lib/hooks";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -99,34 +98,50 @@ export default function SettingsPage() {
 
   // Trading hours
   const configQuery = useSystemConfig();
-  const serverHours = (configQuery.data as Record<string, unknown>)?.trading as Record<string, unknown> | undefined;
-  const serverTradingHours = serverHours?.tradingHoursUtc as { enabled?: boolean; startHour?: number; endHour?: number } | undefined;
 
-  const [hoursEnabled, setHoursEnabled] = useState(serverTradingHours?.enabled ?? false);
-  const [startHour, setStartHour] = useState(serverTradingHours?.startHour ?? 0);
-  const [endHour, setEndHour] = useState(serverTradingHours?.endHour ?? 24);
+  const [hoursEnabled, setHoursEnabled] = useState(false);
+  const [startHour, setStartHour] = useState(0);
+  const [endHour, setEndHour] = useState(24);
   const [hoursSaving, setHoursSaving] = useState(false);
+  const [hoursSynced, setHoursSynced] = useState(false);
 
-  // Sync from server
-  if (serverTradingHours && !hoursSaving) {
-    if (serverTradingHours.enabled !== undefined && serverTradingHours.enabled !== hoursEnabled) {
-      setHoursEnabled(serverTradingHours.enabled);
-    }
-    if (serverTradingHours.startHour !== undefined && serverTradingHours.startHour !== startHour) {
-      setStartHour(serverTradingHours.startHour);
-    }
-    if (serverTradingHours.endHour !== undefined && serverTradingHours.endHour !== endHour) {
-      setEndHour(serverTradingHours.endHour);
-    }
-  }
+  // Sync from server once data arrives
+  useEffect(() => {
+    if (hoursSaving || hoursSynced) return;
+    const cfg = configQuery.data as Record<string, unknown> | null;
+    const trading = cfg?.trading as Record<string, unknown> | undefined;
+    const hours = trading?.tradingHoursUtc as Record<string, unknown> | undefined;
+    if (!hours) return;
+    setHoursEnabled((hours.enabled as boolean) ?? false);
+    setStartHour((hours.startHour as number) ?? 0);
+    setEndHour((hours.endHour as number) ?? 24);
+    setHoursSynced(true);
+  }, [configQuery.data, hoursSaving, hoursSynced]);
 
-  // Risk config
+  // Risk config — sync from server
+  const riskStateQuery = useRiskState();
   const [risk, setRisk] = useState<RiskConfig>(DEFAULT_RISK);
+  const [riskSynced, setRiskSynced] = useState(false);
   const [editingField, setEditingField] = useState<keyof RiskConfig | null>(
     null,
   );
   const [editValue, setEditValue] = useState("");
   const [riskDirty, setRiskDirty] = useState(false);
+
+  // Sync risk config from server on first load
+  useEffect(() => {
+    if (riskSynced || riskDirty) return;
+    const cfg = riskStateQuery.data?.config;
+    if (!cfg) return;
+    setRisk({
+      maxSizeUsd: cfg.maxSizeUsd,
+      dailyLossLimitUsd: cfg.dailyLossLimitUsd,
+      maxSpreadBps: cfg.maxSpreadBps,
+      minDepthScore: cfg.minDepthScore,
+      maxTradesPerWindow: cfg.maxTradesPerWindow,
+    });
+    setRiskSynced(true);
+  }, [riskStateQuery.data, riskSynced, riskDirty]);
 
   // Sync from server data when it arrives
   const currentMode: TradingMode =
@@ -191,19 +206,28 @@ export default function SettingsPage() {
     setEditValue("");
   };
 
+  const [riskSaving, setRiskSaving] = useState(false);
   const handleSaveRisk = async () => {
+    setRiskSaving(true);
     try {
       await updateRiskConfig(risk);
       setRiskDirty(false);
+      riskStateQuery.refetch();
     } catch {
       // keep dirty flag so user knows save failed
+    } finally {
+      setRiskSaving(false);
     }
   };
 
   // ── Computed ────────────────────────────────────────────────────────────
 
-  const apiUrl =
-    process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
+  const [apiUrl, setApiUrl] = useState(process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000");
+  useEffect(() => {
+    if (!process.env.NEXT_PUBLIC_API_URL && typeof window !== "undefined") {
+      setApiUrl(`http://${window.location.hostname}:3000`);
+    }
+  }, []);
   const wsConnected = state?.wsConnected ?? false;
 
   return (
@@ -474,13 +498,25 @@ export default function SettingsPage() {
             <button
               type="button"
               onClick={handleSaveRisk}
-              className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/80 transition-colors"
+              disabled={riskSaving}
+              className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/80 transition-colors disabled:opacity-40"
             >
-              Save Risk Configuration
+              {riskSaving ? "Saving..." : "Save Risk Configuration"}
             </button>
             <span className="text-xs text-text-muted">
               Unsaved changes
             </span>
+          </div>
+        )}
+
+        {!riskDirty && riskSynced && (
+          <div className="mt-3 text-xs text-positive">
+            Synced from server
+          </div>
+        )}
+        {!riskSynced && riskStateQuery.isLoading && (
+          <div className="mt-3 text-xs text-text-muted">
+            Loading configuration from server...
           </div>
         )}
       </div>
@@ -537,9 +573,9 @@ export default function SettingsPage() {
               disabled={!hoursEnabled}
               className="rounded border border-border bg-surface-2 px-2 py-1 text-sm text-text-primary focus:border-accent focus:outline-none disabled:opacity-40"
             >
-              {Array.from({ length: 24 }, (_, i) => (
+              {Array.from({ length: 25 }, (_, i) => (
                 <option key={i} value={i}>
-                  {String(i).padStart(2, "0")}:00
+                  {String(i === 24 ? 0 : i).padStart(2, "0")}:00{i === 24 ? " (next day)" : ""}
                 </option>
               ))}
             </select>
@@ -556,6 +592,7 @@ export default function SettingsPage() {
                   startHour,
                   endHour,
                 });
+                configQuery.refetch();
               } finally {
                 setHoursSaving(false);
               }
@@ -629,45 +666,53 @@ export default function SettingsPage() {
         </div>
 
         {/* Provider Configuration */}
-        <div className="rounded-lg border border-border bg-surface-1 p-4">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-text-secondary">
-            <Brain className="mr-1.5 inline h-4 w-4" />
-            Provider Configuration
-          </h2>
-
-          <div className="space-y-3">
-            <SettingsRow label="Provider">
-              <span className="text-sm text-text-primary capitalize">
-                {DEFAULT_PROVIDER.provider}
-              </span>
-            </SettingsRow>
-
-            <SettingsRow label="Model">
-              <span className="font-mono text-xs text-text-primary">
-                {DEFAULT_PROVIDER.model}
-              </span>
-            </SettingsRow>
-
-            <SettingsRow label="Temperature">
-              <span className="text-sm text-text-primary">
-                {DEFAULT_PROVIDER.temperature}
-              </span>
-            </SettingsRow>
-
-            <SettingsRow label="Timeout">
-              <span className="text-sm text-text-primary">
-                {DEFAULT_PROVIDER.timeout}ms
-              </span>
-            </SettingsRow>
-
-            <SettingsRow label="Max Retries">
-              <span className="text-sm text-text-primary">
-                {DEFAULT_PROVIDER.maxRetries}
-              </span>
-            </SettingsRow>
-          </div>
-        </div>
+        <ProviderConfigPanel />
       </div>
+    </div>
+  );
+}
+
+// ─── Provider Config Panel ────────────────────────────────────────────────────
+
+function ProviderConfigPanel() {
+  const configQuery = useSystemConfig();
+  const config = configQuery.data as Record<string, unknown> | null;
+  const providerConfig = config?.provider as Record<string, unknown> | undefined;
+
+  const provider = (providerConfig?.provider as string) ?? DEFAULT_PROVIDER.provider;
+  const model = (providerConfig?.model as string) ?? DEFAULT_PROVIDER.model;
+  const temperature = (providerConfig?.temperature as number) ?? DEFAULT_PROVIDER.temperature;
+  const timeout = (providerConfig?.timeoutMs as number) ?? DEFAULT_PROVIDER.timeout;
+  const maxRetries = (providerConfig?.maxRetries as number) ?? DEFAULT_PROVIDER.maxRetries;
+
+  return (
+    <div className="rounded-lg border border-border bg-surface-1 p-4">
+      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-text-secondary">
+        <Brain className="mr-1.5 inline h-4 w-4" />
+        Provider Configuration
+      </h2>
+
+      <div className="space-y-3">
+        <SettingsRow label="Provider">
+          <span className="text-sm text-text-primary capitalize">{provider}</span>
+        </SettingsRow>
+        <SettingsRow label="Model">
+          <span className="font-mono text-xs text-text-primary">{model}</span>
+        </SettingsRow>
+        <SettingsRow label="Temperature">
+          <span className="text-sm text-text-primary">{temperature}</span>
+        </SettingsRow>
+        <SettingsRow label="Timeout">
+          <span className="text-sm text-text-primary">{timeout}ms</span>
+        </SettingsRow>
+        <SettingsRow label="Max Retries">
+          <span className="text-sm text-text-primary">{maxRetries}</span>
+        </SettingsRow>
+      </div>
+
+      {configQuery.isLoading && (
+        <p className="mt-2 text-xs text-text-muted">Loading from server...</p>
+      )}
     </div>
   );
 }

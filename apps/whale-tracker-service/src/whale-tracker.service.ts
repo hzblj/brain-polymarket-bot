@@ -1,7 +1,7 @@
 import { DATABASE_CLIENT, type DbClient, whaleSnapshots } from '@brain/database';
 import { type BrainEventName, type BrainEventMap, EventBus } from '@brain/events';
 import { BrainLoggerService } from '@brain/logger';
-import type { WhaleFeatures, WhaleTransaction } from '@brain/types';
+import type { BlockchainActivity, WhaleFeatures, WhaleFlowDirection, WhaleTransaction } from '@brain/types';
 import { Inject, Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { desc } from 'drizzle-orm';
 import WebSocket from 'ws';
@@ -9,12 +9,22 @@ import WebSocket from 'ws';
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const MEMPOOL_WS_URL = process.env.MEMPOOL_WS_URL ?? 'wss://mempool.space/api/v1/ws';
+const MEMPOOL_API_URL = process.env.MEMPOOL_API_URL ?? 'https://mempool.space';
 
 /** Minimum BTC value to consider a transaction "whale-sized" */
 const WHALE_THRESHOLD_BTC = parseFloat(process.env.WHALE_THRESHOLD_BTC ?? '10');
 
-/** How long to keep transactions in the rolling window (5 minutes = match trading window) */
-const ROLLING_WINDOW_MS = 5 * 60 * 1000;
+/** Minimum BTC to track as "notable" for blockchain activity */
+const NOTABLE_THRESHOLD_BTC = parseFloat(process.env.NOTABLE_THRESHOLD_BTC ?? '1');
+
+/** Rolling window: 1 hour for blockchain activity */
+const BLOCKCHAIN_WINDOW_MS = 60 * 60 * 1000;
+
+/** Rolling window: 5 minutes for whale features (trading window) */
+const WHALE_WINDOW_MS = 5 * 60 * 1000;
+
+/** REST polling interval for mempool stats & recent txs */
+const BLOCKCHAIN_POLL_MS = 15_000;
 
 /** Snapshot persistence interval */
 const PERSIST_INTERVAL_MS = 10_000;
@@ -30,8 +40,6 @@ const MAX_RECONNECT_MS = 30_000;
 const PRICE_FETCH_INTERVAL_MS = 30_000;
 
 // ─── Known Exchange Addresses ───────────────────────────────────────────────
-// Top exchange cold/hot wallets — partial list, covers majority of volume.
-// These are well-known public addresses.
 
 const EXCHANGE_ADDRESSES = new Set([
   // Binance
@@ -48,7 +56,7 @@ const EXCHANGE_ADDRESSES = new Set([
   'bc1qx9t2l3pyny2spqpqlye8svce70nppwtaxwdrp4',
   '3AfSgTzDFCJJH74xPjSbJp8MJGxBzTWHHa',
   // Bitfinex
-  'bc1qgp3"rl0rl6mm209lh989sj9ahw0yy0wlkwe89p9',
+  'bc1qgp3rl0rl6mm209lh989sj9ahw0yy0wlkwe89p9',
   '3D2oetdNuZUqQHPJmcMDDHYoqkyNVsFk9r',
   // Gemini
   '36PrZ1KHYMpqSyAQXSG8VwbUiq2EogxLo2',
@@ -60,6 +68,49 @@ const EXCHANGE_ADDRESSES = new Set([
   'bc1qm5jk8yaxvra4065hmvx9v7jeefd4yxkm4hrlqk',
 ]);
 
+// ─── Mempool REST API Types ────────────────────────────────────────────────
+
+interface MempoolStats {
+  count: number;
+  vsize: number;
+  total_fee: number;
+}
+
+interface MempoolFees {
+  fastestFee: number;
+  halfHourFee: number;
+  hourFee: number;
+  economyFee: number;
+  minimumFee: number;
+}
+
+interface MempoolRecentTx {
+  txid: string;
+  fee: number;
+  vsize: number;
+  value: number;
+}
+
+interface MempoolBlock {
+  id: string;
+  height: number;
+  tx_count: number;
+  size: number;
+  timestamp: number;
+}
+
+// ─── Internal notable tx type ──────────────────────────────────────────────
+
+interface NotableTx {
+  txid: string;
+  amountBtc: number;
+  amountUsd: number;
+  direction: WhaleFlowDirection;
+  isExchangeInflow: boolean;
+  isExchangeOutflow: boolean;
+  eventTime: number;
+}
+
 // ─── Service ────────────────────────────────────────────────────────────────
 
 @Injectable()
@@ -70,12 +121,25 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private persistTimer: ReturnType<typeof setInterval> | null = null;
   private priceFetchTimer: ReturnType<typeof setInterval> | null = null;
+  private blockchainPollTimer: ReturnType<typeof setInterval> | null = null;
 
-  /** Rolling window of recent whale transactions */
+  /** Rolling window of recent whale transactions (5min, >10 BTC) */
   private recentTransactions: WhaleTransaction[] = [];
+
+  /** Rolling 1h window of all notable transactions (>1 BTC) */
+  private notableTransactions: NotableTx[] = [];
+
+  /** Seen txids to avoid duplicates */
+  private seenTxids = new Set<string>();
 
   /** Current computed features */
   private currentFeatures: WhaleFeatures = this.defaultFeatures();
+
+  /** Current blockchain activity snapshot */
+  private blockchainActivity: BlockchainActivity = this.defaultBlockchainActivity();
+
+  /** Previous hour stats for trend calculation */
+  private previousHourStats = { txCount: 0, volumeBtc: 0, avgFee: 0 };
 
   /** History buffer of snapshots */
   private snapshotHistory: Array<{ features: WhaleFeatures; eventTime: number }> = [];
@@ -87,10 +151,15 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
   /** Current BTC price in USD for value estimation */
   private btcPriceUsd = 0;
 
+  /** Cached mempool data */
+  private mempoolStats: MempoolStats | null = null;
+  private mempoolFees: MempoolFees | null = null;
+  private latestBlock: MempoolBlock | null = null;
+
   constructor(
     @Inject(DATABASE_CLIENT) private readonly db: DbClient,
-    private readonly eventBus: EventBus,
-    logger: BrainLoggerService,
+    @Inject(EventBus) private readonly eventBus: EventBus,
+    @Inject(BrainLoggerService) logger: BrainLoggerService,
   ) {
     this.logger = logger.child('WhaleTrackerService');
   }
@@ -98,12 +167,16 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit(): Promise<void> {
     await this.fetchBtcPrice();
     this.connect();
+    this.startBlockchainPolling();
     this.startPersistLoop();
     this.startPriceFetchLoop();
+    // Initial poll
+    await this.pollBlockchainData();
   }
 
   onModuleDestroy(): void {
     this.disconnect();
+    this.stopBlockchainPolling();
     this.stopPersistLoop();
     this.stopPriceFetchLoop();
   }
@@ -122,11 +195,92 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
     return this.snapshotHistory.slice(-limit);
   }
 
-  getStatus(): { connected: boolean; transactionCount: number; btcPriceUsd: number } {
+  getBlockchainActivity(): BlockchainActivity {
+    return this.blockchainActivity;
+  }
+
+  /** LLM-ready summary of blockchain activity for the last hour */
+  getLlmSummary(): string {
+    const ba = this.blockchainActivity;
+    const nt = ba.notableTransactions;
+    const f = ba.fees;
+    const m = ba.mempool;
+    const t = ba.trend;
+
+    const lines: string[] = [
+      `=== Bitcoin Blockchain Activity (1h rolling window) ===`,
+      `Time: ${new Date(ba.lastUpdated).toISOString()}`,
+      `BTC Price: $${this.btcPriceUsd.toLocaleString()}`,
+      ``,
+      `--- Mempool ---`,
+      `Pending transactions: ${m.txCount.toLocaleString()}`,
+      `Mempool size: ${(m.vsize / 1_000_000).toFixed(1)} MvB`,
+      `Total fees: ${m.totalFeeBtc.toFixed(4)} BTC`,
+      ``,
+      `--- Fee Rates (sat/vB) ---`,
+      `Fastest: ${f.fastest} | 30min: ${f.halfHour} | 1h: ${f.hour} | Economy: ${f.economy}`,
+      ``,
+      `--- Notable Transactions (>1 BTC, last 1h) ---`,
+      `Total: ${nt.total} transactions, ${nt.totalBtc.toFixed(2)} BTC ($${Math.round(nt.totalUsd).toLocaleString()})`,
+      `Exchange inflows (bearish): ${nt.exchangeInflows.count} txs, ${nt.exchangeInflows.btc.toFixed(2)} BTC`,
+      `Exchange outflows (bullish): ${nt.exchangeOutflows.count} txs, ${nt.exchangeOutflows.btc.toFixed(2)} BTC`,
+    ];
+
+    if (nt.largest) {
+      lines.push(
+        `Largest: ${nt.largest.amountBtc.toFixed(2)} BTC ($${Math.round(nt.largest.amountUsd).toLocaleString()}) [${nt.largest.direction}]`,
+      );
+    }
+
+    if (ba.latestBlock) {
+      lines.push(
+        ``,
+        `--- Latest Block ---`,
+        `Height: ${ba.latestBlock.height} | Txs: ${ba.latestBlock.txCount} | Size: ${(ba.latestBlock.size / 1_000_000).toFixed(2)} MB`,
+      );
+    }
+
+    lines.push(
+      ``,
+      `--- Trend vs Previous Hour ---`,
+      `Tx count: ${t.txCountChange >= 0 ? '+' : ''}${t.txCountChange.toFixed(0)}%`,
+      `Volume: ${t.volumeChange >= 0 ? '+' : ''}${t.volumeChange.toFixed(0)}%`,
+      `Fees: ${t.feeChange >= 0 ? '+' : ''}${t.feeChange.toFixed(0)}%`,
+    );
+
+    // Signal interpretation
+    const signals: string[] = [];
+    if (nt.exchangeInflows.btc > nt.exchangeOutflows.btc * 2) {
+      signals.push('BEARISH: Heavy exchange inflows (potential sell pressure)');
+    } else if (nt.exchangeOutflows.btc > nt.exchangeInflows.btc * 2) {
+      signals.push('BULLISH: Heavy exchange outflows (accumulation)');
+    }
+    if (f.fastest > 50) {
+      signals.push('HIGH URGENCY: Fee rates elevated, high network demand');
+    }
+    if (t.volumeChange > 50) {
+      signals.push('SPIKE: Volume significantly above previous hour');
+    }
+    if (nt.total === 0) {
+      signals.push('QUIET: No notable transactions in the last hour');
+    }
+
+    if (signals.length > 0) {
+      lines.push(``, `--- Signals ---`);
+      for (const s of signals) lines.push(s);
+    }
+
+    return lines.join('\n');
+  }
+
+  getStatus() {
     return {
       connected: this.ws?.readyState === WebSocket.OPEN,
       transactionCount: this.recentTransactions.length,
+      notableTransactionCount: this.notableTransactions.length,
       btcPriceUsd: this.btcPriceUsd,
+      mempoolConnected: this.mempoolStats !== null,
+      lastBlockchainPoll: this.blockchainActivity.lastUpdated,
     };
   }
 
@@ -147,8 +301,8 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
       this.logger.info('Connected to mempool.space');
       this.reconnectAttempts = 0;
 
-      // Subscribe to new transactions
-      this.ws?.send(JSON.stringify({ action: 'want', data: ['mempool-blocks'] }));
+      // Subscribe to mempool blocks and live transactions
+      this.ws?.send(JSON.stringify({ action: 'want', data: ['mempool-blocks', 'blocks'] }));
     });
 
     this.ws.on('message', (data: WebSocket.Data) => {
@@ -191,38 +345,148 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
     }, delay);
   }
 
-  // ─── Message Handling ─────────────────────────────────────────────────────
+  // ─── WS Message Handling ──────────────────────────────────────────────────
 
   private handleMessage(raw: string): void {
-    const msg = JSON.parse(raw) as MempoolMessage;
+    const msg = JSON.parse(raw) as Record<string, unknown>;
 
     // mempool-blocks contains arrays of transactions grouped by fee rate
-    if (msg['mempool-blocks']) {
-      for (const block of msg['mempool-blocks']) {
+    if (msg['mempool-blocks'] && Array.isArray(msg['mempool-blocks'])) {
+      for (const block of msg['mempool-blocks'] as MempoolWsBlock[]) {
         if (!block.transactions) continue;
         for (const tx of block.transactions) {
-          this.processTransaction(tx);
+          this.processWsTransaction(tx);
         }
       }
     }
 
-    // Also handle individual transaction broadcasts if available
-    if (msg.tx) {
-      this.processTransaction(msg.tx);
+    // New block confirmed
+    if (msg['block'] && typeof msg['block'] === 'object') {
+      const block = msg['block'] as MempoolBlock;
+      this.latestBlock = block;
+      this.logger.info('New block', { height: block.height, txCount: block.tx_count });
     }
   }
 
-  private processTransaction(tx: MempoolTransaction): void {
-    // Calculate total output value in BTC
+  private processWsTransaction(tx: MempoolWsTransaction): void {
     const totalValueBtc = (tx.value ?? 0) / 1e8;
 
-    if (totalValueBtc < WHALE_THRESHOLD_BTC) return;
+    // Track notable transactions (>1 BTC) for blockchain activity
+    if (totalValueBtc >= NOTABLE_THRESHOLD_BTC) {
+      this.addNotableTransaction(tx.txid ?? `ws-${Date.now()}`, totalValueBtc, tx.vin, tx.vout);
+    }
 
-    // Detect exchange flow direction
+    // Track whale transactions (>10 BTC) separately
+    if (totalValueBtc >= WHALE_THRESHOLD_BTC) {
+      this.addWhaleTransaction(tx, totalValueBtc);
+    }
+  }
+
+  // ─── REST Polling for Blockchain Data ─────────────────────────────────────
+
+  private startBlockchainPolling(): void {
+    this.blockchainPollTimer = setInterval(async () => {
+      await this.pollBlockchainData();
+    }, BLOCKCHAIN_POLL_MS);
+  }
+
+  private stopBlockchainPolling(): void {
+    if (this.blockchainPollTimer) {
+      clearInterval(this.blockchainPollTimer);
+      this.blockchainPollTimer = null;
+    }
+  }
+
+  async pollBlockchainData(): Promise<void> {
+    try {
+      const [stats, fees, recentTxs, blocks] = await Promise.all([
+        this.fetchJson<MempoolStats>(`${MEMPOOL_API_URL}/api/mempool`),
+        this.fetchJson<MempoolFees>(`${MEMPOOL_API_URL}/api/v1/fees/recommended`),
+        this.fetchJson<MempoolRecentTx[]>(`${MEMPOOL_API_URL}/api/mempool/recent`),
+        this.fetchJson<MempoolBlock[]>(`${MEMPOOL_API_URL}/api/v1/blocks`),
+      ]);
+
+      if (stats) this.mempoolStats = stats;
+      if (fees) this.mempoolFees = fees;
+      if (blocks && blocks.length > 0) this.latestBlock = blocks[0] ?? null;
+
+      // Process recent mempool transactions
+      if (recentTxs && Array.isArray(recentTxs)) {
+        for (const tx of recentTxs) {
+          const btcValue = tx.value / 1e8;
+          if (btcValue >= NOTABLE_THRESHOLD_BTC && !this.seenTxids.has(tx.txid)) {
+            this.addNotableTransaction(tx.txid, btcValue);
+          }
+        }
+      }
+
+      // Prune and recompute
+      this.pruneNotableTransactions();
+      this.recomputeBlockchainActivity();
+
+      this.logger.debug('Blockchain data polled', {
+        mempoolTxs: stats?.count ?? 0,
+        notableTxs: this.notableTransactions.length,
+        feeFastest: fees?.fastestFee ?? 0,
+      });
+    } catch (err) {
+      this.logger.debug('Blockchain poll failed', { error: (err as Error).message });
+    }
+  }
+
+  private async fetchJson<T>(url: string): Promise<T | null> {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5_000);
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (!res.ok) return null;
+      return (await res.json()) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  // ─── Transaction Processing ───────────────────────────────────────────────
+
+  private addNotableTransaction(
+    txid: string,
+    amountBtc: number,
+    vin?: MempoolVin[],
+    vout?: MempoolVout[],
+  ): void {
+    if (this.seenTxids.has(txid)) return;
+    this.seenTxids.add(txid);
+
+    // Cap seenTxids size
+    if (this.seenTxids.size > 50_000) {
+      const entries = [...this.seenTxids];
+      this.seenTxids = new Set(entries.slice(-25_000));
+    }
+
+    const isExchangeInflow = this.isExchangeAddress(vout);
+    const isExchangeOutflow = this.isExchangeAddress(vin);
+
+    let direction: WhaleFlowDirection = 'unknown';
+    if (isExchangeInflow && !isExchangeOutflow) direction = 'exchange_inflow';
+    else if (isExchangeOutflow && !isExchangeInflow) direction = 'exchange_outflow';
+
+    this.notableTransactions.push({
+      txid,
+      amountBtc,
+      amountUsd: amountBtc * this.btcPriceUsd,
+      direction,
+      isExchangeInflow,
+      isExchangeOutflow,
+      eventTime: Date.now(),
+    });
+  }
+
+  private addWhaleTransaction(tx: MempoolWsTransaction, totalValueBtc: number): void {
     const isExchangeInflow = this.isExchangeAddress(tx.vout);
     const isExchangeOutflow = this.isExchangeAddress(tx.vin);
 
-    let direction: WhaleTransaction['direction'] = 'unknown';
+    let direction: WhaleFlowDirection = 'unknown';
     if (isExchangeInflow && !isExchangeOutflow) direction = 'exchange_inflow';
     else if (isExchangeOutflow && !isExchangeInflow) direction = 'exchange_outflow';
 
@@ -239,10 +503,9 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
     };
 
     this.recentTransactions.push(whaleTx);
-    this.pruneOldTransactions();
+    this.pruneWhaleTransactions();
     this.recomputeFeatures();
 
-    // Emit event for large transactions
     this.emitEvent('whales.large-tx.detected', {
       txid: whaleTx.txid,
       amountBtc: whaleTx.amountBtc,
@@ -271,7 +534,102 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
     return false;
   }
 
-  // ─── Feature Computation ──────────────────────────────────────────────────
+  // ─── Blockchain Activity Computation ──────────────────────────────────────
+
+  private recomputeBlockchainActivity(): void {
+    const now = Date.now();
+    const txs = this.notableTransactions;
+
+    let totalBtc = 0;
+    let inflowCount = 0;
+    let inflowBtc = 0;
+    let outflowCount = 0;
+    let outflowBtc = 0;
+    let largest: NotableTx | null = null;
+
+    for (const tx of txs) {
+      totalBtc += tx.amountBtc;
+      if (tx.isExchangeInflow) {
+        inflowCount++;
+        inflowBtc += tx.amountBtc;
+      }
+      if (tx.isExchangeOutflow) {
+        outflowCount++;
+        outflowBtc += tx.amountBtc;
+      }
+      if (!largest || tx.amountBtc > largest.amountBtc) {
+        largest = tx;
+      }
+    }
+
+    const totalUsd = totalBtc * this.btcPriceUsd;
+
+    // Compute trend vs previous hour
+    const prevTx = this.previousHourStats.txCount;
+    const prevVol = this.previousHourStats.volumeBtc;
+    const prevFee = this.previousHourStats.avgFee;
+    const currentFee = this.mempoolFees?.hourFee ?? 0;
+
+    this.blockchainActivity = {
+      window: {
+        durationMs: BLOCKCHAIN_WINDOW_MS,
+        startTime: now - BLOCKCHAIN_WINDOW_MS,
+      },
+      mempool: {
+        txCount: this.mempoolStats?.count ?? 0,
+        totalFeeBtc: (this.mempoolStats?.total_fee ?? 0) / 1e8,
+        vsize: this.mempoolStats?.vsize ?? 0,
+      },
+      fees: {
+        fastest: this.mempoolFees?.fastestFee ?? 0,
+        halfHour: this.mempoolFees?.halfHourFee ?? 0,
+        hour: this.mempoolFees?.hourFee ?? 0,
+        economy: this.mempoolFees?.economyFee ?? 0,
+        minimum: this.mempoolFees?.minimumFee ?? 0,
+      },
+      latestBlock: this.latestBlock
+        ? {
+            height: this.latestBlock.height,
+            txCount: this.latestBlock.tx_count,
+            size: this.latestBlock.size,
+            timestamp: this.latestBlock.timestamp * 1000,
+          }
+        : null,
+      notableTransactions: {
+        total: txs.length,
+        totalBtc: round(totalBtc, 4),
+        totalUsd: round(totalUsd, 0),
+        exchangeInflows: { count: inflowCount, btc: round(inflowBtc, 4) },
+        exchangeOutflows: { count: outflowCount, btc: round(outflowBtc, 4) },
+        largest: largest
+          ? {
+              txid: largest.txid,
+              amountBtc: round(largest.amountBtc, 4),
+              amountUsd: round(largest.amountUsd, 0),
+              direction: largest.direction,
+            }
+          : null,
+      },
+      trend: {
+        txCountChange: prevTx > 0 ? round(((txs.length - prevTx) / prevTx) * 100, 1) : 0,
+        volumeChange: prevVol > 0 ? round(((totalBtc - prevVol) / prevVol) * 100, 1) : 0,
+        feeChange: prevFee > 0 ? round(((currentFee - prevFee) / prevFee) * 100, 1) : 0,
+      },
+      lastUpdated: now,
+    };
+
+    // Rotate previous hour stats periodically
+    if (this.baselineSampleCount % 240 === 0) {
+      // ~every hour at 15s intervals
+      this.previousHourStats = {
+        txCount: txs.length,
+        volumeBtc: totalBtc,
+        avgFee: currentFee,
+      };
+    }
+  }
+
+  // ─── Whale Feature Computation ────────────────────────────────────────────
 
   private recomputeFeatures(): void {
     const txs = this.recentTransactions;
@@ -284,22 +642,18 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
     const largeTransactionCount = txs.length;
     const whaleVolumeBtc = txs.reduce((sum, tx) => sum + tx.amountBtc, 0);
 
-    // Net exchange flow: inflows are positive (bearish), outflows are negative (bullish)
     let netExchangeFlowBtc = 0;
     for (const tx of txs) {
       if (tx.isExchangeInflow) netExchangeFlowBtc += tx.amountBtc;
       if (tx.isExchangeOutflow) netExchangeFlowBtc -= tx.amountBtc;
     }
 
-    // Normalize exchange flow pressure to -1..1
-    // Use 100 BTC as the reference scale (significant but not extreme)
     const exchangeFlowPressure = Math.max(-1, Math.min(1, netExchangeFlowBtc / 100));
 
-    // Abnormal activity score: compare current volume to rolling baseline
     this.updateBaseline(whaleVolumeBtc);
     const abnormalActivityScore =
       this.baselineVolumeBtc > 0
-        ? Math.min(1, whaleVolumeBtc / (this.baselineVolumeBtc * 3)) // 3x baseline = score 1.0
+        ? Math.min(1, whaleVolumeBtc / (this.baselineVolumeBtc * 3))
         : whaleVolumeBtc > 0
           ? 0.5
           : 0;
@@ -323,15 +677,19 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
   }
 
   private updateBaseline(currentVolume: number): void {
-    // Exponential moving average of whale volume
     this.baselineSampleCount++;
     const alpha = Math.min(0.1, 2 / (this.baselineSampleCount + 1));
     this.baselineVolumeBtc = this.baselineVolumeBtc * (1 - alpha) + currentVolume * alpha;
   }
 
-  private pruneOldTransactions(): void {
-    const cutoff = Date.now() - ROLLING_WINDOW_MS;
+  private pruneWhaleTransactions(): void {
+    const cutoff = Date.now() - WHALE_WINDOW_MS;
     this.recentTransactions = this.recentTransactions.filter((tx) => tx.eventTime > cutoff);
+  }
+
+  private pruneNotableTransactions(): void {
+    const cutoff = Date.now() - BLOCKCHAIN_WINDOW_MS;
+    this.notableTransactions = this.notableTransactions.filter((tx) => tx.eventTime > cutoff);
   }
 
   private defaultFeatures(): WhaleFeatures {
@@ -345,20 +703,39 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  private defaultBlockchainActivity(): BlockchainActivity {
+    const now = Date.now();
+    return {
+      window: { durationMs: BLOCKCHAIN_WINDOW_MS, startTime: now - BLOCKCHAIN_WINDOW_MS },
+      mempool: { txCount: 0, totalFeeBtc: 0, vsize: 0 },
+      fees: { fastest: 0, halfHour: 0, hour: 0, economy: 0, minimum: 0 },
+      latestBlock: null,
+      notableTransactions: {
+        total: 0,
+        totalBtc: 0,
+        totalUsd: 0,
+        exchangeInflows: { count: 0, btc: 0 },
+        exchangeOutflows: { count: 0, btc: 0 },
+        largest: null,
+      },
+      trend: { txCountChange: 0, volumeChange: 0, feeChange: 0 },
+      lastUpdated: now,
+    };
+  }
+
   // ─── BTC Price Fetching ───────────────────────────────────────────────────
 
   private async fetchBtcPrice(): Promise<void> {
     try {
-      const res = await fetch('https://mempool.space/api/v1/prices');
+      const res = await fetch(`${MEMPOOL_API_URL}/api/v1/prices`);
       const data = (await res.json()) as { USD?: number };
       if (data.USD) {
         this.btcPriceUsd = data.USD;
         this.logger.debug('BTC price updated', { usd: this.btcPriceUsd });
       }
     } catch {
-      // Try price-feed service as fallback
       try {
-        const priceServiceUrl = process.env.PRICE_SERVICE_URL ?? 'http://localhost:3002';
+        const priceServiceUrl = process.env.PRICE_SERVICE_URL ?? `http://${process.env.LOCAL_IP ?? 'localhost'}:3002`;
         const res = await fetch(`${priceServiceUrl}/api/v1/price/current`);
         const json = (await res.json()) as { ok: boolean; data?: { resolver?: { price: number } } };
         if (json.ok && json.data?.resolver?.price) {
@@ -387,7 +764,8 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
 
   private startPersistLoop(): void {
     this.persistTimer = setInterval(async () => {
-      this.pruneOldTransactions();
+      this.pruneWhaleTransactions();
+      this.pruneNotableTransactions();
       this.recomputeFeatures();
       await this.persistSnapshot();
     }, PERSIST_INTERVAL_MS);
@@ -404,13 +782,11 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
     const now = Date.now();
     const features = this.currentFeatures;
 
-    // Store in history buffer
     this.snapshotHistory.push({ features, eventTime: now });
     if (this.snapshotHistory.length > HISTORY_BUFFER_SIZE) {
       this.snapshotHistory = this.snapshotHistory.slice(-HISTORY_BUFFER_SIZE);
     }
 
-    // Persist to database
     try {
       await this.db.insert(whaleSnapshots).values({
         windowId: 'rolling',
@@ -430,7 +806,6 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** Returns the last N snapshots from the database */
   async getPersistedHistory(limit = 50): Promise<Array<Record<string, unknown>>> {
     const rows = await this.db
       .select()
@@ -461,20 +836,15 @@ interface MempoolVin {
   };
 }
 
-interface MempoolTransaction {
+interface MempoolWsTransaction {
   txid?: string;
   value?: number;
   vin?: MempoolVin[];
   vout?: MempoolVout[];
 }
 
-interface MempoolBlock {
-  transactions?: MempoolTransaction[];
-}
-
-interface MempoolMessage {
-  'mempool-blocks'?: MempoolBlock[];
-  tx?: MempoolTransaction;
+interface MempoolWsBlock {
+  transactions?: MempoolWsTransaction[];
 }
 
 // ─── Utility ────────────────────────────────────────────────────────────────

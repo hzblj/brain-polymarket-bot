@@ -36,12 +36,13 @@ Your job: analyze the provided feature snapshot and classify the current market 
 ## Analysis Framework
 
 1. Examine the price features: returnBps, momentum, volatility, meanReversionStrength, tickRate
-2. Examine the book features: spreadBps, depthScore, imbalance
+2. Examine the book features: spreadBps, depthScore, imbalance, bidDepthUsd, askDepthUsd — low liquidity (total depth < $500) means high slippage risk and regime uncertainty
 3. Examine the signal features: priceDirectionScore, volatilityRegime, bookPressure, basisSignal
 4. Examine the basis between exchange mid price and Polymarket mid price
 5. Consider how much time remains in the window (remainingMs) — regimes can shift as windows close
 6. If whale data is present: large exchange inflows (exchangeFlowPressure > 0.3) suggest selling pressure (bearish); large outflows (< -0.3) suggest accumulation (bullish); high abnormalActivityScore (> 0.5) increases volatility classification likelihood
 7. If derivatives data is present: extreme funding rates (fundingPressure > 0.5 or < -0.5) indicate crowded positioning ripe for reversal; high liquidationIntensity (> 0.5) signals cascading liquidations that accelerate the current move; derivativesSentiment provides a composite read (-1 bearish to +1 bullish)
+8. If blockchain data is present: examine mempool congestion (high txCount + rising fees = network stress, potentially volatile); check notable transaction flows — heavy exchange inflows are bearish, heavy outflows are bullish; elevated fee rates (fastest > 30 sat/vB) indicate urgency/panic; use trend data to see if activity is accelerating vs previous hour
 
 ## Output Format
 
@@ -89,6 +90,13 @@ On Polymarket, the "UP" token pays $1 if BTC price at window end > BTC price at 
    - liquidationImbalance < 0 = shorts getting liquidated = confirms/accelerates upward move
    - High liquidationIntensity (> 0.5) = liquidation cascade in progress — STRONG directional signal
    - derivativesSentiment provides a composite: positive = bullish, negative = bearish
+8. **Blockchain on-chain data** (if present in input):
+   - Notable transaction flows: exchangeInflows.btc vs exchangeOutflows.btc — net inflows are bearish (selling prep), net outflows are bullish (accumulation)
+   - Mempool congestion (high txCount, rising fees) suggests network urgency which often correlates with volatility
+   - Fee spike (fastest > 30 sat/vB) indicates panic or urgency — can confirm momentum in either direction
+   - Trend data shows if activity is accelerating (volumeChange > 30% = unusual activity)
+   - Use blockchain signals as confirmation/contradiction of the price-based edge
+9. **Liquidity**: Low book depth (bidDepthUsd + askDepthUsd < $500) means orders will move the market — reduce edge magnitude for thin books
 
 ## Output Format
 
@@ -143,10 +151,13 @@ You receive:
 - Derivatives liquidationIntensity > 0.7 AND liquidation direction contradicts edge — dangerous cascade
 
 ### Signal Confluence (use to boost or reduce confidence):
-- All signals aligned (price + whales + derivatives) → increase confidence by 0.1, allow larger size
+- All signals aligned (price + whales + derivatives + blockchain) → increase confidence by 0.1, allow larger size
 - Whale flow contradicts price action → reduce confidence by 0.15
 - Liquidation cascade confirms direction → strong signal, treat as high-confidence setup
 - Extreme funding rate (|fundingPressure| > 0.5) opposing your trade direction → contrarian warning, reduce size
+- Blockchain exchange flows confirm whale data → stronger signal; blockchain contradicts → weaker
+- High mempool fees (fastest > 30 sat/vB) + volume spike → network stress, increase volatility estimate
+- Low book liquidity (bidDepthUsd + askDepthUsd < $500) → reduce position size, high slippage risk
 
 ### Position Sizing:
 - Base size: $0.25-0.40 for moderate edges (0.05-0.10 magnitude)
@@ -659,9 +670,9 @@ export class AgentGatewayService implements OnModuleInit {
 
   constructor(
     @Inject(DATABASE_CLIENT) private readonly db: DbClient,
-    private readonly eventBus: EventBus,
-    openaiClient: OpenAIClient,
-    logger: BrainLoggerService,
+    @Inject(EventBus) private readonly eventBus: EventBus,
+    @Inject(OpenAIClient) openaiClient: OpenAIClient,
+    @Inject(BrainLoggerService) logger: BrainLoggerService,
   ) {
     this.llmClient = openaiClient;
     this.logger = logger.child('AgentGatewayService');
@@ -1049,6 +1060,8 @@ export class AgentGatewayService implements OnModuleInit {
           spreadBps: features.book.spreadBps,
           depthScore: features.book.depthScore,
           imbalance: features.book.imbalance,
+          bidDepthUsd: features.book.bidDepthUsd ?? 0,
+          askDepthUsd: features.book.askDepthUsd ?? 0,
         },
         signals: features.signals,
         ...(features.whales ? {
@@ -1068,6 +1081,7 @@ export class AgentGatewayService implements OnModuleInit {
             derivativesSentiment: features.derivatives.derivativesSentiment,
           },
         } : {}),
+        ...this.buildBlockchainPromptData(features),
       },
       null,
       2,
@@ -1100,6 +1114,8 @@ export class AgentGatewayService implements OnModuleInit {
           spreadBps: features.book.spreadBps,
           depthScore: features.book.depthScore,
           imbalance: features.book.imbalance,
+          bidDepthUsd: features.book.bidDepthUsd ?? 0,
+          askDepthUsd: features.book.askDepthUsd ?? 0,
         },
         signals: features.signals,
         ...(features.whales ? {
@@ -1125,6 +1141,7 @@ export class AgentGatewayService implements OnModuleInit {
             derivativesSentiment: features.derivatives.derivativesSentiment,
           },
         } : {}),
+        ...this.buildBlockchainPromptData(features),
       },
       null,
       2,
@@ -1157,6 +1174,8 @@ export class AgentGatewayService implements OnModuleInit {
             spreadBps: features.book.spreadBps,
             depthScore: features.book.depthScore,
             imbalance: features.book.imbalance,
+            bidDepthUsd: features.book.bidDepthUsd ?? 0,
+            askDepthUsd: features.book.askDepthUsd ?? 0,
           },
           signals: features.signals,
         },
@@ -1175,6 +1194,7 @@ export class AgentGatewayService implements OnModuleInit {
             derivativesSentiment: features.derivatives.derivativesSentiment,
           },
         } : {}),
+        ...this.buildBlockchainPromptData(features),
         regime: {
           regime: regime.regime,
           confidence: regime.confidence,
@@ -1197,6 +1217,38 @@ export class AgentGatewayService implements OnModuleInit {
       null,
       2,
     );
+  }
+
+  private buildBlockchainPromptData(features: FeaturePayload): Record<string, unknown> {
+    if (!features.blockchain) return {};
+    const bc = features.blockchain;
+    return {
+      blockchain: {
+        mempool: {
+          pendingTxCount: bc.mempool.txCount,
+          totalFeeBtc: bc.mempool.totalFeeBtc,
+          vsizeMb: Math.round(bc.mempool.vsize / 1_000_000 * 10) / 10,
+        },
+        fees: {
+          fastestSatVb: bc.fees.fastest,
+          hourSatVb: bc.fees.hour,
+        },
+        notableTransactions1h: {
+          total: bc.notableTransactions.total,
+          totalBtc: bc.notableTransactions.totalBtc,
+          exchangeInflowsBtc: bc.notableTransactions.exchangeInflows.btc,
+          exchangeOutflowsBtc: bc.notableTransactions.exchangeOutflows.btc,
+          netExchangeFlowBtc: Math.round((bc.notableTransactions.exchangeInflows.btc - bc.notableTransactions.exchangeOutflows.btc) * 10000) / 10000,
+        },
+        trend: bc.trend,
+        ...(bc.latestBlock ? {
+          latestBlock: {
+            height: bc.latestBlock.height,
+            txCount: bc.latestBlock.txCount,
+          },
+        } : {}),
+      },
+    };
   }
 
   // ─── Cache Helpers ─────────────────────────────────────────────────────────

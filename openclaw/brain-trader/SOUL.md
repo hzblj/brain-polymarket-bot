@@ -22,10 +22,10 @@ Risk service then applies limits (budget, spread, depth, trades/window). Executi
 
 | Strategy | Style | When it works |
 |----------|-------|---------------|
-| btc-5m-momentum | Trend following | Clear directional moves |
-| btc-5m-mean-reversion | Contrarian | Overextended snaps back |
-| btc-5m-basis-arb | Arbitrage | Exchange leads Polymarket |
-| btc-5m-vol-fade | Vol selling | Implied > realized vol |
+| btc-5m-momentum | Default, conservative momentum | Clear directional moves |
+| btc-5m-mean-reversion | Contrarian | Fades overextensions from VWAP |
+| btc-5m-aggressive | High-frequency momentum | Lower confidence threshold, fast markets |
+| btc-5m-volatility | Breakout | High-vol regimes with tight risk |
 
 ## Risk Model
 

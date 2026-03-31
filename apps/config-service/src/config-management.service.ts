@@ -213,7 +213,7 @@ export class ConfigManagementService implements OnModuleInit {
 
   constructor(
     @Inject(DATABASE_CLIENT) private readonly db: DbClient,
-    private readonly eventBus: EventBus,
+    @Inject(EventBus) private readonly eventBus: EventBus,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -306,6 +306,113 @@ export class ConfigManagementService implements OnModuleInit {
         strategyVersionId: ver!.id,
         priority: 0,
         isActive: true,
+      });
+
+      // ── Additional strategies ──────────────────────────────────────────
+
+      // Mean-reversion strategy
+      const [mrStrat] = await this.db
+        .insert(strategies)
+        .values({
+          key: 'btc-5m-mean-reversion',
+          name: 'BTC 5m Mean Reversion',
+          description: 'Fades short-term overextensions when price deviates from the 5-min VWAP.',
+          status: 'active',
+          isDefault: false,
+        })
+        .returning({ id: strategies.id });
+
+      const mrConfig = {
+        id: 'btc-5m-mean-reversion-v1',
+        label: 'BTC 5m Mean Reversion v1',
+        marketSelector: { asset: 'BTC', marketType: 'UP_DOWN', windowSec: 300 },
+        agentProfile: {
+          regimeAgentProfile: 'regime-default-v1',
+          edgeAgentProfile: 'edge-mean-reversion-v1',
+          supervisorAgentProfile: 'supervisor-conservative-v1',
+        },
+        decisionPolicy: { allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'], minConfidence: 0.75 },
+        filters: { maxSpreadBps: 200, minDepthScore: 0.7, minTimeToCloseSec: 30, maxTimeToCloseSec: 120 },
+        riskProfile: { maxSizeUsd: 0.3, dailyLossLimitUsd: 8, maxTradesPerWindow: 1 },
+        executionPolicy: { entryWindowStartSec: 120, entryWindowEndSec: 15, mode: 'paper' },
+      };
+      const mrChecksum = createHash('sha256').update(JSON.stringify(mrConfig)).digest('hex');
+
+      await this.db.insert(strategyVersions).values({
+        strategyId: mrStrat!.id,
+        version: 1,
+        configJson: mrConfig as unknown as Record<string, unknown>,
+        checksum: mrChecksum,
+      });
+
+      // Aggressive momentum strategy
+      const [aggStrat] = await this.db
+        .insert(strategies)
+        .values({
+          key: 'btc-5m-aggressive',
+          name: 'BTC 5m Aggressive Momentum',
+          description: 'High-frequency momentum strategy with wider entry windows and lower confidence threshold.',
+          status: 'active',
+          isDefault: false,
+        })
+        .returning({ id: strategies.id });
+
+      const aggConfig = {
+        id: 'btc-5m-aggressive-v1',
+        label: 'BTC 5m Aggressive Momentum v1',
+        marketSelector: { asset: 'BTC', marketType: 'UP_DOWN', windowSec: 300 },
+        agentProfile: {
+          regimeAgentProfile: 'regime-default-v1',
+          edgeAgentProfile: 'edge-momentum-v1',
+          supervisorAgentProfile: 'supervisor-aggressive-v1',
+        },
+        decisionPolicy: { allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'], minConfidence: 0.55 },
+        filters: { maxSpreadBps: 400, minDepthScore: 0.4, minTimeToCloseSec: 10, maxTimeToCloseSec: 60 },
+        riskProfile: { maxSizeUsd: 1.0, dailyLossLimitUsd: 20, maxTradesPerWindow: 2 },
+        executionPolicy: { entryWindowStartSec: 60, entryWindowEndSec: 5, mode: 'paper' },
+      };
+      const aggChecksum = createHash('sha256').update(JSON.stringify(aggConfig)).digest('hex');
+
+      await this.db.insert(strategyVersions).values({
+        strategyId: aggStrat!.id,
+        version: 1,
+        configJson: aggConfig as unknown as Record<string, unknown>,
+        checksum: aggChecksum,
+      });
+
+      // Volatility-based strategy
+      const [volStrat] = await this.db
+        .insert(strategies)
+        .values({
+          key: 'btc-5m-volatility',
+          name: 'BTC 5m Volatility Breakout',
+          description: 'Trades breakouts during high-volatility regimes with tight risk controls.',
+          status: 'active',
+          isDefault: false,
+        })
+        .returning({ id: strategies.id });
+
+      const volConfig = {
+        id: 'btc-5m-volatility-v1',
+        label: 'BTC 5m Volatility Breakout v1',
+        marketSelector: { asset: 'BTC', marketType: 'UP_DOWN', windowSec: 300 },
+        agentProfile: {
+          regimeAgentProfile: 'regime-volatility-v1',
+          edgeAgentProfile: 'edge-breakout-v1',
+          supervisorAgentProfile: 'supervisor-conservative-v1',
+        },
+        decisionPolicy: { allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'], minConfidence: 0.8 },
+        filters: { maxSpreadBps: 150, minDepthScore: 0.8, minTimeToCloseSec: 20, maxTimeToCloseSec: 90 },
+        riskProfile: { maxSizeUsd: 0.5, dailyLossLimitUsd: 5, maxTradesPerWindow: 1 },
+        executionPolicy: { entryWindowStartSec: 90, entryWindowEndSec: 20, mode: 'paper' },
+      };
+      const volChecksum = createHash('sha256').update(JSON.stringify(volConfig)).digest('hex');
+
+      await this.db.insert(strategyVersions).values({
+        strategyId: volStrat!.id,
+        version: 1,
+        configJson: volConfig as unknown as Record<string, unknown>,
+        checksum: volChecksum,
       });
 
       this.logger.log('Auto-seed complete');

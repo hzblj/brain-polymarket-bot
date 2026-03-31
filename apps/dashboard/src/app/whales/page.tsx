@@ -2,7 +2,7 @@
 
 import { PageHeader } from '@/components/layout/page-header';
 import { KpiCard } from '@/components/cards/kpi-card';
-import { useWhaleFeatures, useWhaleTransactions, useWhaleHistory } from '@/lib/hooks';
+import { useWhaleFeatures, useWhaleTransactions, useWhaleHistory, useBlockchainActivity } from '@/lib/hooks';
 import { formatPrice, formatTimeAgo } from '@/lib/formatters';
 import {
   AreaChart,
@@ -24,6 +24,10 @@ import {
   AlertTriangle,
   TrendingDown,
   TrendingUp,
+  Blocks,
+  Fuel,
+  HardDrive,
+  Hash,
 } from 'lucide-react';
 
 // ─── Chart theme ────────────────────────────────────────────────────────────
@@ -385,6 +389,154 @@ function RecentTransactionsPanel() {
   );
 }
 
+// ─── Blockchain Activity Panel ──────────────────────────────────────────────
+
+function BlockchainActivityPanel() {
+  const { data: bc, isLoading } = useBlockchainActivity();
+
+  if (isLoading) return <SectionSkeleton />;
+  if (!bc) return null;
+
+  const feeColor =
+    bc.fees.fastest > 50 ? 'text-negative' : bc.fees.fastest > 20 ? 'text-warning' : 'text-positive';
+
+  return (
+    <Section title="Blockchain Activity" icon={Blocks}>
+      {/* Top KPIs */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 mb-4">
+        <MiniStat icon={HardDrive} label="Mempool Txs" value={bc.mempool.txCount.toLocaleString()} />
+        <MiniStat icon={Fuel} label="Fastest Fee" value={`${bc.fees.fastest} sat/vB`} className={feeColor} />
+        <MiniStat
+          icon={Hash}
+          label="Latest Block"
+          value={bc.latestBlock ? `#${bc.latestBlock.height.toLocaleString()}` : '—'}
+        />
+        <MiniStat
+          icon={Activity}
+          label="Block Txs"
+          value={bc.latestBlock ? bc.latestBlock.txCount.toLocaleString() : '—'}
+        />
+      </div>
+
+      {/* Fee tiers */}
+      <div className="rounded border border-border bg-surface-0 p-3 mb-4">
+        <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">Fee Tiers (sat/vB)</p>
+        <div className="flex gap-2">
+          {[
+            { label: 'Fastest', val: bc.fees.fastest },
+            { label: '30 min', val: bc.fees.halfHour },
+            { label: '1 hour', val: bc.fees.hour },
+            { label: 'Economy', val: bc.fees.economy },
+            { label: 'Minimum', val: bc.fees.minimum },
+          ].map((tier) => (
+            <div key={tier.label} className="flex-1 rounded bg-surface-2 px-2 py-1.5 text-center">
+              <p className="text-[10px] text-text-muted">{tier.label}</p>
+              <p className="text-sm font-semibold tabular-nums text-text-primary">{tier.val}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Notable transactions summary */}
+      <div className="rounded border border-border bg-surface-0 p-3 mb-4">
+        <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">
+          Notable Transactions (1h window)
+        </p>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+          <div className="flex justify-between">
+            <span className="text-text-muted">Total</span>
+            <span className="text-text-primary font-mono">{bc.notableTransactions.total}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-text-muted">Volume</span>
+            <span className="text-text-primary font-mono">{formatPrice(bc.notableTransactions.totalBtc, 1)} BTC</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-text-muted">Exchange Inflows</span>
+            <span className="text-negative font-mono">
+              {bc.notableTransactions.exchangeInflows.count > 0
+                ? `${bc.notableTransactions.exchangeInflows.count} (${formatPrice(bc.notableTransactions.exchangeInflows.btc, 1)} BTC)`
+                : '—'}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-text-muted">Exchange Outflows</span>
+            <span className="text-positive font-mono">
+              {bc.notableTransactions.exchangeOutflows.count > 0
+                ? `${bc.notableTransactions.exchangeOutflows.count} (${formatPrice(bc.notableTransactions.exchangeOutflows.btc, 1)} BTC)`
+                : '—'}
+            </span>
+          </div>
+        </div>
+        {bc.notableTransactions.largest && (
+          <div className="mt-2 rounded bg-surface-2 px-3 py-2">
+            <p className="text-[10px] text-text-muted uppercase">Largest Transaction</p>
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-text-primary tabular-nums">
+                {formatPrice(bc.notableTransactions.largest.amountBtc, 2)} BTC
+              </span>
+              <span className="text-xs text-text-muted">
+                ${formatPrice(bc.notableTransactions.largest.amountUsd, 0)}
+              </span>
+              <a
+                href={`https://mempool.space/tx/${bc.notableTransactions.largest.txid}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-accent hover:underline font-mono"
+              >
+                {bc.notableTransactions.largest.txid.slice(0, 8)}…
+              </a>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Trends */}
+      <div className="grid grid-cols-3 gap-3">
+        <TrendStat label="Tx Count" change={bc.trend.txCountChange} />
+        <TrendStat label="Volume" change={bc.trend.volumeChange} />
+        <TrendStat label="Fees" change={bc.trend.feeChange} />
+      </div>
+    </Section>
+  );
+}
+
+function MiniStat({
+  icon: Icon,
+  label,
+  value,
+  className = '',
+}: {
+  icon: React.ElementType;
+  label: string;
+  value: string;
+  className?: string;
+}) {
+  return (
+    <div className="rounded border border-border bg-surface-0 px-3 py-2">
+      <div className="flex items-center gap-1.5 mb-1">
+        <Icon size={12} className="text-text-muted" />
+        <span className="text-[10px] text-text-muted">{label}</span>
+      </div>
+      <p className={`text-sm font-semibold tabular-nums ${className || 'text-text-primary'}`}>{value}</p>
+    </div>
+  );
+}
+
+function TrendStat({ label, change }: { label: string; change: number }) {
+  const pct = (change * 100).toFixed(0);
+  const color = change > 0.1 ? 'text-warning' : change < -0.1 ? 'text-positive' : 'text-text-muted';
+  const arrow = change > 0 ? '↑' : change < 0 ? '↓' : '→';
+  return (
+    <div className="rounded border border-border bg-surface-0 px-3 py-2 text-center">
+      <p className="text-[10px] text-text-muted">{label}</p>
+      <p className={`text-sm font-semibold tabular-nums ${color}`}>
+        {arrow} {pct}%
+      </p>
+    </div>
+  );
+}
+
 // ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function WhalesPage() {
@@ -402,7 +554,10 @@ export default function WhalesPage() {
         <WhaleVolumePanel />
       </div>
 
-      <RecentTransactionsPanel />
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <RecentTransactionsPanel />
+        <BlockchainActivityPanel />
+      </div>
     </div>
   );
 }

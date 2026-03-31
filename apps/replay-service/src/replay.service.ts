@@ -71,7 +71,7 @@ interface ReplaySummary {
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const WINDOW_DURATION_MS = 5 * 60 * 1000; // 5 minutes
-const AGENT_GATEWAY_HOST = process.env.AGENT_GATEWAY_HOST ?? 'localhost';
+const AGENT_GATEWAY_HOST = process.env.AGENT_GATEWAY_HOST ?? process.env.LOCAL_IP ?? 'localhost';
 const AGENT_GATEWAY_PORT = process.env.AGENT_GATEWAY_PORT ?? '3008';
 const AGENT_GATEWAY_URL = `http://${AGENT_GATEWAY_HOST}:${AGENT_GATEWAY_PORT}`;
 

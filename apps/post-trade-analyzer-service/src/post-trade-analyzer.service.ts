@@ -55,6 +55,9 @@ interface TradeContext {
     book: Record<string, unknown>;
     signals: Record<string, unknown>;
     market: Record<string, unknown>;
+    whales?: Record<string, unknown>;
+    derivatives?: Record<string, unknown>;
+    blockchain?: Record<string, unknown>;
   } | null;
   agentDecisions: {
     regime: { regime: string; confidence: number; reasoning: string } | null;
@@ -78,7 +81,10 @@ Your job: analyze a completed trade to determine what went right, what went wron
 ## Context
 
 You will receive the full trade context:
-- Feature snapshot at the time the decision was made (price data, orderbook data, signals)
+- Feature snapshot at the time the decision was made (price data, orderbook data with liquidity depth, signals)
+- Whale on-chain data: exchange flow pressure, abnormal activity score, whale volume
+- Derivatives data: funding pressure, OI trend, liquidation intensity, sentiment
+- Blockchain activity (1h window): mempool stats, fee rates, notable transaction flows, exchange inflows/outflows, activity trend
 - Agent decisions: the regime agent's classification, the edge agent's assessment, and the supervisor's trade decision
 - Risk evaluation: whether risk approved and at what size
 - Trade execution: entry price, fill size, order side
@@ -88,10 +94,17 @@ You will receive the full trade context:
 
 1. **Edge Accuracy**: Was the edge agent's directional call correct? If it predicted "up" with 0.08 magnitude, did the market actually go up? Was the magnitude realistic?
 2. **Regime Relevance**: Did the regime classification help or hinder? For example, if regime was "trending_up" but the market reversed, the regime was misleading.
-3. **Misleading Signals**: Which specific input signals (momentum, book imbalance, basis, volatility, etc.) pointed in the wrong direction? Be specific — name the signal and its value.
-4. **Correct Signals**: Which signals correctly predicted the outcome? This helps identify which inputs are reliable.
+3. **Misleading Signals**: Which specific input signals pointed in the wrong direction? Check ALL data sources:
+   - Price signals: momentum, volatility, returnBps, basisBps
+   - Book signals: imbalance, depthScore, spreadBps, bidDepthUsd/askDepthUsd (liquidity)
+   - Whale signals: exchangeFlowPressure, abnormalActivityScore
+   - Derivatives signals: fundingPressure, liquidationIntensity, derivativesSentiment
+   - Blockchain signals: exchange inflows/outflows, fee rates, mempool congestion, activity trend
+   Be specific — name the signal, its value, and what it implied vs what happened.
+4. **Correct Signals**: Which signals correctly predicted the outcome across all data sources? This helps identify which inputs are reliable.
 5. **Confidence Calibration**: Was the supervisor's confidence appropriate? If confidence was 0.8 but the trade lost, that suggests overconfidence. If confidence was 0.4 and the trade won big, that suggests underconfidence.
-6. **Improvement Suggestions**: Concrete, actionable suggestions. Examples: "Reduce position size in volatile regimes", "The basis signal of 15bps was too small to justify the edge estimate of 8%", "Consider adding a minimum momentum threshold for trending regimes".
+6. **Signal Confluence Analysis**: Did the different data sources agree or conflict? E.g., "whale outflows suggested bullish but derivatives funding was crowded long — conflicting signals should have reduced confidence."
+7. **Improvement Suggestions**: Concrete, actionable suggestions. Examples: "Reduce position size when blockchain exchange inflows contradict the edge direction", "The low book depth ($200 total) made this trade high-slippage risk", "Ignore whale signals when abnormalActivityScore < 0.2".
 
 Rules:
 - Be brutally honest. If the agents made a bad call, say so clearly.
@@ -102,11 +115,12 @@ Rules:
 
 // ─── Service URLs ───────────────────────────────────────────────────────────
 
-const EXECUTION_SERVICE_URL = process.env.EXECUTION_SERVICE_URL ?? 'http://localhost:3006';
-const FEATURE_ENGINE_URL = process.env.FEATURE_ENGINE_URL ?? 'http://localhost:3004';
-const AGENT_GATEWAY_URL = process.env.AGENT_GATEWAY_URL ?? 'http://localhost:3008';
-const RISK_SERVICE_URL = process.env.RISK_SERVICE_URL ?? 'http://localhost:3005';
-const MARKET_DISCOVERY_URL = process.env.MARKET_DISCOVERY_URL ?? 'http://localhost:3001';
+const LOCAL_HOST = process.env.LOCAL_IP ?? 'localhost';
+const EXECUTION_SERVICE_URL = process.env.EXECUTION_SERVICE_URL ?? `http://${LOCAL_HOST}:3006`;
+const FEATURE_ENGINE_URL = process.env.FEATURE_ENGINE_URL ?? `http://${LOCAL_HOST}:3004`;
+const AGENT_GATEWAY_URL = process.env.AGENT_GATEWAY_URL ?? `http://${LOCAL_HOST}:3008`;
+const RISK_SERVICE_URL = process.env.RISK_SERVICE_URL ?? `http://${LOCAL_HOST}:3005`;
+const MARKET_DISCOVERY_URL = process.env.MARKET_DISCOVERY_URL ?? `http://${LOCAL_HOST}:3001`;
 
 // ─── Service ────────────────────────────────────────────────────────────────
 
@@ -114,9 +128,9 @@ const MARKET_DISCOVERY_URL = process.env.MARKET_DISCOVERY_URL ?? 'http://localho
 export class PostTradeAnalyzerService {
   constructor(
     @Inject(DATABASE_CLIENT) private readonly db: DbClient,
-    private readonly eventBus: EventBus,
-    private readonly llmClient: OpenAIClient,
-    private readonly logger: BrainLoggerService,
+    @Inject(EventBus) private readonly eventBus: EventBus,
+    @Inject(OpenAIClient) private readonly llmClient: OpenAIClient,
+    @Inject(BrainLoggerService) private readonly logger: BrainLoggerService,
   ) {}
 
   // ─── Public API ──────────────────────────────────────────────────────────

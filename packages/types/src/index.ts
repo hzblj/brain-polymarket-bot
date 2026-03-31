@@ -147,6 +147,51 @@ export interface WhaleSnapshot {
   ingestedAt: UnixMs;
 }
 
+export interface BlockchainActivity {
+  /** Rolling 1h window stats */
+  window: {
+    durationMs: number;
+    startTime: UnixMs;
+  };
+  /** Mempool state */
+  mempool: {
+    txCount: number;
+    totalFeeBtc: number;
+    vsize: number;
+  };
+  /** Recommended fee rates (sat/vB) */
+  fees: {
+    fastest: number;
+    halfHour: number;
+    hour: number;
+    economy: number;
+    minimum: number;
+  };
+  /** Recent confirmed block stats */
+  latestBlock: {
+    height: number;
+    txCount: number;
+    size: number;
+    timestamp: UnixMs;
+  } | null;
+  /** Notable transactions (>1 BTC) in the last hour */
+  notableTransactions: {
+    total: number;
+    totalBtc: number;
+    totalUsd: number;
+    exchangeInflows: { count: number; btc: number };
+    exchangeOutflows: { count: number; btc: number };
+    largest: { txid: string; amountBtc: number; amountUsd: number; direction: WhaleFlowDirection } | null;
+  };
+  /** Activity trend vs previous hour */
+  trend: {
+    txCountChange: number;
+    volumeChange: number;
+    feeChange: number;
+  };
+  lastUpdated: UnixMs;
+}
+
 // ─── Derivatives Types ──────────────────────────────────────────────────────
 
 export interface FundingRateData {
@@ -229,6 +274,10 @@ export interface BookFeatures {
   spreadBps: number;
   depthScore: number;
   imbalance: number;
+  /** Total USD liquidity on bid side */
+  bidDepthUsd?: number;
+  /** Total USD liquidity on ask side */
+  askDepthUsd?: number;
 }
 
 export interface SignalFeatures {
@@ -248,6 +297,7 @@ export interface FeaturePayload {
   signals: SignalFeatures;
   whales?: WhaleFeatures;
   derivatives?: DerivativesFeatures;
+  blockchain?: BlockchainActivity;
 }
 
 // ─── Agent Types ─────────────────────────────────────────────────────────────

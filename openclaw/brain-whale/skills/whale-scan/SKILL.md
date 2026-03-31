@@ -10,6 +10,7 @@ description: Scan for large BTC transactions and exchange flow patterns.
 1. `GET http://localhost:3000/api/v1/whales/current` — current whale features
 2. `GET http://localhost:3000/api/v1/whales/transactions?limit=20` — recent large transactions
 3. `GET http://localhost:3000/api/v1/whales/history?limit=30` — historical whale activity
+4. `GET http://localhost:3000/api/v1/whales/blockchain` — blockchain mempool, fee tiers, latest block, and notable transaction breakdown
 
 ## Key Metrics
 

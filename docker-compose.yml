@@ -33,6 +33,8 @@ services:
       - WHALE_TRACKER_HOST=whale-tracker
       - POST_TRADE_ANALYZER_HOST=post-trade-analyzer
       - STRATEGY_OPTIMIZER_HOST=strategy-optimizer
+      - DERIVATIVES_FEED_HOST=derivatives-feed
+      - PIPELINE_HOST=pipeline-orchestrator
     depends_on:
       - market-discovery
       - price-feed
@@ -202,6 +204,25 @@ services:
     environment:
       - DATABASE_PATH=./data/replay.sqlite
 
+  pipeline-orchestrator:
+    <<: *service-base
+    container_name: brain-pipeline-orchestrator
+    command: yarn tsx watch apps/pipeline-orchestrator/src/main.ts
+    ports:
+      - '3014:3014'
+    environment:
+      - FEATURE_ENGINE_URL=http://feature-engine:3004
+      - AGENT_GATEWAY_URL=http://agent-gateway:3008
+      - RISK_SERVICE_URL=http://risk:3005
+      - EXECUTION_SERVICE_URL=http://execution:3006
+      - CONFIG_SERVICE_URL=http://config:3007
+    depends_on:
+      - feature-engine
+      - agent-gateway
+      - risk
+      - execution
+      - config
+
   dashboard:
     build:
       context: .
@@ -213,7 +234,7 @@ services:
     ports:
       - '3100:3100'
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:3000
+      - NEXT_PUBLIC_API_URL=http://${LOCAL_IP:-localhost}:3000
     depends_on:
       - api-gateway
     restart: unless-stopped

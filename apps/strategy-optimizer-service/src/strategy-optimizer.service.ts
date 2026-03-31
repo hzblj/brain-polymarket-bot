@@ -98,10 +98,11 @@ Rules:
 
 // ─── Service URLs ───────────────────────────────────────────────────────────
 
-const POST_TRADE_ANALYZER_URL = process.env.POST_TRADE_ANALYZER_URL ?? 'http://localhost:3011';
-const EXECUTION_SERVICE_URL = process.env.EXECUTION_SERVICE_URL ?? 'http://localhost:3006';
-const RISK_SERVICE_URL = process.env.RISK_SERVICE_URL ?? 'http://localhost:3005';
-const CONFIG_SERVICE_URL = process.env.CONFIG_SERVICE_URL ?? 'http://localhost:3007';
+const LOCAL_HOST = process.env.LOCAL_IP ?? 'localhost';
+const POST_TRADE_ANALYZER_URL = process.env.POST_TRADE_ANALYZER_URL ?? `http://${LOCAL_HOST}:3011`;
+const EXECUTION_SERVICE_URL = process.env.EXECUTION_SERVICE_URL ?? `http://${LOCAL_HOST}:3006`;
+const RISK_SERVICE_URL = process.env.RISK_SERVICE_URL ?? `http://${LOCAL_HOST}:3005`;
+const CONFIG_SERVICE_URL = process.env.CONFIG_SERVICE_URL ?? `http://${LOCAL_HOST}:3007`;
 
 const DEFAULT_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -116,9 +117,9 @@ export class StrategyOptimizerService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     @Inject(DATABASE_CLIENT) private readonly db: DbClient,
-    private readonly eventBus: EventBus,
-    private readonly llmClient: OpenAIClient,
-    private readonly logger: BrainLoggerService,
+    @Inject(EventBus) private readonly eventBus: EventBus,
+    @Inject(OpenAIClient) private readonly llmClient: OpenAIClient,
+    @Inject(BrainLoggerService) private readonly logger: BrainLoggerService,
   ) {}
 
   onModuleInit(): void {

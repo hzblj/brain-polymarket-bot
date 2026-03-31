@@ -4,7 +4,7 @@ import { firstValueFrom } from 'rxjs';
 
 // ─── Service Host Resolution ──────────────────────────────────────────────────
 
-const DEFAULT_HOST = process.env.SERVICE_HOST ?? 'localhost';
+const DEFAULT_HOST = process.env.SERVICE_HOST ?? process.env.LOCAL_IP ?? 'localhost';
 
 const HOSTS = {
   'market-discovery': process.env.MARKET_DISCOVERY_HOST ?? DEFAULT_HOST,
@@ -16,6 +16,11 @@ const HOSTS = {
   config: process.env.CONFIG_HOST ?? DEFAULT_HOST,
   'agent-gateway': process.env.AGENT_GATEWAY_HOST ?? DEFAULT_HOST,
   replay: process.env.REPLAY_HOST ?? DEFAULT_HOST,
+  'whale-tracker': process.env.WHALE_TRACKER_HOST ?? DEFAULT_HOST,
+  'post-trade-analyzer': process.env.POST_TRADE_ANALYZER_HOST ?? DEFAULT_HOST,
+  'strategy-optimizer': process.env.STRATEGY_OPTIMIZER_HOST ?? DEFAULT_HOST,
+  'derivatives-feed': process.env.DERIVATIVES_FEED_HOST ?? DEFAULT_HOST,
+  'pipeline-orchestrator': process.env.PIPELINE_HOST ?? DEFAULT_HOST,
 } as const;
 
 const PORTS = {
@@ -28,6 +33,11 @@ const PORTS = {
   config: 3007,
   'agent-gateway': 3008,
   replay: 3009,
+  'whale-tracker': 3010,
+  'post-trade-analyzer': 3011,
+  'strategy-optimizer': 3012,
+  'derivatives-feed': 3013,
+  'pipeline-orchestrator': 3014,
 } as const;
 
 type ServiceName = keyof typeof PORTS;

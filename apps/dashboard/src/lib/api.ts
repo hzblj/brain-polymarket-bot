@@ -1,4 +1,8 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (typeof window !== 'undefined'
+    ? `http://${window.location.hostname}:3000`
+    : 'http://localhost:3000');
 
 class ApiError extends Error {
   constructor(public status: number, path: string) {
@@ -172,6 +176,25 @@ export async function getWhaleHistory() {
   }[]>('/api/v1/whales/history?limit=30');
 }
 
+export async function getBlockchainActivity() {
+  return await fetchApi<{
+    window: { durationMs: number; startTime: number };
+    mempool: { txCount: number; totalFeeBtc: number; vsize: number };
+    fees: { fastest: number; halfHour: number; hour: number; economy: number; minimum: number };
+    latestBlock: { height: number; txCount: number; size: number; timestamp: number } | null;
+    notableTransactions: {
+      total: number;
+      totalBtc: number;
+      totalUsd: number;
+      exchangeInflows: { count: number; btc: number };
+      exchangeOutflows: { count: number; btc: number };
+      largest: { txid: string; amountBtc: number; amountUsd: number; direction: string } | null;
+    };
+    trend: { txCountChange: number; volumeChange: number; feeChange: number };
+    lastUpdated: number;
+  }>('/api/v1/whales/blockchain');
+}
+
 // ─── Derivatives Feed API Functions ──────────────────────────────────────
 
 export async function getDerivativesFeatures() {
@@ -282,6 +305,97 @@ export async function getOptimizerStatus() {
     lastRunAt: string | null;
     intervalMs: number;
   }>('/api/v1/optimizer/status');
+}
+
+// ─── Agent Gateway API Functions ────────────────────────────────────────
+
+export interface AgentTrace {
+  traceId: string;
+  windowId: string;
+  agentType: 'regime' | 'edge' | 'supervisor';
+  input: Record<string, unknown>;
+  output: Record<string, unknown>;
+  model: string;
+  provider: string;
+  latencyMs: number;
+  tokenCount: number;
+  createdAt: string;
+}
+
+export async function getAgentTraces(params?: { agentType?: string; limit?: number }) {
+  const query = new URLSearchParams();
+  if (params?.agentType) query.set('agentType', params.agentType);
+  if (params?.limit) query.set('limit', String(params.limit));
+  const qs = query.toString();
+  return await fetchApi<AgentTrace[]>(`/api/v1/agent/traces${qs ? `?${qs}` : ''}`);
+}
+
+export async function getAgentContext() {
+  return await fetchApi<Record<string, unknown>>('/api/v1/agent/context');
+}
+
+// ─── Replay API Functions ───────────────────────────────────────────────
+
+export interface ReplayResult {
+  replayId: string;
+  windowId: string;
+  startTime: string;
+  endTime: string;
+  regime: string;
+  edgeDirection: string;
+  edgeMagnitude: number;
+  supervisorAction: string;
+  supervisorConfidence: number;
+  actualOutcome: string;
+  pnlUsd: number;
+  correct: boolean;
+  createdAt: string;
+}
+
+export async function getReplaySummary() {
+  return await fetchApi<{
+    totalReplays: number;
+    totalWindows: number;
+    correctPredictions: number;
+    accuracy: number;
+    totalPnlUsd: number;
+    avgConfidence: number;
+    byRegime: Record<string, { count: number; correct: number; pnlUsd: number }>;
+  }>('/api/v1/replay/summary');
+}
+
+export async function getReplayResult(replayId: string) {
+  return await fetchApi<ReplayResult[]>(`/api/v1/replay/${replayId}`);
+}
+
+export async function startReplay(params: { from: string; to: string }) {
+  return await postApi<{ replayId: string }>('/api/v1/replay/run', params);
+}
+
+// ─── Risk State API ─────────────────────────────────────────────────────────
+
+export interface RiskStateResponse {
+  config: {
+    maxSizeUsd: number;
+    dailyLossLimitUsd: number;
+    maxSpreadBps: number;
+    minDepthScore: number;
+    maxTradesPerWindow: number;
+  };
+  state: {
+    dailyPnlUsd: number;
+    openPositionUsd: number;
+    tradesInWindow: number;
+    lastTradeTime: string | null;
+  };
+  remainingDailyBudgetUsd: number;
+  killSwitchActive: boolean;
+  tradingEnabled: boolean;
+  updatedAt: string;
+}
+
+export async function getRiskState() {
+  return await fetchApi<RiskStateResponse>('/api/v1/risk/state');
 }
 
 // ─── Mutations (POST) ───────────────────────────────────────────────────────

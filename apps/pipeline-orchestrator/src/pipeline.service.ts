@@ -1,16 +1,16 @@
 import { EventBus } from '@brain/events';
-import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 
 // ─── Service URLs ───────────────────────────────────────────────────────────
 
-const FEATURE_ENGINE_URL = process.env.FEATURE_ENGINE_URL ?? 'http://localhost:3004';
-const AGENT_GATEWAY_URL = process.env.AGENT_GATEWAY_URL ?? 'http://localhost:3008';
-const RISK_SERVICE_URL = process.env.RISK_SERVICE_URL ?? 'http://localhost:3005';
-const EXECUTION_SERVICE_URL = process.env.EXECUTION_SERVICE_URL ?? 'http://localhost:3006';
-const CONFIG_SERVICE_URL = process.env.CONFIG_SERVICE_URL ?? 'http://localhost:3007';
+const LOCAL_HOST = process.env.LOCAL_IP ?? 'localhost';
+const FEATURE_ENGINE_URL = process.env.FEATURE_ENGINE_URL ?? `http://${LOCAL_HOST}:3004`;
+const AGENT_GATEWAY_URL = process.env.AGENT_GATEWAY_URL ?? `http://${LOCAL_HOST}:3008`;
+const RISK_SERVICE_URL = process.env.RISK_SERVICE_URL ?? `http://${LOCAL_HOST}:3005`;
+const EXECUTION_SERVICE_URL = process.env.EXECUTION_SERVICE_URL ?? `http://${LOCAL_HOST}:3006`;
+const CONFIG_SERVICE_URL = process.env.CONFIG_SERVICE_URL ?? `http://${LOCAL_HOST}:3007`;
 
 const PIPELINE_INTERVAL_MS = Number(process.env.PIPELINE_INTERVAL_MS) || 2_000;
-const EXECUTION_MODE = (process.env.EXECUTION_MODE ?? 'paper') as 'paper' | 'live' | 'disabled';
 const INITIAL_BALANCE_USD = Number(process.env.INITIAL_BALANCE_USD) || 100;
 
 // ─── Pipeline state ─────────────────────────────────────────────────────────
@@ -37,14 +37,9 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
   private lastWindowId: string | null = null;
   private lastTradeWindowId: string | null = null;
 
-  constructor(private readonly eventBus: EventBus) {}
+  constructor(@Inject(EventBus) private readonly eventBus: EventBus) {}
 
   onModuleInit(): void {
-    if (EXECUTION_MODE === 'disabled') {
-      this.logger.warn('Pipeline disabled (EXECUTION_MODE=disabled)');
-      this.enabled = false;
-      return;
-    }
     this.startLoop();
   }
 
@@ -58,7 +53,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
     return {
       enabled: this.enabled,
       running: this.running,
-      executionMode: EXECUTION_MODE,
+      executionMode: 'dynamic (from config-service)',
       cycleCount: this.cycleCount,
       intervalMs: PIPELINE_INTERVAL_MS,
       lastResult: this.lastResult,
@@ -87,7 +82,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
   // ─── Pipeline Loop ────────────────────────────────────────────────────────────
 
   private startLoop(): void {
-    this.logger.log(`Starting pipeline loop (interval=${PIPELINE_INTERVAL_MS}ms, mode=${EXECUTION_MODE})`);
+    this.logger.log(`Starting pipeline loop (interval=${PIPELINE_INTERVAL_MS}ms, mode=dynamic)`);
     this.timer = setInterval(async () => {
       if (!this.enabled || this.running) return;
       try {
@@ -144,8 +139,14 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
     const cycle = this.cycleCount;
 
     try {
-      // 0a. Check trading hours
+      // 0a. Fetch config and check trading mode
       const configData: ServiceResponse = await this.fetchJson(`${CONFIG_SERVICE_URL}/api/v1/config`);
+      const executionMode: string = configData?.trading?.mode ?? 'disabled';
+      if (executionMode === 'disabled') {
+        return this.finishCycle(cycle, startMs, 'skipped', { reason: 'Trading mode is disabled' });
+      }
+
+      // 0b. Check trading hours
       const tradingHours = configData?.trading?.tradingHoursUtc;
       if (tradingHours?.enabled) {
         const currentHourUtc = new Date().getUTCHours();
@@ -294,14 +295,14 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       // 7. Execute trade
       const side = decision.action === 'buy_up' ? 'UP' : 'DOWN';
       const executionEndpoint =
-        EXECUTION_MODE === 'live' ? 'live-order' : 'paper-order';
+        executionMode === 'live' ? 'live-order' : 'paper-order';
 
       const order: ServiceResponse = await this.postJson(
         `${EXECUTION_SERVICE_URL}/api/v1/execution/${executionEndpoint}`,
         {
           marketId: windowId,
           side,
-          mode: EXECUTION_MODE,
+          mode: executionMode,
           sizeUsd: riskEval.approvedSizeUsd,
           maxEntryPrice: side === 'UP' ? (features.book?.upAsk ?? 0.55) : (features.book?.downAsk ?? 0.55),
           mustExecuteBeforeSec: Math.max(((features.market?.timeToCloseSec as number) ?? 60) - 15, 5),
@@ -317,7 +318,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
 
       this.lastTradeWindowId = windowId;
       this.logger.log(
-        `[${windowId}] Order executed: ${order.id} ${side} $${riskEval.approvedSizeUsd} (${EXECUTION_MODE})`,
+        `[${windowId}] Order executed: ${order.id} ${side} $${riskEval.approvedSizeUsd} (${executionMode})`,
       );
 
       return this.finishCycle(cycle, startMs, 'executed', {
@@ -325,7 +326,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
         orderId: order.id,
         side,
         sizeUsd: riskEval.approvedSizeUsd,
-        mode: EXECUTION_MODE,
+        mode: executionMode,
         regime: regime.regime,
         edge: edge.direction,
         confidence: decision.confidence,
