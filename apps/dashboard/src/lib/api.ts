@@ -1,13 +1,8 @@
-function resolveApiBase(): string {
-  // Build-time env (baked into Next.js bundle)
+function getApiBase(): string {
   if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
-  // Client-side: use same hostname as the browser (works for any IP/domain)
   if (typeof window !== 'undefined') return `http://${window.location.hostname}:3000`;
-  // SSR fallback
   return 'http://localhost:3000';
 }
-
-const API_BASE = resolveApiBase();
 
 class ApiError extends Error {
   constructor(public status: number, path: string) {
@@ -21,7 +16,7 @@ async function fetchApi<T>(path: string): Promise<T | null> {
   const timeout = setTimeout(() => controller.abort(), 5_000);
 
   try {
-    const res = await fetch(`${API_BASE}${path}`, { signal: controller.signal });
+    const res = await fetch(`${getApiBase()}${path}`, { signal: controller.signal });
     clearTimeout(timeout);
 
     if (!res.ok) {
@@ -410,7 +405,7 @@ async function postApi<T>(path: string, body: Record<string, unknown>): Promise<
   const timeout = setTimeout(() => controller.abort(), 10_000);
 
   try {
-    const res = await fetch(`${API_BASE}${path}`, {
+    const res = await fetch(`${getApiBase()}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
