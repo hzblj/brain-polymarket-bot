@@ -198,13 +198,21 @@ export class DashboardService {
     const edge = edgeWindowMatch ? rawEdge : null;
     const supervisor = supervisorWindowMatch ? rawSupervisor : null;
 
-    // Risk step: derive from real risk service state
+    // Risk step: derive from pipeline result when available, fall back to general state
     const riskRec = riskState as Rec | null;
     const hasRiskData = !!riskRec;
     const killSwitch = !!riskRec?.killSwitchActive;
     const tradingEnabled = riskRec?.tradingEnabled !== false;
     const remainingBudget = num(riskRec?.remainingDailyBudgetUsd as number);
-    const riskPassed = hasRiskData && !killSwitch && tradingEnabled && remainingBudget > 0;
+
+    // Use pipeline stage to determine if risk actually passed for this cycle
+    const pipelineRejectedByRisk = pipeStage === 'risk_rejected';
+    const pipelinePassedRisk = pipeStage === 'executed' || pipeStage === 'agent_hold';
+    const riskPassed = pipelineRejectedByRisk
+      ? false
+      : pipelinePassedRisk
+        ? true
+        : hasRiskData && !killSwitch && tradingEnabled && remainingBudget > 0;
 
     // Execution step: derive from real execution service positions
     const positions = Array.isArray(latestPositions) ? latestPositions : [];
@@ -237,7 +245,7 @@ export class DashboardService {
       supervisor ? traceToStep('Supervisor', supervisor, 'action') : { label: 'Supervisor', status: pendingStatus, value: pendingValue, confidence: null, timestamp: null },
       {
         label: 'Risk',
-        status: hasRiskData ? 'success' : 'pending',
+        status: hasRiskData ? (pipelineRejectedByRisk ? 'failed' : 'success') : 'pending',
         value: hasRiskData ? (riskPassed ? 'passed' : 'blocked') : null,
         confidence: null,
         timestamp: riskRec?.updatedAt ? str(riskRec.updatedAt as string) : null,
@@ -247,6 +255,7 @@ export class DashboardService {
               tradingEnabled,
               remainingBudgetUsd: remainingBudget,
               dailyPnlUsd: num(val(riskRec, 'state', 'dailyPnlUsd') as number),
+              ...(pipelineRejectedByRisk ? { rejectionReasons: pipeDetails.rejectionReasons } : {}),
             }
           : null,
       },
