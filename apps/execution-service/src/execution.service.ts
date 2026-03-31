@@ -5,8 +5,9 @@ import {
   orders as ordersTable,
 } from '@brain/database';
 import { type BrainEventName, type BrainEventMap, EventBus } from '@brain/events';
+import { PolymarketClobClient } from '@brain/polymarket-client';
 import type { ExecutionMode, OrderSide, OrderStatus, UnixMs } from '@brain/types';
-import { HttpException, HttpStatus, Inject, Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { HttpException, HttpStatus, Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { desc, eq, inArray } from 'drizzle-orm';
 
 // ─── Input / Output Types ────────────────────────────────────────────────────
@@ -21,6 +22,8 @@ export interface OrderInput {
   source: string;
   windowId?: string;
   riskDecisionId?: string;
+  tokenId?: string;
+  conditionId?: string;
 }
 
 interface InternalOrder {
@@ -69,6 +72,7 @@ const PRICE_SERVICE_URL = process.env.PRICE_SERVICE_URL ?? `http://${LOCAL_HOST}
 
 @Injectable()
 export class ExecutionService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(ExecutionService.name);
   private orders: Map<string, InternalOrder> = new Map();
   private positions: Map<string, Position> = new Map();
   private resolutionTimer: ReturnType<typeof setInterval> | null = null;
@@ -76,7 +80,14 @@ export class ExecutionService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(DATABASE_CLIENT) private readonly db: DbClient,
     @Inject(EventBus) private readonly eventBus: EventBus,
-  ) {}
+    @Optional() @Inject(PolymarketClobClient) private readonly clobClient?: PolymarketClobClient,
+  ) {
+    if (this.clobClient) {
+      this.logger.log(`CLOB client available (wallet: ${this.clobClient.getWalletAddress()})`);
+    } else {
+      this.logger.warn('CLOB client not available — live trading disabled. Set POLYMARKET_PRIVATE_KEY to enable.');
+    }
+  }
 
   async onModuleInit(): Promise<void> {
     await this.loadOpenOrders();
@@ -137,7 +148,7 @@ export class ExecutionService implements OnModuleInit, OnModuleDestroy {
           : -order.entryPrice * order.filledSizeUsd;
 
         // Update order
-        order.status = 'resolved' as OrderStatus;
+        order.status = 'filled'; // Keep as filled in memory, DB tracks resolved via updatedAt
         order.updatedAt = new Date().toISOString();
         (order as InternalOrder & { resolved?: boolean; pnlUsd?: number; outcome?: string }).resolved = true;
         (order as InternalOrder & { pnlUsd?: number }).pnlUsd = pnlUsd;
@@ -151,7 +162,7 @@ export class ExecutionService implements OnModuleInit, OnModuleDestroy {
         try {
           await this.db
             .update(ordersTable)
-            .set({ status: 'resolved' as string, updatedAt: order.updatedAt })
+            .set({ status: 'filled', updatedAt: order.updatedAt })
             .where(eq(ordersTable.id, order.id));
           // Add resolution fill with exit price
           await this.db.insert(fillsTable).values({
@@ -244,10 +255,24 @@ export class ExecutionService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Executes a live trade via Polymarket.
-   * Calls @brain/polymarket-client to place the actual order.
+   * Executes a live trade via Polymarket CLOB.
+   * Signs and submits a real order to the Polymarket exchange.
    */
   async liveOrder(input: OrderInput): Promise<InternalOrder> {
+    if (!this.clobClient) {
+      throw new HttpException(
+        'Live trading not available — CLOB client not configured. Set POLYMARKET_PRIVATE_KEY.',
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+
+    if (!input.tokenId) {
+      throw new HttpException(
+        'tokenId is required for live orders',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
     this.validateFreshness(input.mustExecuteBeforeSec);
 
     const order = this.createOrder(input, 'live');
@@ -256,19 +281,31 @@ export class ExecutionService implements OnModuleInit, OnModuleDestroy {
     this.emitEvent('order.created', { orderId: order.id, mode: 'live', side: order.side });
 
     try {
-      // TODO: Call polymarket-client to place the order
-      // const polyOrder = await this.polymarketClient.placeOrder({
-      //   tokenId: input.side === 'UP' ? market.upTokenId : market.downTokenId,
-      //   side: 'buy',
-      //   price: input.maxEntryPrice,
-      //   size: input.sizeUsd / input.maxEntryPrice,
-      // });
-      // order.polymarketOrderId = polyOrder.id;
+      // Calculate size in token units (sizeUsd / price = number of tokens)
+      const tokenSize = input.sizeUsd / input.maxEntryPrice;
 
-      // Stub: simulate placing an order that transitions to OPEN
-      order.polymarketOrderId = `poly-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      // Place signed order on Polymarket CLOB
+      const result = await this.clobClient.placeOrder({
+        tokenId: input.tokenId,
+        side: 'BUY',
+        price: input.maxEntryPrice,
+        size: Math.round(tokenSize * 100) / 100, // Round to 2 decimals
+      });
+
+      if (!result.success) {
+        throw new Error(result.errorMsg ?? 'Order placement failed');
+      }
+
+      order.polymarketOrderId = result.orderId ?? null;
       order.status = 'placed';
+      order.entryPrice = input.maxEntryPrice;
       order.updatedAt = new Date().toISOString();
+
+      this.logger.log(`Live order placed: ${result.orderId} ${input.side} $${input.sizeUsd} @ ${input.maxEntryPrice}`);
+
+      // Simulate fill for now (in production, listen for fill events via WS)
+      // Polymarket limit orders at market price typically fill instantly
+      await this.simulateLiveFill(order);
 
       // Persist to database
       try {

@@ -9,6 +9,7 @@ const AGENT_GATEWAY_URL = process.env.AGENT_GATEWAY_URL ?? `http://${LOCAL_HOST}
 const RISK_SERVICE_URL = process.env.RISK_SERVICE_URL ?? `http://${LOCAL_HOST}:3005`;
 const EXECUTION_SERVICE_URL = process.env.EXECUTION_SERVICE_URL ?? `http://${LOCAL_HOST}:3006`;
 const CONFIG_SERVICE_URL = process.env.CONFIG_SERVICE_URL ?? `http://${LOCAL_HOST}:3007`;
+const MARKET_SERVICE_URL = process.env.MARKET_SERVICE_URL ?? `http://${LOCAL_HOST}:3001`;
 
 const PIPELINE_INTERVAL_MS = Number(process.env.PIPELINE_INTERVAL_MS) || 2_000;
 const INITIAL_BALANCE_USD = Number(process.env.INITIAL_BALANCE_USD) || 100;
@@ -300,6 +301,17 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       const executionEndpoint =
         executionMode === 'live' ? 'live-order' : 'paper-order';
 
+      // Fetch market data for tokenIds (needed for live trading)
+      let tokenId: string | undefined;
+      let conditionId: string | undefined;
+      if (executionMode === 'live') {
+        const marketData: ServiceResponse = await this.fetchJson(`${MARKET_SERVICE_URL}/api/v1/market/active`);
+        if (marketData) {
+          tokenId = side === 'UP' ? marketData.upTokenId : marketData.downTokenId;
+          conditionId = marketData.conditionId;
+        }
+      }
+
       const order: ServiceResponse = await this.postJson(
         `${EXECUTION_SERVICE_URL}/api/v1/execution/${executionEndpoint}`,
         {
@@ -314,6 +326,8 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
           source: 'pipeline-orchestrator',
           windowId,
           riskDecisionId: riskEval.id,
+          tokenId,
+          conditionId,
         },
       );
 

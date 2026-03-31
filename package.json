@@ -42,5 +42,9 @@
   "packageManager": "yarn@4.13.0",
   "engines": {
     "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@polymarket/clob-client": "^5.8.1",
+    "ethers": "5"
   }
 }

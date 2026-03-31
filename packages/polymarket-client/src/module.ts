@@ -1,11 +1,14 @@
 import { BrainLoggerService } from '@brain/logger';
 import { type DynamicModule, Module } from '@nestjs/common';
+import { PolymarketClobClient, type ClobClientOptions } from './clob-client';
 import { PolymarketRestClient, type PolymarketRestClientOptions } from './rest-client';
 import { PolymarketWsClient, type PolymarketWsClientOptions } from './ws-client';
 
 export interface PolymarketClientModuleOptions {
   apiUrl: string;
   wsUrl: string;
+  chainId?: number;
+  privateKey?: string;
   apiKey?: string;
   apiSecret?: string;
   apiPassphrase?: string;
@@ -31,22 +34,42 @@ export class PolymarketClientModule {
       maxReconnectAttempts: options.maxReconnectAttempts,
     };
 
+    const providers: DynamicModule['providers'] = [
+      {
+        provide: PolymarketRestClient,
+        inject: [BrainLoggerService],
+        useFactory: (logger: BrainLoggerService) => new PolymarketRestClient(restOptions, logger),
+      },
+      {
+        provide: PolymarketWsClient,
+        inject: [BrainLoggerService],
+        useFactory: (logger: BrainLoggerService) => new PolymarketWsClient(wsOptions, logger),
+      },
+    ];
+
+    // Only create CLOB client if private key is available (needed for signing orders)
+    if (options.privateKey) {
+      const clobOptions: ClobClientOptions = {
+        apiUrl: options.apiUrl,
+        chainId: options.chainId ?? 137, // Polygon mainnet
+        privateKey: options.privateKey,
+        apiKey: options.apiKey,
+        apiSecret: options.apiSecret,
+        apiPassphrase: options.apiPassphrase,
+      };
+
+      providers.push({
+        provide: PolymarketClobClient,
+        inject: [BrainLoggerService],
+        useFactory: (logger: BrainLoggerService) => new PolymarketClobClient(clobOptions, logger),
+      });
+    }
+
     return {
       module: PolymarketClientModule,
       global: true,
-      providers: [
-        {
-          provide: PolymarketRestClient,
-          inject: [BrainLoggerService],
-          useFactory: (logger: BrainLoggerService) => new PolymarketRestClient(restOptions, logger),
-        },
-        {
-          provide: PolymarketWsClient,
-          inject: [BrainLoggerService],
-          useFactory: (logger: BrainLoggerService) => new PolymarketWsClient(wsOptions, logger),
-        },
-      ],
-      exports: [PolymarketRestClient, PolymarketWsClient],
+      providers,
+      exports: [PolymarketRestClient, PolymarketWsClient, PolymarketClobClient],
     };
   }
 }

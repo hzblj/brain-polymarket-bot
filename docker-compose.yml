@@ -127,6 +127,9 @@ services:
       - '3006:3006'
     environment:
       - DATABASE_PATH=./data/execution.sqlite
+      - PRICE_SERVICE_URL=http://price-feed:3002
+    depends_on:
+      - price-feed
 
   config:
     <<: *service-base
@@ -217,9 +220,11 @@ services:
       - RISK_SERVICE_URL=http://risk:3005
       - EXECUTION_SERVICE_URL=http://execution:3006
       - CONFIG_SERVICE_URL=http://config:3007
+      - MARKET_SERVICE_URL=http://market-discovery:3001
     depends_on:
       - feature-engine
       - agent-gateway
+      - market-discovery
       - risk
       - execution
       - config
