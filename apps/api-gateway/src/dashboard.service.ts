@@ -169,20 +169,33 @@ export class DashboardService {
   // ─── Pipeline ─────────────────────────────────────────────────────────────
 
   async getPipeline() {
-    const [regimeTraces, edgeTraces, supervisorTraces, riskState, latestPositions] =
+    const [regimeTraces, edgeTraces, supervisorTraces, riskState, latestPositions, currentWindow] =
       await Promise.all([
         this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=regime&limit=1'),
         this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=edge&limit=1'),
         this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=supervisor&limit=1'),
         this.fetch('risk', '/api/v1/risk/state'),
         this.fetch('execution', '/api/v1/execution/positions'),
+        this.fetch('market-discovery', '/api/v1/market/active'),
       ]);
 
-    const regime = Array.isArray(regimeTraces) ? ((regimeTraces[0] as Rec) ?? null) : null;
-    const edge = Array.isArray(edgeTraces) ? ((edgeTraces[0] as Rec) ?? null) : null;
-    const supervisor = Array.isArray(supervisorTraces)
+    // Get current window ID from market discovery
+    const currentWindowId = str((currentWindow as Rec | null)?.marketId as string);
+
+    const rawRegime = Array.isArray(regimeTraces) ? ((regimeTraces[0] as Rec) ?? null) : null;
+    const rawEdge = Array.isArray(edgeTraces) ? ((edgeTraces[0] as Rec) ?? null) : null;
+    const rawSupervisor = Array.isArray(supervisorTraces)
       ? ((supervisorTraces[0] as Rec) ?? null)
       : null;
+
+    // If traces are from a different window, show as pending (new window, agents not called yet)
+    const regimeWindowMatch = !currentWindowId || str(rawRegime?.windowId as string) === currentWindowId;
+    const edgeWindowMatch = !currentWindowId || str(rawEdge?.windowId as string) === currentWindowId;
+    const supervisorWindowMatch = !currentWindowId || str(rawSupervisor?.windowId as string) === currentWindowId;
+
+    const regime = regimeWindowMatch ? rawRegime : null;
+    const edge = edgeWindowMatch ? rawEdge : null;
+    const supervisor = supervisorWindowMatch ? rawSupervisor : null;
 
     // Risk step: derive from real risk service state
     const riskRec = riskState as Rec | null;
