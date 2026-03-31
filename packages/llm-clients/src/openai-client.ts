@@ -40,6 +40,9 @@ export class OpenAIClient implements LlmClient {
     const startTime = Date.now();
     const jsonSchema = zodToJsonSchema(schema);
 
+    // Reasoning models (o1, o3, o4, etc.) don't support temperature or system role
+    const isReasoningModel = /^(o1|o3|o4)/.test(useModel);
+
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
@@ -50,12 +53,17 @@ export class OpenAIClient implements LlmClient {
 
         const response = await this.client.chat.completions.create({
           model: useModel,
-          temperature: this.temperature,
+          ...(isReasoningModel ? {} : { temperature: this.temperature }),
           max_completion_tokens: 2048,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt },
-          ],
+          messages: isReasoningModel
+            ? [
+                { role: 'developer', content: systemPrompt },
+                { role: 'user', content: userPrompt },
+              ]
+            : [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userPrompt },
+              ],
           tools: [
             {
               type: 'function',
