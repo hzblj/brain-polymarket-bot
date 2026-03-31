@@ -254,7 +254,7 @@ function PricePanel() {
           <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
             <div className="rounded bg-surface-0/40 px-2 py-1.5">
               <span className="block text-text-muted">Spread</span>
-              <span className="font-medium tabular-nums text-text-primary">{formatPrice((snapshot?.spread ?? 0) * 10000, 0)} bps</span>
+              <span className="font-medium tabular-nums text-text-primary">{formatPrice(snapshot?.spread ?? 0, 0)} bps</span>
             </div>
             <div className="rounded bg-surface-0/40 px-2 py-1.5">
               <span className="block text-text-muted">Momentum</span>
@@ -363,7 +363,7 @@ function OrderBookPanel() {
         />
         <KpiCard
           label="Spread"
-          value={formatPrice(snapshot?.spread ?? 0, 4)}
+          value={`${formatPrice(snapshot?.spread ?? 0, 0)} bps`}
         />
       </div>
 
@@ -448,7 +448,7 @@ function TradeabilityPanel() {
   const depth = snapshot?.depthScore ?? 0;
   const timeToClose = snapshot?.timeToCloseMs ?? 0;
 
-  const spreadOk = spread < 0.04;
+  const spreadOk = spread < 400;
   const depthOk = depth > 0.5;
   const entryWindowOk = timeToClose > 30_000;
   const tradeable = spreadOk && depthOk && entryWindowOk;

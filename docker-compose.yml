@@ -5,6 +5,7 @@ x-service-base: &service-base
   volumes:
     - ./packages:/app/packages
     - ./apps:/app/apps
+    - ./scripts:/app/scripts
     - ./tsconfig.json:/app/tsconfig.json
     - brain-data:/app/data
   env_file: .env

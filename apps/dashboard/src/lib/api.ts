@@ -69,7 +69,7 @@ export async function getMarketSnapshot() {
 }
 
 export async function getPipeline() {
-  return await fetchApi<{ label: string; status: string; value: string | null; confidence: number | null; timestamp: string | null }[]>('/api/v1/dashboard/pipeline');
+  return await fetchApi<{ label: string; status: string; value: string | null; confidence: number | null; timestamp: string | null; detail?: Record<string, unknown> | null }[]>('/api/v1/dashboard/pipeline');
 }
 
 export async function getOpenTrades() {

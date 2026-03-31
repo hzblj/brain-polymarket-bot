@@ -142,7 +142,7 @@ export class DashboardService {
       deltaPct: num(win?.deltaPct),
       resolverPrice: num(resolver?.price),
       spotPrice: num(external?.price),
-      spread: num((bookMetrics as Rec | null)?.spreadBps) / 10_000,
+      spread: num((bookMetrics as Rec | null)?.spreadBps),
       depthScore: num((bookMetrics as Rec | null)?.liquidityScore),
       imbalance: num((bookMetrics as Rec | null)?.imbalance),
       momentum: num(micro?.momentumScore),

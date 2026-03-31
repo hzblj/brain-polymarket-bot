@@ -164,20 +164,17 @@ export default function OverviewPage() {
             Live Decision Pipeline
           </h2>
           {pipe ? (
-            <div className="flex items-start gap-2 overflow-x-auto">
-              {pipe.map((step, i) => (
-                <div key={step.label} className="flex items-start">
-                  <PipelineStep
-                    label={step.label}
-                    status={step.status}
-                    value={step.value}
-                    confidence={step.confidence ?? undefined}
-                    timestamp={step.timestamp}
-                  />
-                  {i < pipe.length - 1 && (
-                    <div className="mt-5 mx-1 h-px w-6 shrink-0 bg-border" />
-                  )}
-                </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+              {pipe.map((step) => (
+                <PipelineStep
+                  key={step.label}
+                  label={step.label}
+                  status={step.status as "pending" | "running" | "success" | "failed" | "skipped"}
+                  value={step.value ?? undefined}
+                  confidence={step.confidence ?? undefined}
+                  timestamp={step.timestamp ?? undefined}
+                  detail={step.detail ?? null}
+                />
               ))}
             </div>
           ) : (
