@@ -258,24 +258,25 @@ export class DashboardService {
   }
 
   async getClosedTrades() {
-    const fills = await this.fetch('execution', '/api/v1/execution/fills?limit=50');
-    if (!Array.isArray(fills)) return [];
+    const resolved = await this.fetch('execution', '/api/v1/execution/resolved?limit=50');
+    if (!Array.isArray(resolved)) return [];
 
-    return fills.map((fill: Rec) => {
-      const pnl = num(fill.pnlUsd);
+    return resolved.map((r: Rec) => {
+      const pnl = num(r.pnlUsd);
+      const sizeUsd = num(r.sizeUsd);
       return {
-        id: fill.id,
+        id: r.id,
         market: 'BTC-5MIN-UP',
-        side: str(fill.side, 'buy_up'),
+        side: str(r.side, 'buy_up'),
         strategy: 'btc_5m_momentum_v1',
-        entryTime: fill.filledAt,
-        exitTime: fill.filledAt,
-        duration: 0,
+        entryTime: r.createdAt,
+        exitTime: r.resolvedAt,
+        duration: num(r.durationMs),
         pnl,
-        pnlPct: 0,
-        result: pnl > 0 ? 'win' : pnl < 0 ? 'loss' : 'breakeven',
+        pnlPct: sizeUsd > 0 ? (pnl / sizeUsd) * 100 : 0,
+        result: str(r.outcome, pnl > 0 ? 'win' : pnl < 0 ? 'loss' : 'breakeven'),
         exitReason: 'window_resolved',
-        traceId: fill.traceId ?? null,
+        traceId: null,
       };
     });
   }

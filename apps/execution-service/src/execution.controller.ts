@@ -85,4 +85,15 @@ export class ExecutionController {
     const positions = await this.executionService.getPositions();
     return { ok: true, data: positions };
   }
+
+  /**
+   * GET /api/v1/execution/resolved
+   * Returns resolved (closed) orders with P&L.
+   */
+  @Get('resolved')
+  getResolved(@Query('limit') limit?: string) {
+    const n = limit ? parseInt(limit, 10) : 50;
+    const resolved = this.executionService.getResolvedOrders(n);
+    return { ok: true, data: resolved };
+  }
 }

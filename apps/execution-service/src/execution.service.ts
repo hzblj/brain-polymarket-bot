@@ -453,6 +453,59 @@ export class ExecutionService implements OnModuleInit, OnModuleDestroy {
     return Array.from(this.positions.values());
   }
 
+  /**
+   * Returns resolved orders with P&L data.
+   */
+  getResolvedOrders(limit = 50): Array<{
+    id: string;
+    windowId: string;
+    side: string;
+    mode: string;
+    sizeUsd: number;
+    entryPrice: number;
+    pnlUsd: number;
+    outcome: string;
+    createdAt: string;
+    resolvedAt: string;
+    durationMs: number;
+  }> {
+    const resolved: Array<{
+      id: string;
+      windowId: string;
+      side: string;
+      mode: string;
+      sizeUsd: number;
+      entryPrice: number;
+      pnlUsd: number;
+      outcome: string;
+      createdAt: string;
+      resolvedAt: string;
+      durationMs: number;
+    }> = [];
+
+    for (const order of this.orders.values()) {
+      const ext = order as InternalOrder & { resolved?: boolean; pnlUsd?: number; outcome?: string };
+      if (!ext.resolved) continue;
+      resolved.push({
+        id: order.id,
+        windowId: order.windowId,
+        side: order.side,
+        mode: order.mode,
+        sizeUsd: order.filledSizeUsd,
+        entryPrice: order.entryPrice,
+        pnlUsd: ext.pnlUsd ?? 0,
+        outcome: ext.outcome ?? 'unknown',
+        createdAt: order.createdAt,
+        resolvedAt: order.updatedAt,
+        durationMs: new Date(order.updatedAt).getTime() - new Date(order.createdAt).getTime(),
+      });
+    }
+
+    return resolved
+      .sort((a, b) => new Date(b.resolvedAt).getTime() - new Date(a.resolvedAt).getTime())
+      .slice(0, limit);
+  }
+
   // ─── Internal Helpers ──────────────────────────────────────────────────────
 
   private validateFreshness(mustExecuteBeforeSec: number): void {
