@@ -34,7 +34,7 @@ COPY apps/derivatives-feed-service/package.json apps/derivatives-feed-service/pa
 COPY apps/pipeline-orchestrator/package.json apps/pipeline-orchestrator/package.json
 COPY apps/dashboard/package.json apps/dashboard/package.json
 
-RUN yarn install --immutable
+RUN yarn install
 
 # Copy source
 COPY tsconfig.json ./
