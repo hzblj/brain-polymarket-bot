@@ -200,12 +200,18 @@ export class DashboardService {
     const rawGatekeeper = Array.isArray(gatekeeperTraces) ? ((gatekeeperTraces[0] as Rec) ?? null) : null;
     const rawEval = Array.isArray(evalTraces) ? ((evalTraces[0] as Rec) ?? null) : null;
 
-    // If traces are from a different window, show as pending (new window, agents not called yet)
-    const regimeWindowMatch = !currentWindowId || str(rawRegime?.windowId as string) === currentWindowId;
-    const edgeWindowMatch = !currentWindowId || str(rawEdge?.windowId as string) === currentWindowId;
-    const supervisorWindowMatch = !currentWindowId || str(rawSupervisor?.windowId as string) === currentWindowId;
-    const validatorWindowMatch = !currentWindowId || str(rawValidator?.windowId as string) === currentWindowId;
-    const gatekeeperWindowMatch = !currentWindowId || str(rawGatekeeper?.windowId as string) === currentWindowId;
+    // Accept traces from current window OR pre-computed next window
+    const preComputedWindowSlug = str(val(pipelineStatus as Rec | null, 'preComputedDecision', 'targetWindowSlug') as string);
+    const matchesWindow = (traceWindowId: string | undefined) => {
+      if (!traceWindowId) return false;
+      if (!currentWindowId && !preComputedWindowSlug) return true;
+      return traceWindowId === currentWindowId || traceWindowId === preComputedWindowSlug;
+    };
+    const regimeWindowMatch = matchesWindow(str(rawRegime?.windowId as string));
+    const edgeWindowMatch = matchesWindow(str(rawEdge?.windowId as string));
+    const supervisorWindowMatch = matchesWindow(str(rawSupervisor?.windowId as string));
+    const validatorWindowMatch = matchesWindow(str(rawValidator?.windowId as string));
+    const gatekeeperWindowMatch = matchesWindow(str(rawGatekeeper?.windowId as string));
 
     const regime = regimeWindowMatch ? rawRegime : null;
     const edge = edgeWindowMatch ? rawEdge : null;
@@ -260,6 +266,7 @@ export class DashboardService {
     const REGIME_TO_STRATEGY: Record<string, string> = {
       trending_up: 'Momentum',
       trending_down: 'Momentum',
+      volatile: 'Momentum',
       mean_reverting: 'Mean Reversion',
       quiet: 'Mean Reversion',
     };
