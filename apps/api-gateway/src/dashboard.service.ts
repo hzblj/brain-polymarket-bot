@@ -270,6 +270,14 @@ export class DashboardService {
     const routerValue = !regime ? pendingValue
       : routedStrategy ?? 'no match';
 
+    // Derive edge profile name from the trace model or agent type
+    const edgeOutput = extractOutput(edge);
+    const edgeProfile = edge ? str(edge.agentProfile as string) || str(edge.model as string) : null;
+    const edgeLabel = routedStrategy === 'Mean Reversion' ? 'Edge (MR)' : 'Edge';
+
+    const validatorOutput = extractOutput(validator);
+    const gatekeeperOutput = extractOutput(gatekeeper);
+
     return [
       regime ? traceToStep('Regime', regime, 'regime') : { label: 'Regime', status: pendingStatus, value: pendingValue, confidence: null, timestamp: null },
       {
@@ -279,24 +287,24 @@ export class DashboardService {
         confidence: null,
         timestamp: regime ? str(regime.createdAt as string) : null,
       },
-      edge ? traceToStep('Edge', edge, 'direction') : { label: 'Edge', status: pendingStatus, value: pendingValue, confidence: null, timestamp: null },
+      edge ? { ...traceToStep(edgeLabel, edge, 'direction'), detail: edgeProfile ? { profile: edgeProfile } : null } : { label: edgeLabel, status: pendingStatus, value: pendingValue, confidence: null, timestamp: null },
       supervisor ? traceToStep('Supervisor', supervisor, 'action') : { label: 'Supervisor', status: pendingStatus, value: pendingValue, confidence: null, timestamp: null },
-      ...(validator ? [{
+      {
         label: 'Validator',
-        status: (validator.output as Rec)?.valid ? 'success' as const : 'failed' as const,
-        value: (validator.output as Rec)?.valid ? 'valid' : 'invalid',
+        status: validator ? (validatorOutput?.valid ? 'success' as const : 'failed' as const) : pendingStatus,
+        value: validator ? (validatorOutput?.valid ? 'valid' : 'invalid') : pendingValue,
         confidence: null,
-        timestamp: str(validator.createdAt as string),
-        detail: (validator.output as Rec)?.issues ? { issues: (validator.output as Rec).issues } : null,
-      }] : []),
-      ...(gatekeeper ? [{
+        timestamp: validator ? str(validator.createdAt as string) : null,
+        detail: validatorOutput?.issues ? { issues: validatorOutput.issues } : null,
+      },
+      {
         label: 'Gatekeeper',
-        status: (gatekeeper.output as Rec)?.validated ? 'success' as const : 'failed' as const,
-        value: (gatekeeper.output as Rec)?.validated ? 'validated' : 'invalidated',
+        status: gatekeeper ? (gatekeeperOutput?.validated ? 'success' as const : 'failed' as const) : pendingStatus,
+        value: gatekeeper ? (gatekeeperOutput?.validated ? 'validated' : 'invalidated') : pendingValue,
         confidence: null,
-        timestamp: str(gatekeeper.createdAt as string),
-        detail: { reasoning: str((gatekeeper.output as Rec)?.reasoning as string) },
-      }] : []),
+        timestamp: gatekeeper ? str(gatekeeper.createdAt as string) : null,
+        detail: gatekeeperOutput ? { reasoning: str(gatekeeperOutput.reasoning as string) } : null,
+      },
       {
         label: 'Risk',
         status: hasRiskData ? (pipelineRejectedByRisk ? 'failed' : 'success') : 'pending',
@@ -329,17 +337,20 @@ export class DashboardService {
             }
           : null,
       },
-      ...(rawEval ? [{
-        label: 'Eval',
-        status: 'success' as const,
-        value: `patch → ${str((rawEval.output as Rec)?.targetAgent as string, '?')}`,
-        confidence: num((rawEval.output as Rec)?.confidence as number),
-        timestamp: str(rawEval.createdAt as string),
-        detail: {
-          targetAgent: str((rawEval.output as Rec)?.targetAgent as string),
-          reasoning: str((rawEval.output as Rec)?.reasoning as string),
-        },
-      }] : []),
+      (() => {
+        const evalOutput = extractOutput(rawEval);
+        return {
+          label: 'Eval',
+          status: rawEval ? 'success' as const : 'pending' as const,
+          value: rawEval ? `patch → ${str(evalOutput?.targetAgent as string, '?')}` : 'waiting for loss',
+          confidence: evalOutput ? num(evalOutput.confidence as number) : null,
+          timestamp: rawEval ? str(rawEval.createdAt as string) : null,
+          detail: evalOutput ? {
+            targetAgent: str(evalOutput.targetAgent as string),
+            reasoning: str(evalOutput.reasoning as string),
+          } : null,
+        };
+      })(),
     ];
   }
 

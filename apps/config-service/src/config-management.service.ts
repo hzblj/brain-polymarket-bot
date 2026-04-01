@@ -328,21 +328,29 @@ export class ConfigManagementService implements OnModuleInit {
         marketSelector: { asset: 'BTC', marketType: 'UP_DOWN', windowSec: 300 },
         agentProfile: {
           regimeAgentProfile: 'regime-default-v1',
-          edgeAgentProfile: 'edge-momentum-v1',
-          supervisorAgentProfile: 'supervisor-momentum-v1',
+          edgeAgentProfile: 'edge-mean-reversion-v1',
+          supervisorAgentProfile: 'supervisor-mean-reversion-v1',
         },
-        decisionPolicy: { allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'], minConfidence: 0.75 },
-        filters: { maxSpreadBps: 200, minDepthScore: 0.7, minTimeToCloseSec: 30, maxTimeToCloseSec: 120 },
-        riskProfile: { maxSizeUsd: 0.3, dailyLossLimitUsd: 8, maxTradesPerWindow: 1 },
-        executionPolicy: { entryWindowStartSec: 120, entryWindowEndSec: 15, mode: 'paper' },
+        decisionPolicy: { allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'], minConfidence: 0.58 },
+        filters: { maxSpreadBps: 180, minDepthScore: 0.35, minTimeToCloseSec: 40, maxTimeToCloseSec: 180, allowedRegimes: ['mean_reverting', 'quiet'] },
+        riskProfile: { maxSizeUsd: 0.35, dailyLossLimitUsd: 10, maxTradesPerWindow: 1 },
+        executionPolicy: { entryWindowStartSec: 180, entryWindowEndSec: 30, mode: 'paper' },
       };
       const mrChecksum = createHash('sha256').update(JSON.stringify(mrConfig)).digest('hex');
 
-      await this.db.insert(strategyVersions).values({
+      const [mrVer] = await this.db.insert(strategyVersions).values({
         strategyId: mrStrat!.id,
         version: 1,
         configJson: mrConfig as unknown as Record<string, unknown>,
         checksum: mrChecksum,
+      }).returning({ id: strategyVersions.id });
+
+      // Assignment for mean-reversion (active — routed by regime)
+      await this.db.insert(strategyAssignments).values({
+        marketConfigId: mcId,
+        strategyVersionId: mrVer!.id,
+        priority: 1,
+        isActive: true,
       });
 
       // Aggressive momentum strategy

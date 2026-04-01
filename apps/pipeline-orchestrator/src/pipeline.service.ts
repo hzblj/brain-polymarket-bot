@@ -234,7 +234,15 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
         });
       }
 
-      const allStrategies: ServiceResponse[] = allStrategiesRaw?.data ?? allStrategiesRaw ?? [];
+      const allStrategies: ServiceResponse[] = Array.isArray(allStrategiesRaw) ? allStrategiesRaw
+        : Array.isArray(allStrategiesRaw?.data) ? allStrategiesRaw.data
+        : [];
+
+      if (allStrategies.length === 0) {
+        this.logger.warn('No active strategies found — routing will fail');
+      } else {
+        this.logger.debug(`Loaded ${allStrategies.length} active strategies: ${allStrategies.map((s: ServiceResponse) => s.strategyKey).join(', ')}`);
+      }
 
       // ─── Window timing & cache cleanup ───────────────────────────────────────
       const timing = this.getWindowTiming();
@@ -603,7 +611,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
     // 4. Route to strategy based on regime
     const selectedStrategy = this.routeToStrategy(allStrategies, regime.regime);
     if (!selectedStrategy) {
-      this.lastTradeWindowId = windowId;
+      // Do NOT set lastTradeWindowId — regime may change within the window, allow retry
       return this.finishCycle(cycle, startMs, 'agent_hold', {
         windowId,
         regime: regime.regime,
@@ -806,7 +814,12 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
    * Returns null if no strategy matches (e.g. volatile regime).
    */
   private routeToStrategy(allStrategies: ServiceResponse[], regime: string): ServiceResponse | null {
-    if (!Array.isArray(allStrategies) || allStrategies.length === 0) return null;
+    if (!Array.isArray(allStrategies) || allStrategies.length === 0) {
+      this.logger.warn(`Strategy routing: no strategies available (got ${typeof allStrategies})`);
+      return null;
+    }
+
+    this.logger.debug(`Strategy routing: ${allStrategies.length} strategies, regime=${regime}, available regimes: ${allStrategies.map((s: ServiceResponse) => `${s.strategyKey}:[${s.filters?.allowedRegimes?.join(',') ?? 'any'}]`).join(', ')}`);
 
     // Find strategy whose allowedRegimes includes this regime
     const matched = allStrategies.find(
@@ -819,6 +832,10 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
     const fallback = allStrategies.find(
       (s: ServiceResponse) => !s.filters?.allowedRegimes,
     );
+
+    if (!fallback) {
+      this.logger.warn(`Strategy routing: no strategy matches regime '${regime}'`);
+    }
 
     return fallback ?? null;
   }
