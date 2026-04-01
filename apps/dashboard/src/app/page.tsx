@@ -281,7 +281,7 @@ export default function OverviewPage() {
           </div>
 
           {/* BTC Price Chart */}
-          <BtcPriceChart startPrice={m?.startPrice ?? 0} />
+          <BtcPriceChart startPrice={open?.[0]?.entryPrice ?? m?.startPrice ?? 0} />
         </div>
 
         {/* Right: Live Market Snapshot */}
