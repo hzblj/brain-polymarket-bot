@@ -248,12 +248,15 @@ export class DashboardService {
     const hasExecution = !!latestPosition;
 
     // For pending agent steps, show pipeline stage as context
+    const preComputeAction = str(val(pipeRec, 'preComputedDecision', 'action') as string);
+    const isPreComputing = pipeStage === 'precomputed' || preComputeAction;
+
     const pendingValue = pipeStage === 'not_tradeable' ? 'not tradeable'
-      : pipeStage === 'skipped' ? str(pipeDetails.reason as string, 'skipped')
       : pipeStage === 'error' ? str(pipeDetails.reason as string, 'error')
       : pipeStage === 'no_features' ? 'no data'
       : pipeRunning ? 'evaluating...'
-      : pipeCycles > 0 ? 'waiting for window'
+      : isPreComputing ? 'pre-computed'
+      : pipeCycles > 0 ? 'Waiting...'
       : null;
 
     const pendingStatus = pipeStage === 'error' ? 'failed' as const
@@ -331,7 +334,7 @@ export class DashboardService {
       {
         label: 'Execution',
         status: hasExecution ? 'success' : 'pending',
-        value: hasExecution ? str(latestPosition.id as string) : null,
+        value: hasExecution ? str(latestPosition.id as string) : pendingValue,
         confidence: null,
         timestamp: hasExecution
           ? str((latestPosition.openedAt ?? latestPosition.createdAt) as string)
@@ -349,7 +352,7 @@ export class DashboardService {
         return {
           label: 'Eval',
           status: rawEval ? 'success' as const : 'pending' as const,
-          value: rawEval ? `patch → ${str(evalOutput?.targetAgent as string, '?')}` : 'Waiting...',
+          value: rawEval ? `patch → ${str(evalOutput?.targetAgent as string, '?')}` : pendingValue,
           confidence: evalOutput ? num(evalOutput.confidence as number) : null,
           timestamp: rawEval ? str(rawEval.createdAt as string) : null,
           detail: evalOutput ? {
