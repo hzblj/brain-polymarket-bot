@@ -226,7 +226,6 @@ export default function OverviewPage() {
           label="Today PnL"
           value={today ? formatPnl(today.realizedPnl) : "—"}
           icon={TrendingUp}
-          delta={today?.realizedPnl}
           variant={
             today
               ? today.realizedPnl > 0

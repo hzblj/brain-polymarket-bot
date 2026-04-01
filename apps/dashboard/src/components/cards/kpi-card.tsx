@@ -38,7 +38,7 @@ export function KpiCard({
         {Icon && <Icon className="h-4 w-4 text-text-muted" />}
       </div>
       <div className="mt-1 flex items-baseline gap-2">
-        <span className="text-2xl font-semibold text-text-primary">
+        <span className="text-lg font-semibold text-text-primary truncate">
           {value}
         </span>
         {delta !== undefined && (
