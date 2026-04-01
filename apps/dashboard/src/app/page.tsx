@@ -97,7 +97,7 @@ function BtcPriceChart({ startPrice }: { startPrice: number }) {
         </div>
       </div>
       <ResponsiveContainer width="100%" height={180}>
-        <LineChart data={chartData}>
+        <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 4, left: 8 }}>
           <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} />
           <XAxis
             dataKey="label"
@@ -105,14 +105,16 @@ function BtcPriceChart({ startPrice }: { startPrice: number }) {
             axisLine={false}
             tickLine={false}
             interval="preserveStartEnd"
+            padding={{ left: 10, right: 10 }}
           />
           <YAxis
             tick={{ fill: CHART_COLORS.text, fontSize: 10 }}
             axisLine={false}
             tickLine={false}
-            domain={['dataMin - 5', 'dataMax + 5']}
+            domain={['dataMin - 10', 'dataMax + 10']}
             tickFormatter={(v: number) => v.toFixed(0)}
-            width={55}
+            width={60}
+            padding={{ top: 10, bottom: 10 }}
           />
           <Tooltip
             contentStyle={{ background: '#111113', border: '1px solid #2e2e33', borderRadius: 6, fontSize: 12 }}
@@ -133,7 +135,19 @@ function BtcPriceChart({ startPrice }: { startPrice: number }) {
             dataKey="resolverPrice"
             stroke={isUp ? CHART_COLORS.accent : CHART_COLORS.negative}
             strokeWidth={2}
-            dot={false}
+            dot={(props: Record<string, unknown>) => {
+              const { cx, cy, index } = props as { cx: number; cy: number; index: number };
+              if (index !== chartData.length - 1) return <circle key={index} r={0} />;
+              return (
+                <g key="live-dot">
+                  <circle cx={cx} cy={cy} r={4} fill={isUp ? CHART_COLORS.accent : CHART_COLORS.negative} />
+                  <circle cx={cx} cy={cy} r={8} fill={isUp ? CHART_COLORS.accent : CHART_COLORS.negative} opacity={0.3}>
+                    <animate attributeName="r" from="4" to="12" dur="1.5s" repeatCount="indefinite" />
+                    <animate attributeName="opacity" from="0.4" to="0" dur="1.5s" repeatCount="indefinite" />
+                  </circle>
+                </g>
+              );
+            }}
             isAnimationActive={false}
           />
         </LineChart>
