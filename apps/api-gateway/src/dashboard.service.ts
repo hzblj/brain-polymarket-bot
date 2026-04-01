@@ -257,7 +257,6 @@ export class DashboardService {
       : pipeStage === 'error' ? str(pipeDetails.reason as string, 'error')
       : pipeStage === 'no_features' ? 'no data'
       : pipeRunning ? 'evaluating...'
-      : isPreComputed ? 'pre-computed'
       : pipeCycles > 0 ? 'Waiting...'
       : null;
 
