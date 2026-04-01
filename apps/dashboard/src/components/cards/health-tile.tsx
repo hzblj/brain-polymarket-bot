@@ -30,12 +30,12 @@ export function HealthTile({
   latencyMs,
 }: HealthTileProps) {
   return (
-    <div className="flex items-center justify-between rounded-lg border border-border bg-surface-2 px-3 py-2">
+    <div className="rounded-lg border border-border bg-surface-2 px-3 py-2 min-w-0">
       <div className="flex items-center gap-2">
-        <span className={clsx("h-2 w-2 rounded-full", dotColor[status])} />
-        <span className="text-sm font-medium text-text-primary">{name}</span>
+        <span className={clsx("h-2 w-2 rounded-full shrink-0", dotColor[status])} />
+        <span className="text-xs font-medium text-text-primary truncate">{name}</span>
       </div>
-      <div className="flex items-center gap-3 text-xs text-text-muted">
+      <div className="flex items-center gap-2 text-[10px] text-text-muted mt-1 pl-4">
         {latencyMs !== undefined && <span>{latencyMs}ms</span>}
         {lastHeartbeat && <span>{formatAge(lastHeartbeat)}</span>}
       </div>

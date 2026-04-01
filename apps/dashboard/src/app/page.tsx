@@ -583,7 +583,7 @@ export default function OverviewPage() {
           Health Summary
         </h2>
         {services ? (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:grid-cols-6">
             {services.map((svc) => (
               <HealthTile
                 key={svc.name}
