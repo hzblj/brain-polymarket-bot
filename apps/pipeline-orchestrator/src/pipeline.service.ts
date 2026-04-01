@@ -70,6 +70,10 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
   private preComputingForWindow: string | null = null;
   private gatekeeperRanForWindow: string | null = null;
 
+  // Throttle: avoid re-evaluating same window too fast after routing no-match
+  private lastRoutingNoMatchWindow: string | null = null;
+  private lastRoutingNoMatchTime = 0;
+
   constructor(@Inject(EventBus) private readonly eventBus: EventBus) {}
 
   onModuleInit(): void {
@@ -247,15 +251,18 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       // ─── Window timing & cache cleanup ───────────────────────────────────────
       const timing = this.getWindowTiming();
 
-      // Clear stale pre-computed decision (target window has passed)
+      // Clear stale state when window changes
       if (this.preComputedDecision) {
         const targetEndSec = this.preComputedDecision.targetWindowStartSec + WINDOW_DURATION_SEC;
         if (Math.floor(Date.now() / 1000) > targetEndSec) {
-          this.logger.debug('Clearing stale pre-computed decision');
           this.preComputedDecision = null;
           this.preComputingForWindow = null;
           this.gatekeeperRanForWindow = null;
         }
+      }
+      // Also clear pre-compute tracking when window has passed
+      if (this.preComputingForWindow && this.preComputingForWindow !== timing.nextWindowSlug && this.preComputingForWindow !== timing.currentWindowSlug) {
+        this.preComputingForWindow = null;
       }
 
       // ─── BRANCH A: Pre-compute for upcoming window ─────────────────────────
@@ -334,7 +341,8 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
     // Step 2: Route to strategy based on regime
     const selectedStrategy = this.routeToStrategy(allStrategies, regime.regime);
     if (!selectedStrategy) {
-      this.preComputingForWindow = null;
+      // Don't store a hold decision — let reactive pipeline retry with fresh data when window opens
+      // But keep preComputingForWindow set so pre-compute doesn't spam
       return this.finishCycle(cycle, startMs, 'agent_hold', {
         windowId,
         regime: regime.regime,
@@ -589,6 +597,14 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
+    // Throttle: if routing failed for this window in the reactive pipeline, wait 60s before retrying
+    if (this.lastRoutingNoMatchWindow === windowId && Date.now() - this.lastRoutingNoMatchTime < 60_000) {
+      return this.finishCycle(cycle, startMs, 'skipped', {
+        windowId,
+        reason: 'Routing no-match cooldown',
+      });
+    }
+
     // 2. Get risk state
     const riskState: ServiceResponse = await this.fetchJson(`${RISK_SERVICE_URL}/api/v1/risk/state`);
     if (!riskState) {
@@ -611,7 +627,9 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
     // 4. Route to strategy based on regime
     const selectedStrategy = this.routeToStrategy(allStrategies, regime.regime);
     if (!selectedStrategy) {
-      // Do NOT set lastTradeWindowId — regime may change within the window, allow retry
+      // Do NOT set lastTradeWindowId — regime may change within the window, allow retry after cooldown
+      this.lastRoutingNoMatchWindow = windowId;
+      this.lastRoutingNoMatchTime = Date.now();
       return this.finishCycle(cycle, startMs, 'agent_hold', {
         windowId,
         regime: regime.regime,
