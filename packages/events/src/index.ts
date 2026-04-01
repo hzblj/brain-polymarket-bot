@@ -52,6 +52,9 @@ export interface BrainEventMap {
   'order.cancelled': { orderId: string; mode: string };
   'order.resolved': { orderId: string; mode: string; side: string; pnlUsd: number; outcome: string; entryPrice: number; startPrice: number; endPrice: number };
 
+  // Eval agent events
+  'eval.patch.generated': { patchId: string; orderId: string; windowId: string; targetAgent: string; confidence: number };
+
   // Analysis events
   'trade.analysis.completed': { analysisId: string; windowId: string; orderId: string; profitable: boolean; pnlUsd: number };
   'strategy.report.generated': { reportId: string; periodStart: string; periodEnd: string; totalPnlUsd: number; tradeCount: number };

@@ -134,7 +134,7 @@ export const agentDecisions = sqliteTable('agent_decisions', {
     .primaryKey()
     .$defaultFn(() => crypto.randomUUID()),
   windowId: text('window_id').notNull(),
-  agentType: text('agent_type', { enum: ['regime', 'edge', 'supervisor', 'validator', 'gatekeeper'] }).notNull(),
+  agentType: text('agent_type', { enum: ['regime', 'edge', 'supervisor', 'validator', 'gatekeeper', 'eval'] }).notNull(),
   input: text('input', { mode: 'json' }).notNull(),
   output: text('output', { mode: 'json' }).notNull(),
   model: text('model').notNull(),
@@ -406,6 +406,34 @@ export const dailyReports = sqliteTable('daily_reports', {
   createdAt: text('created_at')
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
+});
+
+// ─── Strategy Runs ──────────────────────────────────────────────────────────
+
+// ─── Prompt Patches ─────────────────────────────────────────────────────────
+
+export const promptPatches = sqliteTable('prompt_patches', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  orderId: text('order_id').notNull(),
+  windowId: text('window_id').notNull(),
+  agentDecisionId: text('agent_decision_id')
+    .notNull()
+    .references(() => agentDecisions.id),
+  targetAgent: text('target_agent', { enum: ['regime', 'edge', 'supervisor'] }).notNull(),
+  patchType: text('patch_type', { enum: ['replace', 'insert_after'] }).notNull().default('replace'),
+  oldText: text('old_text').notNull(),
+  newText: text('new_text').notNull(),
+  reasoning: text('reasoning').notNull(),
+  confidence: real('confidence').notNull(),
+  status: text('status', { enum: ['pending', 'approved', 'rejected', 'applied'] })
+    .notNull()
+    .default('pending'),
+  createdAt: text('created_at')
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  reviewedAt: text('reviewed_at'),
 });
 
 // ─── Strategy Runs ──────────────────────────────────────────────────────────

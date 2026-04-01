@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query } from '@ne
 import {
   AgentGatewayService,
   type EdgeEvaluationRequest,
+  type EvalTriggerRequest,
   type GatekeeperEvaluationRequest,
   type RegimeEvaluationRequest,
   type SupervisorEvaluationRequest,
@@ -83,6 +84,49 @@ export class AgentGatewayController {
   @HttpCode(200)
   async evaluateGatekeeper(@Body() body: GatekeeperEvaluationRequest) {
     const result = await this.agentGatewayService.evaluateGatekeeper(body);
+    return { ok: true, data: result };
+  }
+
+  /**
+   * POST /api/v1/agent/eval/trigger
+   * Called by execution service after a losing trade to trigger eval analysis.
+   */
+  @Post('eval/trigger')
+  @HttpCode(200)
+  async triggerEval(@Body() body: EvalTriggerRequest) {
+    const result = await this.agentGatewayService.triggerEvalForLoss(body);
+    return { ok: true, data: result };
+  }
+
+  /**
+   * GET /api/v1/agent/patches
+   * Returns prompt patches for review.
+   */
+  @Get('patches')
+  async listPatches(@Query('status') status?: string, @Query('limit') limit?: string) {
+    const patches = await this.agentGatewayService.listPatches(status, limit ? parseInt(limit, 10) : undefined);
+    return { ok: true, data: patches };
+  }
+
+  /**
+   * POST /api/v1/agent/patches/:patchId/review
+   * Approves or rejects a prompt patch.
+   */
+  @Post('patches/:patchId/review')
+  @HttpCode(200)
+  async reviewPatch(@Param('patchId') patchId: string, @Body() body: { action: 'approve' | 'reject' }) {
+    const result = await this.agentGatewayService.reviewPatch(patchId, body.action);
+    return { ok: true, data: result };
+  }
+
+  /**
+   * POST /api/v1/agent/patches/:patchId/apply
+   * Applies an approved patch. Takes effect immediately on next agent call.
+   */
+  @Post('patches/:patchId/apply')
+  @HttpCode(200)
+  async applyPatch(@Param('patchId') patchId: string) {
+    const result = await this.agentGatewayService.applyPatch(patchId);
     return { ok: true, data: result };
   }
 

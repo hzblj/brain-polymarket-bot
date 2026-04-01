@@ -1,14 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Bot, Brain, Crosshair, Eye, Clock, Zap, ShieldCheck, ShieldAlert } from "lucide-react";
+import { Bot, Brain, Crosshair, Eye, Clock, Zap, ShieldCheck, ShieldAlert, Wrench } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { KpiCard } from "@/components/cards/kpi-card";
 import { useAgentTraces, useAgentContext, usePipeline } from "@/lib/hooks";
 import { formatTimeAgo } from "@/lib/formatters";
 import type { AgentTrace } from "@/lib/api";
 
-type AgentFilter = "all" | "regime" | "edge" | "supervisor" | "validator" | "gatekeeper";
+type AgentFilter = "all" | "regime" | "edge" | "supervisor" | "validator" | "gatekeeper" | "eval";
 
 const FILTER_LABELS: Record<AgentFilter, string> = {
   all: "All",
@@ -17,6 +17,7 @@ const FILTER_LABELS: Record<AgentFilter, string> = {
   supervisor: "Supervisor",
   validator: "Validator",
   gatekeeper: "Gatekeeper",
+  eval: "Eval",
 };
 
 const AGENT_ICONS: Record<string, typeof Brain> = {
@@ -25,6 +26,7 @@ const AGENT_ICONS: Record<string, typeof Brain> = {
   supervisor: Eye,
   validator: ShieldCheck,
   gatekeeper: ShieldAlert,
+  eval: Wrench,
 };
 
 const AGENT_COLORS: Record<string, string> = {
@@ -33,6 +35,7 @@ const AGENT_COLORS: Record<string, string> = {
   supervisor: "text-positive",
   validator: "text-text-secondary",
   gatekeeper: "text-negative",
+  eval: "text-accent",
 };
 
 export default function AgentsPage() {
@@ -55,6 +58,7 @@ export default function AgentsPage() {
   const supervisorCount = filteredTraces.filter((t) => t.agentType === "supervisor").length;
   const validatorCount = filteredTraces.filter((t) => t.agentType === "validator").length;
   const gatekeeperCount = filteredTraces.filter((t) => t.agentType === "gatekeeper").length;
+  const evalCount = filteredTraces.filter((t) => t.agentType === "eval").length;
   const lastTrace = filteredTraces[0];
 
   return (
@@ -73,6 +77,7 @@ export default function AgentsPage() {
         <KpiCard label="Supervisor" value={supervisorCount} icon={Eye} variant="positive" />
         <KpiCard label="Validator" value={validatorCount} icon={ShieldCheck} variant="default" />
         <KpiCard label="Gatekeeper" value={gatekeeperCount} icon={ShieldAlert} variant="negative" />
+        <KpiCard label="Eval" value={evalCount} icon={Wrench} variant="default" />
         <KpiCard
           label="Last Decision"
           value={lastTrace ? formatTimeAgo(lastTrace.createdAt) : "—"}

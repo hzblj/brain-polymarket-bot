@@ -169,13 +169,14 @@ export class DashboardService {
   // ─── Pipeline ─────────────────────────────────────────────────────────────
 
   async getPipeline() {
-    const [regimeTraces, edgeTraces, supervisorTraces, validatorTraces, gatekeeperTraces, riskState, latestPositions, currentWindow, pipelineStatus] =
+    const [regimeTraces, edgeTraces, supervisorTraces, validatorTraces, gatekeeperTraces, evalTraces, riskState, latestPositions, currentWindow, pipelineStatus] =
       await Promise.all([
         this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=regime&limit=1'),
         this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=edge&limit=1'),
         this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=supervisor&limit=1'),
         this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=validator&limit=1'),
         this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=gatekeeper&limit=1'),
+        this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=eval&limit=1'),
         this.fetch('risk', '/api/v1/risk/state'),
         this.fetch('execution', '/api/v1/execution/positions'),
         this.fetch('market-discovery', '/api/v1/market/active'),
@@ -192,6 +193,7 @@ export class DashboardService {
       : null;
     const rawValidator = Array.isArray(validatorTraces) ? ((validatorTraces[0] as Rec) ?? null) : null;
     const rawGatekeeper = Array.isArray(gatekeeperTraces) ? ((gatekeeperTraces[0] as Rec) ?? null) : null;
+    const rawEval = Array.isArray(evalTraces) ? ((evalTraces[0] as Rec) ?? null) : null;
 
     // If traces are from a different window, show as pending (new window, agents not called yet)
     const regimeWindowMatch = !currentWindowId || str(rawRegime?.windowId as string) === currentWindowId;
@@ -299,6 +301,17 @@ export class DashboardService {
             }
           : null,
       },
+      ...(rawEval ? [{
+        label: 'Eval',
+        status: 'success' as const,
+        value: `patch → ${str((rawEval.output as Rec)?.targetAgent as string, '?')}`,
+        confidence: num((rawEval.output as Rec)?.confidence as number),
+        timestamp: str(rawEval.createdAt as string),
+        detail: {
+          targetAgent: str((rawEval.output as Rec)?.targetAgent as string),
+          reasoning: str((rawEval.output as Rec)?.reasoning as string),
+        },
+      }] : []),
     ];
   }
 

@@ -1,13 +1,15 @@
-import { agentDecisions, DATABASE_CLIENT, type DbClient } from '@brain/database';
+import { agentDecisions, featureSnapshots, orders, promptPatches, DATABASE_CLIENT, type DbClient } from '@brain/database';
 import { type BrainEventName, type BrainEventMap, EventBus } from '@brain/events';
 import { type LlmClient, type ReasoningEffort, OpenAIClient } from '@brain/llm-clients';
 import { BrainLoggerService } from '@brain/logger';
-import { EdgeOutputSchema, GatekeeperOutputSchema, RegimeOutputSchema, SupervisorOutputSchema, ValidatorOutputSchema } from '@brain/schemas';
+import { EdgeOutputSchema, EvalOutputSchema, GatekeeperOutputSchema, RegimeOutputSchema, SupervisorOutputSchema, ValidatorOutputSchema } from '@brain/schemas';
 import type {
   AgentType,
   EdgeOutput,
+  EvalOutput,
   FeaturePayload,
   GatekeeperOutput,
+  PatchableAgent,
   RegimeOutput,
   RiskConfig,
   RiskState,
@@ -24,6 +26,7 @@ import {
   SUPERVISOR_SYSTEM_PROMPT,
   VALIDATOR_SYSTEM_PROMPT,
   GATEKEEPER_SYSTEM_PROMPT,
+  EVAL_SYSTEM_PROMPT,
 } from './prompts';
 
 // ─── Prompt Registry ────────────────────────────────────────────────────────
@@ -48,6 +51,13 @@ export function resolvePrompt(
   if (!profile) return fallback;
   return registry[profile] ?? fallback;
 }
+
+/** Map from PatchableAgent to base prompt constant */
+const BASE_PROMPTS: Record<string, string> = {
+  regime: REGIME_SYSTEM_PROMPT,
+  edge: EDGE_SYSTEM_PROMPT,
+  supervisor: SUPERVISOR_SYSTEM_PROMPT,
+};
 
 // ─── Request / Response Types ────────────────────────────────────────────────
 
@@ -92,6 +102,17 @@ export interface GatekeeperEvaluationRequest {
   timeElapsedSec: number;
 }
 
+export interface EvalTriggerRequest {
+  orderId: string;
+  windowId?: string;
+  side: string;
+  entryPrice: number;
+  startPrice: number;
+  endPrice: number;
+  pnlUsd: number;
+  outcome: string;
+}
+
 export interface AgentTrace {
   id: string;
   windowId: string;
@@ -101,7 +122,7 @@ export interface AgentTrace {
   systemPrompt: string;
   userPrompt: string;
   rawResponse: string;
-  parsedOutput: RegimeOutput | EdgeOutput | SupervisorOutput | ValidatorOutput | GatekeeperOutput;
+  parsedOutput: RegimeOutput | EdgeOutput | SupervisorOutput | ValidatorOutput | GatekeeperOutput | EvalOutput;
   latencyMs: number;
   tokenUsage: { input: number; output: number };
   cached: boolean;
@@ -112,7 +133,7 @@ export interface AgentTrace {
 
 interface CacheEntry {
   key: string;
-  result: RegimeOutput | EdgeOutput | SupervisorOutput | ValidatorOutput | GatekeeperOutput;
+  result: RegimeOutput | EdgeOutput | SupervisorOutput | ValidatorOutput | GatekeeperOutput | EvalOutput;
   createdAt: number;
 }
 
@@ -187,7 +208,7 @@ export class AgentGatewayService implements OnModuleInit {
       if (trace) return { ...trace, cached: true };
     }
 
-    const systemPrompt = resolvePrompt(REGIME_PROMPT_REGISTRY, agentProfile, REGIME_SYSTEM_PROMPT);
+    const systemPrompt = await this.getPatchedPrompt('regime');
     const userPrompt = this.buildRegimeUserPrompt(features);
     const result = await this.callAgent<RegimeOutput>(
       'regime',
@@ -214,7 +235,7 @@ export class AgentGatewayService implements OnModuleInit {
       if (trace) return { ...trace, cached: true };
     }
 
-    const systemPrompt = resolvePrompt(EDGE_PROMPT_REGISTRY, agentProfile, EDGE_SYSTEM_PROMPT);
+    const systemPrompt = await this.getPatchedPrompt('edge');
     const userPrompt = this.buildEdgeUserPrompt(features);
     const result = await this.callAgent<EdgeOutput>(
       'edge',
@@ -241,7 +262,7 @@ export class AgentGatewayService implements OnModuleInit {
       if (trace) return { ...trace, cached: true };
     }
 
-    const systemPrompt = resolvePrompt(SUPERVISOR_PROMPT_REGISTRY, agentProfile, SUPERVISOR_SYSTEM_PROMPT);
+    const systemPrompt = await this.getPatchedPrompt('supervisor');
     const userPrompt = this.buildSupervisorUserPrompt(
       features,
       regime,
@@ -347,6 +368,213 @@ export class AgentGatewayService implements OnModuleInit {
       GatekeeperOutputSchema,
       this.gatekeeperModel,
     );
+  }
+
+  // ─── Eval Agent (post-loss prompt patching) ────────────────────────────────
+
+  /**
+   * Triggered by execution service after a losing trade.
+   * Fetches trade context from DB, then calls evaluateEval.
+   */
+  async triggerEvalForLoss(payload: EvalTriggerRequest): Promise<Record<string, unknown>> {
+    if (payload.outcome !== 'loss') {
+      return { skipped: true, reason: 'not a loss' };
+    }
+
+    const { orderId, side, entryPrice, startPrice, endPrice, pnlUsd } = payload;
+
+    // Fetch windowId from orders table
+    const [order] = await this.db
+      .select()
+      .from(orders)
+      .where(eq(orders.id, orderId))
+      .limit(1);
+
+    const windowId = payload.windowId ?? order?.windowId;
+    if (!windowId) {
+      this.logger.warn('Eval trigger: no windowId found', { orderId });
+      return { skipped: true, reason: 'no windowId' };
+    }
+
+    // Fetch agent decisions for this window
+    const decisions = await this.db
+      .select()
+      .from(agentDecisions)
+      .where(eq(agentDecisions.windowId, windowId));
+
+    const regimeDecision = decisions.find(d => d.agentType === 'regime');
+    const edgeDecision = decisions.find(d => d.agentType === 'edge');
+    const supervisorDecision = decisions.find(d => d.agentType === 'supervisor');
+
+    if (!regimeDecision || !edgeDecision || !supervisorDecision) {
+      this.logger.warn('Eval trigger: missing agent decisions', { windowId });
+      return { skipped: true, reason: 'missing agent decisions' };
+    }
+
+    // Fetch feature snapshot
+    const [featureRow] = await this.db
+      .select()
+      .from(featureSnapshots)
+      .where(eq(featureSnapshots.windowId, windowId))
+      .orderBy(desc(featureSnapshots.eventTime))
+      .limit(1);
+
+    // Build user prompt with trade context + current effective prompts (with patches applied)
+    const [regimePrompt, edgePrompt, supervisorPrompt] = await Promise.all([
+      this.getPatchedPrompt('regime'),
+      this.getPatchedPrompt('edge'),
+      this.getPatchedPrompt('supervisor'),
+    ]);
+    const currentPrompts: Record<PatchableAgent, string> = {
+      regime: regimePrompt,
+      edge: edgePrompt,
+      supervisor: supervisorPrompt,
+    };
+
+    const userPrompt = JSON.stringify({
+      trade: {
+        orderId,
+        windowId,
+        side,
+        entryPrice,
+        startPrice,
+        endPrice,
+        pnlUsd,
+        outcome: 'loss',
+      },
+      featuresAtDecision: featureRow?.payload ?? null,
+      agentDecisions: {
+        regime: regimeDecision.output,
+        edge: edgeDecision.output,
+        supervisor: supervisorDecision.output,
+      },
+      currentPrompts,
+    }, null, 2);
+
+    const result = await this.callAgent<EvalOutput>(
+      'eval',
+      windowId,
+      EVAL_SYSTEM_PROMPT,
+      userPrompt,
+      EvalOutputSchema,
+    );
+
+    // Persist the patch for review
+    const evalOutput = result.parsedOutput as unknown as EvalOutput;
+    try {
+      await this.db.insert(promptPatches).values({
+        orderId,
+        windowId,
+        agentDecisionId: result.id,
+        targetAgent: evalOutput.targetAgent,
+        patchType: evalOutput.patchType,
+        oldText: evalOutput.oldText,
+        newText: evalOutput.newText,
+        reasoning: evalOutput.reasoning,
+        confidence: evalOutput.confidence,
+        status: 'pending',
+      });
+    } catch {
+      /* best-effort */
+    }
+
+    this.emitEvent('eval.patch.generated', {
+      patchId: result.id,
+      orderId,
+      windowId,
+      targetAgent: evalOutput.targetAgent,
+      confidence: evalOutput.confidence,
+    });
+
+    this.logger.log(
+      `[eval:${windowId}] Patch for ${evalOutput.targetAgent}: conf=${evalOutput.confidence}`,
+    );
+
+    return { triggered: true, traceId: result.id, targetAgent: evalOutput.targetAgent };
+  }
+
+  /**
+   * Lists prompt patches for review.
+   */
+  async listPatches(status?: string, limit = 20) {
+    const conditions = status ? [eq(promptPatches.status, status as 'pending' | 'approved' | 'rejected' | 'applied')] : [];
+    return this.db
+      .select()
+      .from(promptPatches)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(promptPatches.createdAt))
+      .limit(limit);
+  }
+
+  /**
+   * Approves or rejects a prompt patch.
+   */
+  async reviewPatch(patchId: string, action: 'approve' | 'reject') {
+    await this.db
+      .update(promptPatches)
+      .set({ status: action === 'approve' ? 'approved' : 'rejected', reviewedAt: new Date().toISOString() })
+      .where(eq(promptPatches.id, patchId));
+    return { updated: true };
+  }
+
+  /**
+   * Applies an approved patch — sets status to 'applied'.
+   * The patch takes effect immediately on next agent call via getPatchedPrompt().
+   */
+  async applyPatch(patchId: string) {
+    const [patch] = await this.db
+      .select()
+      .from(promptPatches)
+      .where(eq(promptPatches.id, patchId))
+      .limit(1);
+
+    if (!patch) throw new HttpException('Patch not found', HttpStatus.NOT_FOUND);
+    if (patch.status !== 'approved') throw new HttpException('Patch must be approved before applying', HttpStatus.BAD_REQUEST);
+
+    // Verify oldText still exists in the current effective prompt
+    const currentPrompt = await this.getPatchedPrompt(patch.targetAgent as PatchableAgent);
+    if (!currentPrompt.includes(patch.oldText)) {
+      throw new HttpException(
+        `oldText not found in current ${patch.targetAgent} prompt — may have been changed by another patch`,
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    await this.db
+      .update(promptPatches)
+      .set({ status: 'applied', reviewedAt: new Date().toISOString() })
+      .where(eq(promptPatches.id, patchId));
+
+    this.logger.log(`Patch ${patchId} applied to ${patch.targetAgent}`);
+    return { applied: true, targetAgent: patch.targetAgent };
+  }
+
+  /**
+   * Resolves the effective prompt for a patchable agent by applying all 'applied' patches
+   * in chronological order on top of the base prompt from the .ts file.
+   */
+  async getPatchedPrompt(agent: PatchableAgent): Promise<string> {
+    const base = BASE_PROMPTS[agent];
+    if (!base) return '';
+
+    const patches = await this.db
+      .select()
+      .from(promptPatches)
+      .where(and(
+        eq(promptPatches.targetAgent, agent),
+        eq(promptPatches.status, 'applied'),
+      ))
+      .orderBy(promptPatches.createdAt);
+
+    let prompt = base;
+    for (const patch of patches) {
+      if (patch.patchType === 'insert_after') {
+        prompt = prompt.replace(patch.oldText, patch.oldText + '\n' + patch.newText);
+      } else {
+        prompt = prompt.replace(patch.oldText, patch.newText);
+      }
+    }
+    return prompt;
   }
 
   /**
@@ -533,9 +761,10 @@ export class AgentGatewayService implements OnModuleInit {
     supervisor: 'high',
     validator: 'low',
     gatekeeper: 'low',
+    eval: 'high',
   };
 
-  private async callAgent<T extends RegimeOutput | EdgeOutput | SupervisorOutput | ValidatorOutput | GatekeeperOutput>(
+  private async callAgent<T extends RegimeOutput | EdgeOutput | SupervisorOutput | ValidatorOutput | GatekeeperOutput | EvalOutput>(
     agentType: AgentType,
     windowId: string,
     systemPrompt: string,
@@ -854,7 +1083,7 @@ export class AgentGatewayService implements OnModuleInit {
     return entry;
   }
 
-  private setCache(key: string, result: RegimeOutput | EdgeOutput | SupervisorOutput | ValidatorOutput | GatekeeperOutput): void {
+  private setCache(key: string, result: RegimeOutput | EdgeOutput | SupervisorOutput | ValidatorOutput | GatekeeperOutput | EvalOutput): void {
     this.cache.set(key, { key, result, createdAt: Date.now() });
 
     // Evict old entries periodically

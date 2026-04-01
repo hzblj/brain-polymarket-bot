@@ -5,7 +5,8 @@ import { z } from 'zod';
 export const MarketStatusSchema = z.enum(['active', 'paused', 'resolved', 'expired']);
 export const WindowOutcomeSchema = z.enum(['up', 'down', 'flat', 'unknown']);
 export const PriceSourceSchema = z.enum(['binance', 'coinbase', 'polymarket']);
-export const AgentTypeSchema = z.enum(['regime', 'edge', 'supervisor', 'validator', 'gatekeeper']);
+export const AgentTypeSchema = z.enum(['regime', 'edge', 'supervisor', 'validator', 'gatekeeper', 'eval']);
+export const PatchableAgentSchema = z.enum(['regime', 'edge', 'supervisor']);
 export const RegimeSchema = z.enum([
   'trending_up',
   'trending_down',
@@ -111,6 +112,17 @@ export const GatekeeperOutputSchema = z.object({
   validated: z.boolean(),
   adjustedSizeUsd: z.number().nonnegative().optional(),
   reasoning: z.string().min(1).max(2000),
+});
+
+export const PatchTypeSchema = z.enum(['replace', 'insert_after']);
+
+export const EvalOutputSchema = z.object({
+  targetAgent: PatchableAgentSchema,
+  patchType: PatchTypeSchema,
+  oldText: z.string().min(10).max(2000),
+  newText: z.string().min(10).max(2000),
+  reasoning: z.string().min(1).max(3000),
+  confidence: z.number().min(0).max(1),
 });
 
 export const AgentDecisionSchema = z.object({

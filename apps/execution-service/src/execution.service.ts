@@ -192,6 +192,17 @@ export class ExecutionService implements OnModuleInit, OnModuleDestroy {
         this.triggerPostTradeAnalysis(order.id, order.windowId).catch(() => {
           /* best-effort */
         });
+
+        // Trigger eval agent for losing trades
+        if (!isWin) {
+          this.triggerEvalAgent(order.id, order.windowId, {
+            side: order.side,
+            entryPrice: order.entryPrice,
+            startPrice,
+            endPrice,
+            pnlUsd,
+          }).catch(() => { /* best-effort */ });
+        }
       } catch {
         /* retry next cycle */
       }
@@ -628,6 +639,40 @@ export class ExecutionService implements OnModuleInit, OnModuleDestroy {
       }
     } catch (err) {
       this.logger.warn(`Post-trade analysis trigger failed: ${(err as Error).message}`);
+    }
+  }
+
+  // ─── Eval Agent Trigger ─────────────────────────────────────────────────────
+
+  private static readonly AGENT_GATEWAY_URL = process.env.AGENT_GATEWAY_URL
+    ?? `http://${process.env.LOCAL_IP ?? 'localhost'}:3008`;
+
+  private async triggerEvalAgent(
+    orderId: string,
+    windowId: string,
+    payload: { side: string; entryPrice: number; startPrice: number; endPrice: number; pnlUsd: number },
+  ): Promise<void> {
+    try {
+      const res = await fetch(`${ExecutionService.AGENT_GATEWAY_URL}/api/v1/agent/eval/trigger`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId,
+          windowId,
+          side: payload.side,
+          entryPrice: payload.entryPrice,
+          startPrice: payload.startPrice,
+          endPrice: payload.endPrice,
+          pnlUsd: payload.pnlUsd,
+          outcome: 'loss',
+        }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (res.ok) {
+        this.logger.log(`Eval agent triggered for losing order ${orderId}`);
+      }
+    } catch (err) {
+      this.logger.warn(`Eval agent trigger failed: ${(err as Error).message}`);
     }
   }
 

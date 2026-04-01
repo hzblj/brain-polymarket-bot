@@ -302,7 +302,9 @@ export interface FeaturePayload {
 
 // ─── Agent Types ─────────────────────────────────────────────────────────────
 
-export type AgentType = 'regime' | 'edge' | 'supervisor' | 'validator' | 'gatekeeper';
+export type AgentType = 'regime' | 'edge' | 'supervisor' | 'validator' | 'gatekeeper' | 'eval';
+
+export type PatchableAgent = 'regime' | 'edge' | 'supervisor';
 
 export type Regime = 'trending_up' | 'trending_down' | 'mean_reverting' | 'volatile' | 'quiet';
 
@@ -341,6 +343,33 @@ export interface GatekeeperOutput {
   validated: boolean;
   adjustedSizeUsd?: number;
   reasoning: string;
+}
+
+export type PatchType = 'replace' | 'insert_after';
+
+export interface EvalOutput {
+  targetAgent: PatchableAgent;
+  patchType: PatchType;
+  oldText: string;
+  newText: string;
+  reasoning: string;
+  confidence: number;
+}
+
+export interface PromptPatch {
+  id: string;
+  orderId: string;
+  windowId: string;
+  agentDecisionId: string;
+  targetAgent: PatchableAgent;
+  patchType: PatchType;
+  oldText: string;
+  newText: string;
+  reasoning: string;
+  confidence: number;
+  status: 'pending' | 'approved' | 'rejected' | 'applied';
+  createdAt: string;
+  reviewedAt: string | null;
 }
 
 export interface AgentDecision {
