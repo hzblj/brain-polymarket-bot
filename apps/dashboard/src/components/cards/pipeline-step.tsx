@@ -70,7 +70,7 @@ export function PipelineStep({
   const { icon: Icon, color } = statusIcon[status];
 
   return (
-    <div className={clsx("rounded-lg border p-3 min-w-0", statusBg[status], value === 'skipped' && "opacity-40")}>
+    <div className={clsx("rounded-lg border p-3 min-w-0 min-h-[88px]", statusBg[status], value === 'skipped' && "opacity-40")}>
       {/* Header */}
       <div className="flex items-center gap-2 mb-1.5">
         <Icon
