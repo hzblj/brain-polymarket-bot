@@ -283,14 +283,24 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
         return this.runPreCompute(cycle, startMs, timing.nextWindowSlug, timing.nextWindowStartSec, executionMode, configData, allStrategies);
       }
 
-      // ─── BRANCH B: Gatekeeper for current window ──────────────────────────
+      // ─── BRANCH B: Gatekeeper ~5s before target window opens ──────────────
+      const hasPreComputedForNextWindow =
+        this.preComputedDecision?.targetWindowSlug === timing.nextWindowSlug;
       const hasPreComputedForCurrentWindow =
         this.preComputedDecision?.targetWindowSlug === timing.currentWindowSlug;
-      const gatekeeperNotYetRun = this.gatekeeperRanForWindow !== timing.currentWindowSlug;
+      const targetSlug = hasPreComputedForNextWindow
+        ? timing.nextWindowSlug
+        : hasPreComputedForCurrentWindow ? timing.currentWindowSlug : null;
+      const gatekeeperNotYetRun = targetSlug && this.gatekeeperRanForWindow !== targetSlug;
 
-      if (hasPreComputedForCurrentWindow && gatekeeperNotYetRun) {
-        this.logger.log(`[Branch B] Running gatekeeper for ${timing.currentWindowSlug} (pre-computed: ${this.preComputedDecision!.decision.action} conf=${this.preComputedDecision!.decision.confidence})`);
-        return this.runGatekeeper(cycle, startMs, timing.currentWindowSlug, executionMode);
+      // Fire gatekeeper ~5s before the target window opens (or immediately if already open)
+      const readyToGatekeeper = hasPreComputedForNextWindow
+        ? timing.secondsToNextWindow <= 5
+        : hasPreComputedForCurrentWindow;
+
+      if (gatekeeperNotYetRun && readyToGatekeeper) {
+        this.logger.log(`[Branch B] Running gatekeeper for ${targetSlug} (pre-computed: ${this.preComputedDecision!.decision.action} conf=${this.preComputedDecision!.decision.confidence}, ${hasPreComputedForNextWindow ? `${timing.secondsToNextWindow}s to open` : 'window open'})`);
+        return this.runGatekeeper(cycle, startMs, targetSlug!, executionMode);
       }
 
       // ─── No reactive fallback — only trade via pre-compute + gatekeeper ───
