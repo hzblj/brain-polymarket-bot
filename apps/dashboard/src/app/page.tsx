@@ -398,10 +398,10 @@ export default function OverviewPage() {
         </div>
       </div>
 
-      {/* ── Row 2: Open Trades + Health Summary ────────────────────── */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+      {/* ── Row 2: Open Trades ─────────────────────────────────────── */}
+      <div>
         {/* Open Trades */}
-        <div className="lg:col-span-3 rounded-lg border border-border bg-surface-1 p-4">
+        <div className="rounded-lg border border-border bg-surface-1 p-4">
           <h2 className="mb-3 text-sm font-semibold text-text-secondary uppercase tracking-wider">
             Open Trades
           </h2>
@@ -444,28 +444,6 @@ export default function OverviewPage() {
             data={open ?? []}
             emptyMessage="No open positions"
           />
-        </div>
-
-        {/* Health Summary */}
-        <div className="lg:col-span-2 rounded-lg border border-border bg-surface-1 p-4">
-          <h2 className="mb-3 text-sm font-semibold text-text-secondary uppercase tracking-wider">
-            Health Summary
-          </h2>
-          {services ? (
-            <div className="grid grid-cols-2 gap-2">
-              {services.map((svc) => (
-                <HealthTile
-                  key={svc.name}
-                  name={svc.name}
-                  status={svc.status}
-                  lastHeartbeat={svc.lastHeartbeat}
-                  latencyMs={svc.latencyMs}
-                />
-              ))}
-            </div>
-          ) : (
-            <p className="text-text-muted text-sm">Loading...</p>
-          )}
         </div>
       </div>
 
@@ -598,6 +576,28 @@ export default function OverviewPage() {
           </div>
         </div>
       )}
+
+      {/* ── Health Summary ────────────────────────────────────────── */}
+      <div className="rounded-lg border border-border bg-surface-1 p-4">
+        <h2 className="mb-3 text-sm font-semibold text-text-secondary uppercase tracking-wider">
+          Health Summary
+        </h2>
+        {services ? (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+            {services.map((svc) => (
+              <HealthTile
+                key={svc.name}
+                name={svc.name}
+                status={svc.status}
+                lastHeartbeat={svc.lastHeartbeat}
+                latencyMs={svc.latencyMs}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="text-text-muted text-sm">Loading...</p>
+        )}
+      </div>
     </div>
   );
 }
