@@ -58,7 +58,7 @@ const DEFAULT_STRATEGY_VERSION_CONFIG: StrategyVersionConfig = {
     minDepthScore: 0.4,
     minTimeToCloseSec: 30,
     maxTimeToCloseSec: 120,
-    allowedRegimes: ['trending_up', 'trending_down'],
+    allowedRegimes: ['trending_up', 'trending_down', 'volatile'],
   },
   riskProfile: {
     maxSizeUsd: 0.5,

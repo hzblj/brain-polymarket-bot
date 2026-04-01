@@ -914,7 +914,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(60_000),
       });
       if (!res.ok) return null;
       const json = (await res.json()) as { ok: boolean; data: unknown };
