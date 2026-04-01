@@ -274,7 +274,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       // ─── BRANCH A: Pre-compute for upcoming window ─────────────────────────
       const shouldPreCompute =
         timing.secondsToNextWindow <= PRE_COMPUTE_LEAD_TIME_SEC &&
-        timing.secondsToNextWindow > 5 &&
+        timing.secondsToNextWindow > 0 &&
         this.preComputingForWindow !== timing.nextWindowSlug &&
         this.preComputedDecision?.targetWindowSlug !== timing.nextWindowSlug;
 
@@ -283,24 +283,14 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
         return this.runPreCompute(cycle, startMs, timing.nextWindowSlug, timing.nextWindowStartSec, executionMode, configData, allStrategies);
       }
 
-      // ─── BRANCH B: Gatekeeper ~5s before target window opens ──────────────
-      const hasPreComputedForNextWindow =
-        this.preComputedDecision?.targetWindowSlug === timing.nextWindowSlug;
+      // ─── BRANCH B: Gatekeeper after target window opens (fresh data available) ──
       const hasPreComputedForCurrentWindow =
         this.preComputedDecision?.targetWindowSlug === timing.currentWindowSlug;
-      const targetSlug = hasPreComputedForNextWindow
-        ? timing.nextWindowSlug
-        : hasPreComputedForCurrentWindow ? timing.currentWindowSlug : null;
-      const gatekeeperNotYetRun = targetSlug && this.gatekeeperRanForWindow !== targetSlug;
+      const gatekeeperNotYetRun = hasPreComputedForCurrentWindow && this.gatekeeperRanForWindow !== timing.currentWindowSlug;
 
-      // Fire gatekeeper ~5s before the target window opens (or immediately if already open)
-      const readyToGatekeeper = hasPreComputedForNextWindow
-        ? timing.secondsToNextWindow <= 5
-        : hasPreComputedForCurrentWindow;
-
-      if (gatekeeperNotYetRun && readyToGatekeeper) {
-        this.logger.log(`[Branch B] Running gatekeeper for ${targetSlug} (pre-computed: ${this.preComputedDecision!.decision.action} conf=${this.preComputedDecision!.decision.confidence}, ${hasPreComputedForNextWindow ? `${timing.secondsToNextWindow}s to open` : 'window open'})`);
-        return this.runGatekeeper(cycle, startMs, targetSlug!, executionMode);
+      if (gatekeeperNotYetRun) {
+        this.logger.log(`[Branch B] Running gatekeeper for ${timing.currentWindowSlug} (pre-computed: ${this.preComputedDecision!.decision.action} conf=${this.preComputedDecision!.decision.confidence}, window open)`);
+        return this.runGatekeeper(cycle, startMs, timing.currentWindowSlug, executionMode);
       }
 
       // ─── No reactive fallback — only trade via pre-compute + gatekeeper ───
