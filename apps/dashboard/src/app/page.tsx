@@ -75,12 +75,20 @@ function BtcPriceChart({ startPrice }: { startPrice: number }) {
     );
   }
 
-  const chartData = history.map((pt) => ({
+  const dataPoints = history.map((pt) => ({
     ...pt,
     label: new Date(pt.time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
   }));
 
-  const lastPrice = chartData[chartData.length - 1]?.resolverPrice ?? 0;
+  const lastPrice = dataPoints[dataPoints.length - 1]?.resolverPrice ?? 0;
+
+  // Add 5 min of empty future points so chart has right-side breathing room
+  const lastTime = history[history.length - 1]?.time ?? Date.now();
+  const futurePoints = Array.from({ length: 20 }, (_, i) => ({
+    label: new Date(lastTime + (i + 1) * 15_000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    resolverPrice: undefined as number | undefined,
+  }));
+  const chartData = [...dataPoints, ...futurePoints];
   const isUp = lastPrice > startPrice;
 
   return (
@@ -112,7 +120,7 @@ function BtcPriceChart({ startPrice }: { startPrice: number }) {
             tick={{ fill: CHART_COLORS.text, fontSize: 10 }}
             axisLine={false}
             tickLine={false}
-            domain={['dataMin - 10', 'dataMax + 10']}
+            domain={['dataMin - 30', 'dataMax + 30']}
             tickFormatter={(v: number) => `$${v.toLocaleString()}`}
             width={55}
             padding={{ top: 10, bottom: 10 }}
@@ -138,7 +146,7 @@ function BtcPriceChart({ startPrice }: { startPrice: number }) {
             strokeWidth={2}
             dot={(props: Record<string, unknown>) => {
               const { cx, cy, index } = props as { cx: number; cy: number; index: number };
-              if (index !== chartData.length - 1) return <circle key={index} r={0} />;
+              if (index !== dataPoints.length - 1) return <circle key={index} r={0} />;
               return (
                 <g key="live-dot">
                   <circle cx={cx} cy={cy} r={4} fill={isUp ? CHART_COLORS.accent : CHART_COLORS.negative} />
