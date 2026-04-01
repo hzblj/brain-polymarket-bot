@@ -92,7 +92,7 @@ function BtcPriceChart({ startPrice }: { startPrice: number }) {
   const isUp = lastPrice > startPrice;
 
   return (
-    <div className="rounded-lg border border-border bg-surface-1 px-2 pt-2 pb-8">
+    <div className="rounded-lg border border-border bg-surface-1 px-2 pt-2 pb-0">
       <div className="flex items-center justify-between mb-1 px-2">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
           BTC/USD
