@@ -249,15 +249,22 @@ export class DashboardService {
 
     // For pending agent steps, show pipeline stage as context
     const preComputeAction = str(val(pipeRec, 'preComputedDecision', 'action') as string);
-    const isPreComputing = pipeStage === 'precomputed' || preComputeAction;
+    const isPreComputed = pipeStage === 'precomputed' || !!preComputeAction;
+    const preComputedHold = preComputeAction === 'hold';
 
+    // Agent steps (regime/router/edge/supervisor): show pre-computed when available
     const pendingValue = pipeStage === 'not_tradeable' ? 'not tradeable'
       : pipeStage === 'error' ? str(pipeDetails.reason as string, 'error')
       : pipeStage === 'no_features' ? 'no data'
       : pipeRunning ? 'evaluating...'
-      : isPreComputing ? 'pre-computed'
+      : isPreComputed ? 'pre-computed'
       : pipeCycles > 0 ? 'Waiting...'
       : null;
+
+    // Post-agent steps (validator/gatekeeper/risk/execution/eval): show hold or waiting
+    const postAgentPendingValue = preComputedHold ? 'hold (skipped)'
+      : isPreComputed ? 'Waiting...'
+      : pendingValue;
 
     const pendingStatus = pipeStage === 'error' ? 'failed' as const
       : pipeRunning ? 'running' as const
@@ -302,7 +309,7 @@ export class DashboardService {
       {
         label: 'Validator',
         status: validator ? (validatorOutput?.valid ? 'success' as const : 'failed' as const) : pendingStatus,
-        value: validator ? (validatorOutput?.valid ? 'valid' : 'invalid') : pendingValue,
+        value: validator ? (validatorOutput?.valid ? 'valid' : 'invalid') : postAgentPendingValue,
         confidence: null,
         timestamp: validator ? str(validator.createdAt as string) : null,
         detail: validatorOutput?.issues ? { issues: validatorOutput.issues } : null,
@@ -310,7 +317,7 @@ export class DashboardService {
       {
         label: 'Gatekeeper',
         status: gatekeeper ? (gatekeeperOutput?.validated ? 'success' as const : 'failed' as const) : pendingStatus,
-        value: gatekeeper ? (gatekeeperOutput?.validated ? 'validated' : 'invalidated') : pendingValue,
+        value: gatekeeper ? (gatekeeperOutput?.validated ? 'validated' : 'invalidated') : postAgentPendingValue,
         confidence: null,
         timestamp: gatekeeper ? str(gatekeeper.createdAt as string) : null,
         detail: gatekeeperOutput ? { reasoning: str(gatekeeperOutput.reasoning as string) } : null,
@@ -318,7 +325,7 @@ export class DashboardService {
       {
         label: 'Risk',
         status: hasRiskData ? (pipelineRejectedByRisk ? 'failed' : 'success') : 'pending',
-        value: hasRiskData ? (riskPassed ? 'passed' : 'blocked') : null,
+        value: hasRiskData ? (riskPassed ? 'passed' : 'blocked') : postAgentPendingValue,
         confidence: null,
         timestamp: riskRec?.updatedAt ? str(riskRec.updatedAt as string) : null,
         detail: hasRiskData
@@ -334,7 +341,7 @@ export class DashboardService {
       {
         label: 'Execution',
         status: hasExecution ? 'success' : 'pending',
-        value: hasExecution ? str(latestPosition.id as string) : pendingValue,
+        value: hasExecution ? str(latestPosition.id as string) : postAgentPendingValue,
         confidence: null,
         timestamp: hasExecution
           ? str((latestPosition.openedAt ?? latestPosition.createdAt) as string)
@@ -352,7 +359,7 @@ export class DashboardService {
         return {
           label: 'Eval',
           status: rawEval ? 'success' as const : 'pending' as const,
-          value: rawEval ? `patch → ${str(evalOutput?.targetAgent as string, '?')}` : pendingValue,
+          value: rawEval ? `patch → ${str(evalOutput?.targetAgent as string, '?')}` : postAgentPendingValue,
           confidence: evalOutput ? num(evalOutput.confidence as number) : null,
           timestamp: rawEval ? str(rawEval.createdAt as string) : null,
           detail: evalOutput ? {
