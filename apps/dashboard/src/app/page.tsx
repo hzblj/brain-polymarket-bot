@@ -84,7 +84,7 @@ function BtcPriceChart({ startPrice }: { startPrice: number }) {
   const isUp = lastPrice > startPrice;
 
   return (
-    <div className="rounded-lg border border-border bg-surface-1 px-2 pt-2 pb-0">
+    <div className="rounded-lg border border-border bg-surface-1 px-2 pt-2 pb-8">
       <div className="flex items-center justify-between mb-1 px-2">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
           BTC/USD
@@ -97,7 +97,7 @@ function BtcPriceChart({ startPrice }: { startPrice: number }) {
         </div>
       </div>
       <ResponsiveContainer width="100%" height={160}>
-        <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+        <LineChart data={chartData} margin={{ top: 4, right: 60, bottom: 0, left: 8 }}>
           <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} />
           <XAxis
             dataKey="label"
@@ -108,12 +108,13 @@ function BtcPriceChart({ startPrice }: { startPrice: number }) {
             padding={{ left: 10, right: 10 }}
           />
           <YAxis
+            orientation="right"
             tick={{ fill: CHART_COLORS.text, fontSize: 10 }}
             axisLine={false}
             tickLine={false}
             domain={['dataMin - 10', 'dataMax + 10']}
-            tickFormatter={(v: number) => v.toFixed(0)}
-            width={60}
+            tickFormatter={(v: number) => `$${v.toLocaleString()}`}
+            width={55}
             padding={{ top: 10, bottom: 10 }}
           />
           <Tooltip
