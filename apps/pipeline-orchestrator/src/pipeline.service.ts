@@ -291,12 +291,8 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
         return this.runGatekeeper(cycle, startMs, timing.currentWindowSlug, executionMode);
       }
 
-      // ─── BRANCH C: Fallback reactive pipeline ─────────────────────────────
-      // Skip reactive if gatekeeper already ran for current window (pre-compute decided)
-      if (this.gatekeeperRanForWindow === timing.currentWindowSlug) {
-        return this.finishCycle(cycle, startMs, 'skipped', { reason: 'Gatekeeper already ran for current window' });
-      }
-      return this.runReactivePipeline(cycle, startMs, executionMode, configData, allStrategies);
+      // ─── No reactive fallback — only trade via pre-compute + gatekeeper ───
+      return this.finishCycle(cycle, startMs, 'skipped', { reason: 'Waiting for pre-compute window' });
     } catch (error) {
       return this.finishCycle(cycle, startMs, 'error', {
         message: (error as Error).message,
