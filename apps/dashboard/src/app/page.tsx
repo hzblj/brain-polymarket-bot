@@ -136,7 +136,7 @@ function BtcPriceChart({ startPrice }: { startPrice: number }) {
               stroke={CHART_COLORS.startLine}
               strokeDasharray="4 4"
               strokeWidth={1}
-              label={{ value: 'Start', fill: CHART_COLORS.startLine, fontSize: 10, position: 'left' }}
+              label={{ value: 'Start', fill: CHART_COLORS.startLine, fontSize: 10, position: 'right' }}
             />
           )}
           <Line
