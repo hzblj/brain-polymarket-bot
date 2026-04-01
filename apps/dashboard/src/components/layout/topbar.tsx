@@ -45,7 +45,7 @@ export function Topbar() {
   const killSwitch = state?.killSwitch ?? false;
 
   return (
-    <header className="glass flex items-center justify-between h-10 px-4 border-b shrink-0">
+    <header className="glass flex items-center justify-between h-10 px-4 pl-12 lg:pl-4 border-b shrink-0">
       {/* Left */}
       <div className="flex items-center gap-4">
         <span className="text-xs font-bold tracking-widest text-accent">
