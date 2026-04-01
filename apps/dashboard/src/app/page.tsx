@@ -264,16 +264,16 @@ export default function OverviewPage() {
           }
         />
         <KpiCard
-          label="Win Streak"
-          value={today?.winStreak ?? 0}
+          label="Wins"
+          value={today?.winCount ?? 0}
           icon={TrendingUp}
-          variant={today?.winStreak ? "positive" : "default"}
+          variant={today?.winCount ? "positive" : "default"}
         />
         <KpiCard
-          label="Loss Streak"
-          value={today?.lossStreak ?? 0}
+          label="Losses"
+          value={today?.lossCount ?? 0}
           icon={TrendingUp}
-          variant={today?.lossStreak ? "negative" : "default"}
+          variant={today?.lossCount ? "negative" : "default"}
         />
       </div>
 
