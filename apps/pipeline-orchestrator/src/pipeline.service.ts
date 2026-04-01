@@ -640,6 +640,8 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`[${windowId}] Routed to: ${selectedStrategy.strategyKey}`);
 
     // 5. Apply selected strategy's filters
+    //    Skip maxTimeToCloseSec for reactive — pre-compute handles entry timing.
+    //    Reactive is a fallback that can run at any point in the window.
     const filters = selectedStrategy.filters;
     if (filters) {
       const reasons: string[] = [];
@@ -650,12 +652,15 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       if (spreadBps > filters.maxSpreadBps) reasons.push(`spread ${spreadBps}bps > max ${filters.maxSpreadBps}bps`);
       if (depthScore < filters.minDepthScore) reasons.push(`depth ${depthScore.toFixed(2)} < min ${filters.minDepthScore}`);
       if (timeToCloseSec < filters.minTimeToCloseSec) reasons.push(`${timeToCloseSec}s to close < min ${filters.minTimeToCloseSec}s`);
-      if (timeToCloseSec > filters.maxTimeToCloseSec) reasons.push(`${timeToCloseSec}s to close > max ${filters.maxTimeToCloseSec}s`);
 
       if (reasons.length > 0) {
+        this.lastTradeWindowId = windowId;
         return this.finishCycle(cycle, startMs, 'strategy_filtered', { windowId, strategy: selectedStrategy.strategyKey, reasons });
       }
     }
+
+    // Lock window — proceeding to edge/supervisor
+    this.lastTradeWindowId = windowId;
 
     // 6. Sync risk profile for selected strategy
     if (selectedStrategy.riskProfile) {
