@@ -431,6 +431,7 @@ npx vitest
 ### Orchestrace
 
 - [ ] Triggery pro volani agentu (timeToClose < 90s, delta threshold, tradeability flip)
+- [ ] Validator rejectuje fresh features na zacatku okna (spreadBps=0, returnBps=0, stale eventTime) — bud pridat 2-3s delay pred gatekeeper, nebo skipnout validator (gatekeeper + risk staci)
 - [ ] Sledovat latence agentu (regime/edge/supervisor p50/p95) a adaptivne ladit timing konstanty:
   - `PRE_COMPUTE_LEAD_TIME_SEC` (90s) — jak brzo pred koncem okna spustit pre-compute
   - Gatekeeper trigger (5s pred otevrenim okna) — kdy spustit validator→gatekeeper→risk→execute
