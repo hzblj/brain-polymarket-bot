@@ -279,6 +279,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
         this.preComputedDecision?.targetWindowSlug !== timing.nextWindowSlug;
 
       if (shouldPreCompute) {
+        this.logger.log(`[Branch A] Starting pre-compute for ${timing.nextWindowSlug} (${timing.secondsToNextWindow}s to open)`);
         return this.runPreCompute(cycle, startMs, timing.nextWindowSlug, timing.nextWindowStartSec, executionMode, configData, allStrategies);
       }
 
@@ -288,6 +289,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       const gatekeeperNotYetRun = this.gatekeeperRanForWindow !== timing.currentWindowSlug;
 
       if (hasPreComputedForCurrentWindow && gatekeeperNotYetRun) {
+        this.logger.log(`[Branch B] Running gatekeeper for ${timing.currentWindowSlug} (pre-computed: ${this.preComputedDecision!.decision.action} conf=${this.preComputedDecision!.decision.confidence})`);
         return this.runGatekeeper(cycle, startMs, timing.currentWindowSlug, executionMode);
       }
 
@@ -488,6 +490,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Step 1: Nano validator (~100-200ms) — check fresh features sanity
+    this.logger.log(`[Branch B] Step 1: Validator for ${windowId}`);
     const validatorResult: ServiceResponse = await this.postJson(
       `${AGENT_GATEWAY_URL}/api/v1/agent/validator/evaluate`,
       { windowId, features: freshFeatures },
@@ -495,7 +498,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
 
     if (validatorResult?.parsedOutput && !validatorResult.parsedOutput.valid) {
       const issues: string[] = validatorResult.parsedOutput.issues ?? [];
-      this.logger.warn(`[gatekeeper:${windowId}] Nano validator REJECTED: ${issues.join(', ')}`);
+      this.logger.warn(`[Branch B] Validator REJECTED: ${issues.join(', ')}`);
 
       this.eventBus.emit('validator.rejected', { windowId, issues });
 
@@ -505,6 +508,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
         source: 'validator',
       });
     }
+    this.logger.log(`[Branch B] Validator PASSED`);
 
     // Step 2: Gatekeeper (~1-2s) — compare pre-computed decision vs fresh data
     const preComputeFeaturesSummary = {
@@ -516,6 +520,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
     };
 
     const timeElapsedSec = Math.floor((Date.now() - preComputed.computedAt) / 1000);
+    this.logger.log(`[Branch B] Step 2: Gatekeeper for ${windowId} (${timeElapsedSec}s since pre-compute)`);
 
     const gatekeeperResult: ServiceResponse = await this.postJson(
       `${AGENT_GATEWAY_URL}/api/v1/agent/gatekeeper/evaluate`,
@@ -567,7 +572,8 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       confidence: Number(decision.confidence),
     });
 
-    // Proceed to risk evaluation + execution using fresh features
+    // Step 3: Risk evaluation + execution using fresh features
+    this.logger.log(`[Branch B] Step 3: Risk + Execute for ${windowId} (action=${decision.action} size=$${decision.sizeUsd} conf=${decision.confidence})`);
     return this.executeAfterApproval(cycle, startMs, windowId, decision, preComputed.supervisorResult, freshFeatures, executionMode);
   }
 
@@ -784,6 +790,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (!riskEval || !riskEval.approved) {
+      this.logger.warn(`[Branch B] Risk REJECTED for ${windowId}: ${JSON.stringify(riskEval?.rejectionReasons ?? ['Risk service unavailable'])}`);
       return this.finishCycle(cycle, startMs, 'risk_rejected', {
         windowId,
         action: decision.action,
@@ -791,7 +798,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
-    this.logger.log(`[${windowId}] Risk approved: $${riskEval.approvedSizeUsd}`);
+    this.logger.log(`[Branch B] Risk APPROVED for ${windowId}: $${riskEval.approvedSizeUsd}`);
 
     // Execute trade
     const side = decision.action === 'buy_up' ? 'UP' : 'DOWN';
