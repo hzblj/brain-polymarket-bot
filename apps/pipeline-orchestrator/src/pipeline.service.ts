@@ -911,7 +911,10 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       details,
       durationMs: Date.now() - startMs,
     };
-    this.lastResult = result;
+    // Only overwrite lastResult for meaningful stages — skip idle cycles
+    if (stage !== 'skipped' && stage !== 'not_tradeable' && stage !== 'no_features') {
+      this.lastResult = result;
+    }
 
     if (stage === 'error') {
       this.logger.error(`Cycle #${cycle}: ${stage}`, JSON.stringify(details));
