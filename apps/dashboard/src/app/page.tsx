@@ -111,13 +111,7 @@ function BtcPriceChart({ startPrice }: { startPrice: number }) {
             tick={{ fill: CHART_COLORS.text, fontSize: 10 }}
             axisLine={false}
             tickLine={false}
-            tickFormatter={(value: string, index: number) => {
-              // Show only first occurrence of each minute
-              const prev = index > 0 ? chartData[index - 1]?.label : null;
-              return value !== prev ? value : '';
-            }}
-            interval={0}
-            minTickGap={40}
+            minTickGap={50}
             padding={{ left: 10, right: 10 }}
           />
           <YAxis
