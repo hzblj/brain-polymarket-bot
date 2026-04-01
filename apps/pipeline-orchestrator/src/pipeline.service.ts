@@ -318,11 +318,19 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
     this.preComputingForWindow = nextWindowSlug;
     this.logger.log(`Pre-computing for window ${nextWindowSlug} (starts in ${nextWindowStartSec - Math.floor(Date.now() / 1000)}s)`);
 
-    const features: ServiceResponse = await this.fetchJson(`${FEATURE_ENGINE_URL}/api/v1/features/current`);
-    if (!features) {
+    const rawFeatures: ServiceResponse = await this.fetchJson(`${FEATURE_ENGINE_URL}/api/v1/features/current`);
+    if (!rawFeatures) {
       this.preComputingForWindow = null;
       return this.finishCycle(cycle, startMs, 'no_features', { reason: 'Feature engine returned no data (pre-compute)' });
     }
+
+    // Override for target window: current features have remainingMs/tradeable for the ENDING window
+    const targetRemainingMs = (nextWindowStartSec + WINDOW_DURATION_SEC - Math.floor(Date.now() / 1000)) * 1000;
+    const features = {
+      ...rawFeatures,
+      market: { ...(rawFeatures.market ?? {}), remainingMs: targetRemainingMs },
+      signals: { ...(rawFeatures.signals ?? {}), tradeable: true },
+    };
 
     const riskState: ServiceResponse = await this.fetchJson(`${RISK_SERVICE_URL}/api/v1/risk/state`);
     if (!riskState) {
