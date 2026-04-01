@@ -61,9 +61,6 @@ export function Topbar() {
           {mode}
         </span>
 
-        <span className="text-[10px] text-text-muted px-1.5 py-0.5 bg-surface-2/50 rounded">
-          BTC 5m Up/Down
-        </span>
       </div>
 
       {/* Right */}
