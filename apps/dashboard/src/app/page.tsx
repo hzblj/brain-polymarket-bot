@@ -106,7 +106,6 @@ function BtcPriceChart({ startPrice }: { startPrice: number }) {
       </div>
       <ResponsiveContainer width="100%" height={320}>
         <LineChart data={chartData} margin={{ top: 16, right: 16, bottom: 16, left: 16 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} />
           <XAxis
             dataKey="label"
             tick={{ fill: CHART_COLORS.text, fontSize: 10 }}
