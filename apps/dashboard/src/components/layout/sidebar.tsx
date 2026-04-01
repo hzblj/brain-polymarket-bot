@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+
+// Shared toggle for topbar hamburger → sidebar mobile menu
+let _openMobile: (() => void) | null = null;
+export function useSidebarToggle() {
+  return useCallback(() => _openMobile?.(), []);
+}
 import clsx from "clsx";
 import {
   LayoutDashboard,
@@ -48,6 +54,12 @@ export function Sidebar() {
   const pathname = usePathname();
   const [expanded, setExpanded] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Register global toggle for topbar hamburger
+  useEffect(() => {
+    _openMobile = () => setMobileOpen(true);
+    return () => { _openMobile = null; };
+  }, []);
 
   // Close mobile menu on route change
   useEffect(() => {
@@ -129,14 +141,6 @@ export function Sidebar() {
           })}
         </nav>
       </aside>
-
-      {/* Mobile hamburger button */}
-      <button
-        onClick={() => setMobileOpen(true)}
-        className="fixed top-2 left-2 z-50 lg:hidden flex items-center justify-center w-8 h-8 rounded bg-surface-2/80 backdrop-blur-sm border border-border text-text-muted hover:text-accent transition-colors"
-      >
-        <Menu size={18} />
-      </button>
 
       {/* Mobile overlay */}
       {mobileOpen && (

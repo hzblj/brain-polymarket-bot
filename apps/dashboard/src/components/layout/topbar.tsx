@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import clsx from "clsx";
-import { Moon, Sun, Wifi, WifiOff, Zap, ZapOff } from "lucide-react";
+import { Menu, Moon, Sun, Wifi, WifiOff, Zap, ZapOff } from "lucide-react";
 import { useSystemState } from "@/lib/hooks";
 import { useTheme } from "@/lib/theme";
+import { useSidebarToggle } from "./sidebar";
 
 function useClock() {
   const [time, setTime] = useState<string>("");
@@ -45,9 +46,16 @@ export function Topbar() {
   const killSwitch = state?.killSwitch ?? false;
 
   return (
-    <header className="glass flex items-center justify-between h-10 px-4 pl-12 lg:pl-4 border-b shrink-0">
+    <header className="glass flex items-center justify-between h-10 px-4 border-b shrink-0">
       {/* Left */}
       <div className="flex items-center gap-4">
+        {/* Mobile hamburger */}
+        <button
+          onClick={useSidebarToggle()}
+          className="lg:hidden flex items-center justify-center w-6 h-6 rounded text-text-muted hover:text-accent hover:bg-surface-2/50 transition-colors"
+        >
+          <Menu size={14} />
+        </button>
         <span className="text-xs font-bold tracking-widest text-accent">
           BRAIN
         </span>
