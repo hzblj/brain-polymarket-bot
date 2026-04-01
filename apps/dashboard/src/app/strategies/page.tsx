@@ -34,7 +34,7 @@ type VersionConfig = {
   marketSelector: { asset: string; marketType: string; windowSec: number };
   agentProfile: { regimeAgentProfile: string; edgeAgentProfile: string; supervisorAgentProfile: string };
   decisionPolicy: { allowedDecisions: string[]; minConfidence: number };
-  filters: { maxSpreadBps: number; minDepthScore: number; minTimeToCloseSec: number; maxTimeToCloseSec: number };
+  filters: { maxSpreadBps: number; minDepthScore: number; minTimeToCloseSec: number; maxTimeToCloseSec: number; allowedRegimes?: string[] };
   riskProfile: { maxSizeUsd: number; dailyLossLimitUsd: number; maxTradesPerWindow: number };
   executionPolicy: { entryWindowStartSec: number; entryWindowEndSec: number; mode: string };
 };
@@ -237,15 +237,10 @@ export default function StrategiesPage() {
               key: 'status',
               label: 'Status',
               render: (r) =>
-                r.isDefault ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 px-2 py-0.5 text-xs font-semibold text-accent">
-                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-accent" />
-                    Running
-                  </span>
-                ) : r.status === 'active' ? (
+                r.status === 'active' ? (
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-positive/10 px-2 py-0.5 text-xs font-medium text-positive">
                     <span className="inline-block h-1.5 w-1.5 rounded-full bg-positive" />
-                    Available
+                    Active
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-2 py-0.5 text-xs font-medium text-text-muted">
@@ -431,13 +426,19 @@ function StrategyDetail({
               Discard
             </button>
           )}
-          <button
-            onClick={onSwitch}
-            disabled={actionLoading || strategy.isDefault}
-            className="rounded bg-accent px-3 py-1 text-xs font-semibold text-white hover:bg-accent/80 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {strategy.isDefault ? 'Currently Active' : 'Switch to This'}
-          </button>
+          {strategy.status === 'active' ? (
+            <span className="rounded bg-positive/10 px-3 py-1 text-xs font-semibold text-positive">
+              Routed by Regime
+            </span>
+          ) : (
+            <button
+              onClick={onSwitch}
+              disabled={actionLoading}
+              className="rounded bg-accent px-3 py-1 text-xs font-semibold text-white hover:bg-accent/80 disabled:opacity-40"
+            >
+              Activate
+            </button>
+          )}
           <button onClick={onClose} className="text-xs text-text-muted hover:text-text-secondary">
             Close
           </button>
@@ -457,6 +458,9 @@ function StrategyDetail({
         </DetailSection>
 
         <DetailSection title="Filters">
+          {cfg.filters.allowedRegimes && (
+            <DetailRow label="Allowed Regimes" value={cfg.filters.allowedRegimes.join(', ')} />
+          )}
           <EditableRow label="Max Spread (bps)" value={draft.filters.maxSpreadBps} onChange={(v) => updateFilter('maxSpreadBps', v)} step={10} min={0} />
           <EditableRow label="Min Depth Score" value={draft.filters.minDepthScore} onChange={(v) => updateFilter('minDepthScore', v)} step={0.1} min={0} max={1} />
           <EditableRow label="Min Time Close (s)" value={draft.filters.minTimeToCloseSec} onChange={(v) => updateFilter('minTimeToCloseSec', v)} step={5} min={0} />

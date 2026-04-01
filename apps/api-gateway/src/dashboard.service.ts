@@ -249,20 +249,30 @@ export class DashboardService {
       : pipeRunning ? 'running' as const
       : 'pending' as const;
 
-    // Derive selected strategy from pipeline details
-    const selectedStrategy = str(pipeDetails.strategy as string);
-    const regimeNoMatch = pipeStage === 'agent_hold' && str(pipeDetails.reason as string).includes('No strategy matches');
-    const hasRouter = !!regime && (!!selectedStrategy || regimeNoMatch);
+    // Derive Router step from regime output — map regime to strategy name
+    const regimeValue = regime ? str((regime.output as Rec)?.regime as string) : null;
+    const REGIME_TO_STRATEGY: Record<string, string> = {
+      trending_up: 'Momentum',
+      trending_down: 'Momentum',
+      mean_reverting: 'Mean Reversion',
+      quiet: 'Mean Reversion',
+    };
+    const routedStrategy = regimeValue ? REGIME_TO_STRATEGY[regimeValue] ?? null : null;
+    const routerStatus = !regime ? pendingStatus
+      : routedStrategy ? 'success' as const
+      : 'failed' as const;
+    const routerValue = !regime ? pendingValue
+      : routedStrategy ?? 'no match';
 
     return [
       regime ? traceToStep('Regime', regime, 'regime') : { label: 'Regime', status: pendingStatus, value: pendingValue, confidence: null, timestamp: null },
-      ...(hasRouter ? [{
+      {
         label: 'Router',
-        status: regimeNoMatch ? 'failed' as const : 'success' as const,
-        value: regimeNoMatch ? 'no match' : selectedStrategy,
+        status: routerStatus,
+        value: routerValue,
         confidence: null,
         timestamp: regime ? str(regime.createdAt as string) : null,
-      }] : []),
+      },
       edge ? traceToStep('Edge', edge, 'direction') : { label: 'Edge', status: pendingStatus, value: pendingValue, confidence: null, timestamp: null },
       supervisor ? traceToStep('Supervisor', supervisor, 'action') : { label: 'Supervisor', status: pendingStatus, value: pendingValue, confidence: null, timestamp: null },
       ...(validator ? [{
