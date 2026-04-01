@@ -221,6 +221,15 @@ export default function OverviewPage() {
           label="Time To Close"
           value={m?.timeToCloseMs != null ? formatDuration(m.timeToCloseMs) : "—"}
           icon={Clock}
+          variant={
+            m?.timeToCloseMs != null
+              ? m.timeToCloseMs < 30000
+                ? "negative"
+                : m.timeToCloseMs < 60000
+                  ? "warning"
+                  : "default"
+              : "default"
+          }
         />
         <KpiCard
           label="Risk State"
