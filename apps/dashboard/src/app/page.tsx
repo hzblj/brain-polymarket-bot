@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect, useRef } from "react";
 import {
   Activity,
   BarChart3,
@@ -53,6 +54,28 @@ import {
   formatTimeAgo,
   formatPrice,
 } from "@/lib/formatters";
+
+/** Smoothly count down from a server-fetched ms value, ticking every 1s locally */
+function useCountdown(serverMs: number | null | undefined): number | null {
+  const [ms, setMs] = useState<number | null>(null);
+  const ref = useRef({ serverMs: 0, fetchedAt: 0 });
+
+  useEffect(() => {
+    if (serverMs == null) return;
+    ref.current = { serverMs, fetchedAt: Date.now() };
+    setMs(serverMs);
+  }, [serverMs]);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      const elapsed = Date.now() - ref.current.fetchedAt;
+      setMs(Math.max(0, ref.current.serverMs - elapsed));
+    }, 1_000);
+    return () => clearInterval(id);
+  }, []);
+
+  return ms;
+}
 
 const CHART_COLORS = {
   accent: '#00e639',
@@ -189,6 +212,7 @@ export default function OverviewPage() {
   const sim = simulation.data;
   const bc = useBlockchainActivity().data;
   const deriv = useDerivativesFeatures().data;
+  const ttc = useCountdown(m?.timeToCloseMs);
 
   const totalUnrealized =
     open?.reduce((sum, t) => sum + t.unrealizedPnl, 0) ?? 0;
@@ -219,13 +243,13 @@ export default function OverviewPage() {
         />
         <KpiCard
           label="Time To Close"
-          value={m?.timeToCloseMs != null ? formatDuration(m.timeToCloseMs) : "—"}
+          value={ttc != null ? formatDuration(ttc) : "—"}
           icon={Clock}
           variant={
-            m?.timeToCloseMs != null
-              ? m.timeToCloseMs < 30000
+            ttc != null
+              ? ttc < 30000
                 ? "negative"
-                : m.timeToCloseMs < 60000
+                : ttc < 60000
                   ? "warning"
                   : "default"
               : "default"
