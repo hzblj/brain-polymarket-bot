@@ -197,7 +197,7 @@ export default function OverviewPage() {
         />
         <KpiCard
           label="Risk State"
-          value={s?.killSwitch ? "Kill Switch ON" : "Trading Enabled"}
+          value={s?.killSwitch ? "KILLED" : "Enabled"}
           icon={Shield}
           variant={s?.killSwitch ? "negative" : "positive"}
           subtitle={
