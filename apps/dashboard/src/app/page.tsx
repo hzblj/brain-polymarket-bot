@@ -210,16 +210,6 @@ export default function OverviewPage() {
           }
         />
         <KpiCard
-          label="Agent Status"
-          value={lastPipelineStep?.status ?? "—"}
-          icon={Activity}
-          subtitle={
-            lastPipelineStep?.timestamp
-              ? formatTimeAgo(lastPipelineStep.timestamp)
-              : undefined
-          }
-        />
-        <KpiCard
           label="Open Positions"
           value={open?.length ?? 0}
           icon={BarChart3}
