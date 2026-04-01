@@ -270,5 +270,21 @@ function ensureTables(sqlite: Database.Database): void {
       latency_ms INTEGER NOT NULL,
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS prompt_patches (
+      id TEXT PRIMARY KEY,
+      order_id TEXT NOT NULL,
+      window_id TEXT NOT NULL,
+      agent_decision_id TEXT NOT NULL REFERENCES agent_decisions(id),
+      target_agent TEXT NOT NULL,
+      patch_type TEXT NOT NULL DEFAULT 'replace',
+      old_text TEXT NOT NULL,
+      new_text TEXT NOT NULL,
+      reasoning TEXT NOT NULL,
+      confidence REAL NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT NOT NULL,
+      reviewed_at TEXT
+    );
   `);
 }
