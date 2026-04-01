@@ -1,32 +1,38 @@
 "use client";
 
 import { useState } from "react";
-import { Bot, Brain, Crosshair, Eye, Clock, Zap } from "lucide-react";
+import { Bot, Brain, Crosshair, Eye, Clock, Zap, ShieldCheck, ShieldAlert } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { KpiCard } from "@/components/cards/kpi-card";
 import { useAgentTraces, useAgentContext, usePipeline } from "@/lib/hooks";
 import { formatTimeAgo } from "@/lib/formatters";
 import type { AgentTrace } from "@/lib/api";
 
-type AgentFilter = "all" | "regime" | "edge" | "supervisor";
+type AgentFilter = "all" | "regime" | "edge" | "supervisor" | "validator" | "gatekeeper";
 
 const FILTER_LABELS: Record<AgentFilter, string> = {
   all: "All",
   regime: "Regime",
   edge: "Edge",
   supervisor: "Supervisor",
+  validator: "Validator",
+  gatekeeper: "Gatekeeper",
 };
 
 const AGENT_ICONS: Record<string, typeof Brain> = {
   regime: Brain,
   edge: Crosshair,
   supervisor: Eye,
+  validator: ShieldCheck,
+  gatekeeper: ShieldAlert,
 };
 
 const AGENT_COLORS: Record<string, string> = {
   regime: "text-accent",
   edge: "text-warning",
   supervisor: "text-positive",
+  validator: "text-text-secondary",
+  gatekeeper: "text-negative",
 };
 
 export default function AgentsPage() {
@@ -47,6 +53,8 @@ export default function AgentsPage() {
   const regimeCount = filteredTraces.filter((t) => t.agentType === "regime").length;
   const edgeCount = filteredTraces.filter((t) => t.agentType === "edge").length;
   const supervisorCount = filteredTraces.filter((t) => t.agentType === "supervisor").length;
+  const validatorCount = filteredTraces.filter((t) => t.agentType === "validator").length;
+  const gatekeeperCount = filteredTraces.filter((t) => t.agentType === "gatekeeper").length;
   const lastTrace = filteredTraces[0];
 
   return (
@@ -57,12 +65,14 @@ export default function AgentsPage() {
       />
 
       {/* KPI Strip */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
         <KpiCard label="Total Traces" value={totalTraces} icon={Bot} />
         <KpiCard label="Avg Latency" value={`${avgLatency}ms`} icon={Zap} />
         <KpiCard label="Regime" value={regimeCount} icon={Brain} variant="default" />
         <KpiCard label="Edge" value={edgeCount} icon={Crosshair} variant="warning" />
         <KpiCard label="Supervisor" value={supervisorCount} icon={Eye} variant="positive" />
+        <KpiCard label="Validator" value={validatorCount} icon={ShieldCheck} variant="default" />
+        <KpiCard label="Gatekeeper" value={gatekeeperCount} icon={ShieldAlert} variant="negative" />
         <KpiCard
           label="Last Decision"
           value={lastTrace ? formatTimeAgo(lastTrace.createdAt) : "—"}

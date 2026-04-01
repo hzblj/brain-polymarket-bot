@@ -2,8 +2,10 @@ import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query } from '@ne
 import {
   AgentGatewayService,
   type EdgeEvaluationRequest,
+  type GatekeeperEvaluationRequest,
   type RegimeEvaluationRequest,
   type SupervisorEvaluationRequest,
+  type ValidatorEvaluationRequest,
 } from './agent-gateway.service';
 
 @Controller('api/v1/agent')
@@ -57,6 +59,30 @@ export class AgentGatewayController {
   @HttpCode(200)
   async evaluateSupervisor(@Body() body: SupervisorEvaluationRequest) {
     const result = await this.agentGatewayService.evaluateSupervisor(body);
+    return { ok: true, data: result };
+  }
+
+  /**
+   * POST /api/v1/agent/validator/evaluate
+   * Ultra-fast input validation using GPT-5.4 nano.
+   * Checks if market data is sane and complete before gatekeeper evaluation.
+   */
+  @Post('validator/evaluate')
+  @HttpCode(200)
+  async evaluateValidator(@Body() body: ValidatorEvaluationRequest) {
+    const result = await this.agentGatewayService.evaluateValidator(body);
+    return { ok: true, data: result };
+  }
+
+  /**
+   * POST /api/v1/agent/gatekeeper/evaluate
+   * Fast gatekeeper validation using GPT-5.4 mini.
+   * Compares pre-computed decision against fresh market data.
+   */
+  @Post('gatekeeper/evaluate')
+  @HttpCode(200)
+  async evaluateGatekeeper(@Body() body: GatekeeperEvaluationRequest) {
+    const result = await this.agentGatewayService.evaluateGatekeeper(body);
     return { ok: true, data: result };
   }
 

@@ -169,11 +169,13 @@ export class DashboardService {
   // ─── Pipeline ─────────────────────────────────────────────────────────────
 
   async getPipeline() {
-    const [regimeTraces, edgeTraces, supervisorTraces, riskState, latestPositions, currentWindow, pipelineStatus] =
+    const [regimeTraces, edgeTraces, supervisorTraces, validatorTraces, gatekeeperTraces, riskState, latestPositions, currentWindow, pipelineStatus] =
       await Promise.all([
         this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=regime&limit=1'),
         this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=edge&limit=1'),
         this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=supervisor&limit=1'),
+        this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=validator&limit=1'),
+        this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=gatekeeper&limit=1'),
         this.fetch('risk', '/api/v1/risk/state'),
         this.fetch('execution', '/api/v1/execution/positions'),
         this.fetch('market-discovery', '/api/v1/market/active'),
@@ -188,15 +190,21 @@ export class DashboardService {
     const rawSupervisor = Array.isArray(supervisorTraces)
       ? ((supervisorTraces[0] as Rec) ?? null)
       : null;
+    const rawValidator = Array.isArray(validatorTraces) ? ((validatorTraces[0] as Rec) ?? null) : null;
+    const rawGatekeeper = Array.isArray(gatekeeperTraces) ? ((gatekeeperTraces[0] as Rec) ?? null) : null;
 
     // If traces are from a different window, show as pending (new window, agents not called yet)
     const regimeWindowMatch = !currentWindowId || str(rawRegime?.windowId as string) === currentWindowId;
     const edgeWindowMatch = !currentWindowId || str(rawEdge?.windowId as string) === currentWindowId;
     const supervisorWindowMatch = !currentWindowId || str(rawSupervisor?.windowId as string) === currentWindowId;
+    const validatorWindowMatch = !currentWindowId || str(rawValidator?.windowId as string) === currentWindowId;
+    const gatekeeperWindowMatch = !currentWindowId || str(rawGatekeeper?.windowId as string) === currentWindowId;
 
     const regime = regimeWindowMatch ? rawRegime : null;
     const edge = edgeWindowMatch ? rawEdge : null;
     const supervisor = supervisorWindowMatch ? rawSupervisor : null;
+    const validator = validatorWindowMatch ? rawValidator : null;
+    const gatekeeper = gatekeeperWindowMatch ? rawGatekeeper : null;
 
     // Pipeline orchestrator status for context
     const pipeRec = pipelineStatus as Rec | null;
@@ -243,6 +251,22 @@ export class DashboardService {
       regime ? traceToStep('Regime', regime, 'regime') : { label: 'Regime', status: pendingStatus, value: pendingValue, confidence: null, timestamp: null },
       edge ? traceToStep('Edge', edge, 'direction') : { label: 'Edge', status: pendingStatus, value: pendingValue, confidence: null, timestamp: null },
       supervisor ? traceToStep('Supervisor', supervisor, 'action') : { label: 'Supervisor', status: pendingStatus, value: pendingValue, confidence: null, timestamp: null },
+      ...(validator ? [{
+        label: 'Validator',
+        status: (validator.output as Rec)?.valid ? 'success' as const : 'failed' as const,
+        value: (validator.output as Rec)?.valid ? 'valid' : 'invalid',
+        confidence: null,
+        timestamp: str(validator.createdAt as string),
+        detail: (validator.output as Rec)?.issues ? { issues: (validator.output as Rec).issues } : null,
+      }] : []),
+      ...(gatekeeper ? [{
+        label: 'Gatekeeper',
+        status: (gatekeeper.output as Rec)?.validated ? 'success' as const : 'failed' as const,
+        value: (gatekeeper.output as Rec)?.validated ? 'validated' : 'invalidated',
+        confidence: null,
+        timestamp: str(gatekeeper.createdAt as string),
+        detail: { reasoning: str((gatekeeper.output as Rec)?.reasoning as string) },
+      }] : []),
       {
         label: 'Risk',
         status: hasRiskData ? (pipelineRejectedByRisk ? 'failed' : 'success') : 'pending',

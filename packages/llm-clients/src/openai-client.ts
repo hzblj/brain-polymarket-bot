@@ -2,7 +2,7 @@ import type { BrainLoggerService } from '@brain/logger';
 import { Injectable } from '@nestjs/common';
 import OpenAI from 'openai';
 import type { z } from 'zod';
-import type { LlmClient, LlmClientOptions, LlmResponse } from './interface';
+import type { LlmClient, LlmClientOptions, LlmEvaluateOptions, LlmResponse, ReasoningEffort } from './interface';
 import { zodToJsonSchema } from './zod-to-json';
 
 @Injectable()
@@ -34,14 +34,15 @@ export class OpenAIClient implements LlmClient {
     systemPrompt: string,
     userPrompt: string,
     schema: z.ZodSchema<T>,
-    options?: { model?: string },
+    options?: LlmEvaluateOptions,
   ): Promise<LlmResponse<T>> {
     const useModel = options?.model ?? this.model;
     const startTime = Date.now();
     const jsonSchema = zodToJsonSchema(schema);
 
-    // Reasoning models (o1, o3, o4, etc.) don't support temperature or system role
-    const isReasoningModel = /^(o1|o3|o4)/.test(useModel);
+    // Reasoning models (o1, o3, o4, gpt-5.4, etc.) don't support temperature, use developer role
+    const isReasoningModel = /^(o1|o3|o4|gpt-5)/.test(useModel);
+    const reasoningEffort = options?.reasoningEffort;
 
     let lastError: Error | null = null;
 
@@ -54,6 +55,7 @@ export class OpenAIClient implements LlmClient {
         const response = await this.client.chat.completions.create({
           model: useModel,
           ...(isReasoningModel ? {} : { temperature: this.temperature }),
+          ...(isReasoningModel && reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
           max_completion_tokens: 2048,
           messages: isReasoningModel
             ? [

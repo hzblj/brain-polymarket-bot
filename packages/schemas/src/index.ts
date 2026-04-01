@@ -5,7 +5,7 @@ import { z } from 'zod';
 export const MarketStatusSchema = z.enum(['active', 'paused', 'resolved', 'expired']);
 export const WindowOutcomeSchema = z.enum(['up', 'down', 'flat', 'unknown']);
 export const PriceSourceSchema = z.enum(['binance', 'coinbase', 'polymarket']);
-export const AgentTypeSchema = z.enum(['regime', 'edge', 'supervisor']);
+export const AgentTypeSchema = z.enum(['regime', 'edge', 'supervisor', 'validator', 'gatekeeper']);
 export const RegimeSchema = z.enum([
   'trending_up',
   'trending_down',
@@ -100,6 +100,17 @@ export const SupervisorOutputSchema = z.object({
   reasoning: z.string().min(1).max(2000),
   regimeSummary: z.string().min(1).max(500),
   edgeSummary: z.string().min(1).max(500),
+});
+
+export const ValidatorOutputSchema = z.object({
+  valid: z.boolean(),
+  issues: z.array(z.string().max(500)),
+});
+
+export const GatekeeperOutputSchema = z.object({
+  validated: z.boolean(),
+  adjustedSizeUsd: z.number().nonnegative().optional(),
+  reasoning: z.string().min(1).max(2000),
 });
 
 export const AgentDecisionSchema = z.object({
@@ -325,6 +336,8 @@ export type FeaturePayloadParsed = z.infer<typeof FeaturePayloadSchema>;
 export type RegimeOutputParsed = z.infer<typeof RegimeOutputSchema>;
 export type EdgeOutputParsed = z.infer<typeof EdgeOutputSchema>;
 export type SupervisorOutputParsed = z.infer<typeof SupervisorOutputSchema>;
+export type ValidatorOutputParsed = z.infer<typeof ValidatorOutputSchema>;
+export type GatekeeperOutputParsed = z.infer<typeof GatekeeperOutputSchema>;
 export type RiskEvaluationParsed = z.infer<typeof RiskEvaluationSchema>;
 export type ExecutionRequestParsed = z.infer<typeof ExecutionRequestSchema>;
 export type AppConfigParsed = z.infer<typeof AppConfigSchema>;

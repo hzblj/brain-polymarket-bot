@@ -312,7 +312,7 @@ export async function getOptimizerStatus() {
 export interface AgentTrace {
   traceId: string;
   windowId: string;
-  agentType: 'regime' | 'edge' | 'supervisor';
+  agentType: 'regime' | 'edge' | 'supervisor' | 'validator' | 'gatekeeper';
   input: Record<string, unknown>;
   output: Record<string, unknown>;
   model: string;

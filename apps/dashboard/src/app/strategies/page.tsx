@@ -163,16 +163,18 @@ export default function StrategiesPage() {
             type="button"
             onClick={async () => {
               try {
-                const base = typeof window !== 'undefined' ? `http://${window.location.hostname}:3000` : '';
-                const res = await fetch(`${base}/api/v1/config/export`);
+                const res = await fetch(`${API_BASE}/api/v1/config/export`);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const json = await res.json();
                 const blob = new Blob([JSON.stringify(json.data, null, 2)], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
                 a.download = `brain-config-${new Date().toISOString().slice(0, 10)}.json`;
+                document.body.appendChild(a);
                 a.click();
-                URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
               } catch (err) {
                 toast.error(`Export failed: ${(err as Error).message}`);
               }

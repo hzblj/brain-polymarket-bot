@@ -281,7 +281,7 @@ export class ConfigManagementService implements OnModuleInit {
         agentProfile: {
           regimeAgentProfile: 'regime-default-v1',
           edgeAgentProfile: 'edge-momentum-v1',
-          supervisorAgentProfile: 'supervisor-conservative-v1',
+          supervisorAgentProfile: 'supervisor-momentum-v1',
         },
         decisionPolicy: { allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'], minConfidence: 0.7 },
         filters: { maxSpreadBps: 250, minDepthScore: 0.6, minTimeToCloseSec: 15, maxTimeToCloseSec: 90 },
@@ -328,8 +328,8 @@ export class ConfigManagementService implements OnModuleInit {
         marketSelector: { asset: 'BTC', marketType: 'UP_DOWN', windowSec: 300 },
         agentProfile: {
           regimeAgentProfile: 'regime-default-v1',
-          edgeAgentProfile: 'edge-mean-reversion-v1',
-          supervisorAgentProfile: 'supervisor-conservative-v1',
+          edgeAgentProfile: 'edge-momentum-v1',
+          supervisorAgentProfile: 'supervisor-momentum-v1',
         },
         decisionPolicy: { allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'], minConfidence: 0.75 },
         filters: { maxSpreadBps: 200, minDepthScore: 0.7, minTimeToCloseSec: 30, maxTimeToCloseSec: 120 },
@@ -364,7 +364,7 @@ export class ConfigManagementService implements OnModuleInit {
         agentProfile: {
           regimeAgentProfile: 'regime-default-v1',
           edgeAgentProfile: 'edge-momentum-v1',
-          supervisorAgentProfile: 'supervisor-aggressive-v1',
+          supervisorAgentProfile: 'supervisor-momentum-v1',
         },
         decisionPolicy: { allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'], minConfidence: 0.55 },
         filters: { maxSpreadBps: 400, minDepthScore: 0.4, minTimeToCloseSec: 10, maxTimeToCloseSec: 60 },
@@ -397,9 +397,9 @@ export class ConfigManagementService implements OnModuleInit {
         label: 'BTC 5m Volatility Breakout v1',
         marketSelector: { asset: 'BTC', marketType: 'UP_DOWN', windowSec: 300 },
         agentProfile: {
-          regimeAgentProfile: 'regime-volatility-v1',
-          edgeAgentProfile: 'edge-breakout-v1',
-          supervisorAgentProfile: 'supervisor-conservative-v1',
+          regimeAgentProfile: 'regime-default-v1',
+          edgeAgentProfile: 'edge-momentum-v1',
+          supervisorAgentProfile: 'supervisor-momentum-v1',
         },
         decisionPolicy: { allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'], minConfidence: 0.8 },
         filters: { maxSpreadBps: 150, minDepthScore: 0.8, minTimeToCloseSec: 20, maxTimeToCloseSec: 90 },

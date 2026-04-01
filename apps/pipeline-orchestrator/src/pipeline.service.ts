@@ -13,15 +13,42 @@ const MARKET_SERVICE_URL = process.env.MARKET_SERVICE_URL ?? `http://${LOCAL_HOS
 
 const PIPELINE_INTERVAL_MS = Number(process.env.PIPELINE_INTERVAL_MS) || 2_000;
 const INITIAL_BALANCE_USD = Number(process.env.INITIAL_BALANCE_USD) || 100;
+const PRE_COMPUTE_LEAD_TIME_SEC = Number(process.env.PRE_COMPUTE_LEAD_TIME_SEC) || 45;
+const WINDOW_DURATION_SEC = 300; // 5 minutes
 
 // ─── Pipeline state ─────────────────────────────────────────────────────────
 
 interface PipelineCycleResult {
   cycle: number;
   timestamp: string;
-  stage: 'skipped' | 'no_features' | 'not_tradeable' | 'agent_hold' | 'risk_rejected' | 'executed' | 'error';
+  stage:
+    | 'skipped'
+    | 'no_features'
+    | 'not_tradeable'
+    | 'agent_hold'
+    | 'risk_rejected'
+    | 'executed'
+    | 'error'
+    | 'precomputed'
+    | 'gatekeeper_validated'
+    | 'gatekeeper_invalidated'
+    | 'validator_rejected'
+    | 'strategy_filtered';
   details: Record<string, unknown>;
   durationMs: number;
+}
+
+interface PreComputedDecision {
+  targetWindowSlug: string;
+  targetWindowStartSec: number;
+  regime: ServiceResponse;
+  edge: ServiceResponse;
+  supervisorResult: ServiceResponse;
+  decision: ServiceResponse;
+  features: ServiceResponse;
+  riskState: ServiceResponse;
+  agentProfile: ServiceResponse;
+  computedAt: number;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- HTTP responses are loosely typed
@@ -37,6 +64,11 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
   private lastResult: PipelineCycleResult | null = null;
   private lastWindowId: string | null = null;
   private lastTradeWindowId: string | null = null;
+
+  // Pre-computation state
+  private preComputedDecision: PreComputedDecision | null = null;
+  private preComputingForWindow: string | null = null;
+  private gatekeeperRanForWindow: string | null = null;
 
   constructor(@Inject(EventBus) private readonly eventBus: EventBus) {}
 
@@ -58,6 +90,14 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       cycleCount: this.cycleCount,
       intervalMs: PIPELINE_INTERVAL_MS,
       lastResult: this.lastResult,
+      preComputedDecision: this.preComputedDecision
+        ? {
+            targetWindowSlug: this.preComputedDecision.targetWindowSlug,
+            action: this.preComputedDecision.decision?.action,
+            confidence: this.preComputedDecision.decision?.confidence,
+            computedAt: new Date(this.preComputedDecision.computedAt).toISOString(),
+          }
+        : null,
       serviceUrls: {
         featureEngine: FEATURE_ENGINE_URL,
         agentGateway: AGENT_GATEWAY_URL,
@@ -83,7 +123,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
   // ─── Pipeline Loop ────────────────────────────────────────────────────────────
 
   private startLoop(): void {
-    this.logger.log(`Starting pipeline loop (interval=${PIPELINE_INTERVAL_MS}ms, mode=dynamic)`);
+    this.logger.log(`Starting pipeline loop (interval=${PIPELINE_INTERVAL_MS}ms, mode=dynamic, preComputeLead=${PRE_COMPUTE_LEAD_TIME_SEC}s)`);
     this.timer = setInterval(async () => {
       if (!this.enabled || this.running) return;
       try {
@@ -123,12 +163,29 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
 
     const down: string[] = [];
     for (let i = 0; i < results.length; i++) {
-      if (results[i].status === 'rejected') {
-        down.push(dependencies[i].name);
+      const r = results[i];
+      if (r && r.status === 'rejected') {
+        down.push(dependencies[i]!.name);
       }
     }
 
     return { ok: down.length === 0, down };
+  }
+
+  // ─── Window Timing ───────────────────────────────────────────────────────────
+
+  private getWindowTiming(): { currentWindowStartSec: number; nextWindowStartSec: number; secondsToNextWindow: number; nextWindowSlug: string; currentWindowSlug: string } {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const currentWindowStartSec = Math.floor(nowSec / WINDOW_DURATION_SEC) * WINDOW_DURATION_SEC;
+    const nextWindowStartSec = currentWindowStartSec + WINDOW_DURATION_SEC;
+    const secondsToNextWindow = nextWindowStartSec - nowSec;
+    return {
+      currentWindowStartSec,
+      nextWindowStartSec,
+      secondsToNextWindow,
+      nextWindowSlug: `btc-updown-5m-${nextWindowStartSec}`,
+      currentWindowSlug: `btc-updown-5m-${currentWindowStartSec}`,
+    };
   }
 
   // ─── Core Pipeline Cycle ──────────────────────────────────────────────────────
@@ -142,7 +199,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
     try {
       // 0a. Fetch config and check trading mode
       const configData: ServiceResponse = await this.fetchJson(`${CONFIG_SERVICE_URL}/api/v1/config`);
-      const executionMode: string = configData?.trading?.mode ?? 'disabled';
+      let executionMode: string = configData?.trading?.mode ?? 'disabled';
       if (executionMode === 'disabled') {
         return this.finishCycle(cycle, startMs, 'skipped', { reason: 'Trading mode is disabled' });
       }
@@ -164,8 +221,11 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      // 0b. Check dependency health
-      const health = await this.checkDependencyHealth();
+      // 0c. Check dependency health + fetch strategy context in parallel
+      const [health, strategyContext]: [{ ok: boolean; down: string[] }, ServiceResponse | null] = await Promise.all([
+        this.checkDependencyHealth(),
+        this.fetchJson(`${CONFIG_SERVICE_URL}/api/v1/config/strategy`).catch(() => null),
+      ]);
       if (!health.ok) {
         this.logger.warn(`Dependency health check failed: ${health.down.join(', ')}`);
         return this.finishCycle(cycle, startMs, 'error', {
@@ -174,183 +234,52 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
         });
       }
 
-      // 1. Fetch current features
-      const features: ServiceResponse = await this.fetchJson(`${FEATURE_ENGINE_URL}/api/v1/features/current`);
-      if (!features) {
-        return this.finishCycle(cycle, startMs, 'no_features', { reason: 'Feature engine returned no data' });
+      // 0d. Sync risk service config with strategy riskProfile
+      if (strategyContext?.riskProfile) {
+        await this.postJson(`${RISK_SERVICE_URL}/api/v1/risk/config`, strategyContext.riskProfile).catch(() => null);
       }
 
-      const windowId: string = features.windowId ?? features.market?.windowId ?? 'unknown';
-      this.lastWindowId = windowId;
-
-      // Skip if not tradeable
-      if (!features.signals?.tradeable) {
-        return this.finishCycle(cycle, startMs, 'not_tradeable', {
-          windowId,
-          timeToCloseSec: features.market?.timeToCloseSec,
-        });
+      // 0e. Override execution mode from strategy if set
+      if (strategyContext?.executionPolicy?.mode) {
+        executionMode = strategyContext.executionPolicy.mode;
       }
 
-      // Skip if we already evaluated or traded this window
-      if (this.lastTradeWindowId === windowId) {
-        return this.finishCycle(cycle, startMs, 'skipped', {
-          windowId,
-          reason: 'Already evaluated this window',
-        });
-      }
+      // ─── Window timing & cache cleanup ───────────────────────────────────────
+      const timing = this.getWindowTiming();
 
-      // 2. Get risk state (needed for supervisor)
-      const riskState: ServiceResponse = await this.fetchJson(`${RISK_SERVICE_URL}/api/v1/risk/state`);
-      if (!riskState) {
-        return this.finishCycle(cycle, startMs, 'error', { reason: 'Risk service unavailable' });
-      }
-
-      // 3. Call regime + edge agents in parallel
-      const [regimeResult, edgeResult]: [ServiceResponse, ServiceResponse] = await Promise.all([
-        this.postJson(`${AGENT_GATEWAY_URL}/api/v1/agent/regime/evaluate`, {
-          windowId,
-          features,
-        }),
-        this.postJson(`${AGENT_GATEWAY_URL}/api/v1/agent/edge/evaluate`, {
-          windowId,
-          features,
-        }),
-      ]);
-
-      if (!regimeResult || !edgeResult) {
-        return this.finishCycle(cycle, startMs, 'error', {
-          windowId,
-          reason: 'Agent evaluation failed',
-          regimeOk: !!regimeResult,
-          edgeOk: !!edgeResult,
-        });
-      }
-
-      const regime: ServiceResponse = regimeResult.parsedOutput;
-      const edge: ServiceResponse = edgeResult.parsedOutput;
-
-      this.logger.log(
-        `[${windowId}] Regime: ${regime.regime} (${regime.confidence}), Edge: ${edge.direction} mag=${edge.magnitude} conf=${edge.confidence}`,
-      );
-
-      // 4. Call supervisor agent
-      const supervisorResult: ServiceResponse = await this.postJson(
-        `${AGENT_GATEWAY_URL}/api/v1/agent/supervisor/evaluate`,
-        {
-          windowId,
-          features,
-          regime,
-          edge,
-          riskState: riskState.state,
-          riskConfig: riskState.config,
-        },
-      );
-
-      if (!supervisorResult) {
-        return this.finishCycle(cycle, startMs, 'error', { windowId, reason: 'Supervisor evaluation failed' });
-      }
-
-      const decision: ServiceResponse = supervisorResult.parsedOutput;
-      this.logger.log(
-        `[${windowId}] Supervisor: ${decision.action} size=$${decision.sizeUsd} conf=${decision.confidence}`,
-      );
-
-      // Emit agent decision event
-      this.eventBus.emit('agent.decision.made', {
-        windowId,
-        action: String(decision.action),
-        sizeUsd: Number(decision.sizeUsd ?? 0),
-        confidence: Number(decision.confidence),
-      });
-
-      // Mark this window as evaluated (regardless of hold/trade)
-      this.lastTradeWindowId = windowId;
-
-      // 5. If hold, stop here
-      if (decision.action === 'hold') {
-        return this.finishCycle(cycle, startMs, 'agent_hold', {
-          windowId,
-          regime: regime.regime,
-          edge: edge.direction,
-          reasoning: decision.reasoning,
-        });
-      }
-
-      // 6. Send to risk evaluation
-      const riskEval: ServiceResponse = await this.postJson(`${RISK_SERVICE_URL}/api/v1/risk/evaluate`, {
-        windowId,
-        agentDecisionId: supervisorResult.id,
-        proposal: decision,
-        features,
-        balanceUsd: INITIAL_BALANCE_USD,
-        openExposureUsd: riskState.state?.openPositionUsd ?? 0,
-      });
-
-      if (!riskEval || !riskEval.approved) {
-        return this.finishCycle(cycle, startMs, 'risk_rejected', {
-          windowId,
-          action: decision.action,
-          rejectionReasons: riskEval?.rejectionReasons ?? ['Risk service unavailable'],
-        });
-      }
-
-      this.logger.log(`[${windowId}] Risk approved: $${riskEval.approvedSizeUsd}`);
-
-      // 7. Execute trade
-      const side = decision.action === 'buy_up' ? 'UP' : 'DOWN';
-      const executionEndpoint =
-        executionMode === 'live' ? 'live-order' : 'paper-order';
-
-      // Fetch market data for tokenIds (needed for live trading)
-      let tokenId: string | undefined;
-      let conditionId: string | undefined;
-      if (executionMode === 'live') {
-        const marketData: ServiceResponse = await this.fetchJson(`${MARKET_SERVICE_URL}/api/v1/market/active`);
-        if (marketData) {
-          tokenId = side === 'UP' ? marketData.upTokenId : marketData.downTokenId;
-          conditionId = marketData.conditionId;
+      // Clear stale pre-computed decision (target window has passed)
+      if (this.preComputedDecision) {
+        const targetEndSec = this.preComputedDecision.targetWindowStartSec + WINDOW_DURATION_SEC;
+        if (Math.floor(Date.now() / 1000) > targetEndSec) {
+          this.logger.debug('Clearing stale pre-computed decision');
+          this.preComputedDecision = null;
+          this.preComputingForWindow = null;
+          this.gatekeeperRanForWindow = null;
         }
       }
 
-      const order: ServiceResponse = await this.postJson(
-        `${EXECUTION_SERVICE_URL}/api/v1/execution/${executionEndpoint}`,
-        {
-          marketId: windowId,
-          side,
-          mode: executionMode,
-          sizeUsd: riskEval.approvedSizeUsd,
-          maxEntryPrice: side === 'UP'
-            ? (features.book?.upAsk > 0 ? features.book.upAsk : 0.55)
-            : (features.book?.downAsk > 0 ? features.book.downAsk : 0.55),
-          mustExecuteBeforeSec: Math.max(Math.floor(((features.market?.remainingMs as number) ?? 60000) / 1000) - 15, 5),
-          source: 'pipeline-orchestrator',
-          windowId,
-          riskDecisionId: riskEval.id,
-          startPrice: features.market?.startPrice ?? features.price?.currentPrice ?? 0,
-          tokenId,
-          conditionId,
-        },
-      );
+      // ─── BRANCH A: Pre-compute for upcoming window ─────────────────────────
+      const shouldPreCompute =
+        timing.secondsToNextWindow <= PRE_COMPUTE_LEAD_TIME_SEC &&
+        timing.secondsToNextWindow > 5 &&
+        this.preComputingForWindow !== timing.nextWindowSlug &&
+        this.preComputedDecision?.targetWindowSlug !== timing.nextWindowSlug;
 
-      if (!order) {
-        return this.finishCycle(cycle, startMs, 'error', { windowId, reason: 'Execution failed' });
+      if (shouldPreCompute) {
+        return this.runPreCompute(cycle, startMs, timing.nextWindowSlug, timing.nextWindowStartSec, executionMode, configData, strategyContext);
       }
 
-      this.lastTradeWindowId = windowId;
-      this.logger.log(
-        `[${windowId}] Order executed: ${order.id} ${side} $${riskEval.approvedSizeUsd} (${executionMode})`,
-      );
+      // ─── BRANCH B: Gatekeeper for current window ──────────────────────────
+      const hasPreComputedForCurrentWindow =
+        this.preComputedDecision?.targetWindowSlug === timing.currentWindowSlug;
+      const gatekeeperNotYetRun = this.gatekeeperRanForWindow !== timing.currentWindowSlug;
 
-      return this.finishCycle(cycle, startMs, 'executed', {
-        windowId,
-        orderId: order.id,
-        side,
-        sizeUsd: riskEval.approvedSizeUsd,
-        mode: executionMode,
-        regime: regime.regime,
-        edge: edge.direction,
-        confidence: decision.confidence,
-      });
+      if (hasPreComputedForCurrentWindow && gatekeeperNotYetRun) {
+        return this.runGatekeeper(cycle, startMs, timing.currentWindowSlug, executionMode);
+      }
+
+      // ─── BRANCH C: Fallback reactive pipeline ─────────────────────────────
+      return this.runReactivePipeline(cycle, startMs, executionMode, configData, strategyContext);
     } catch (error) {
       return this.finishCycle(cycle, startMs, 'error', {
         message: (error as Error).message,
@@ -358,6 +287,490 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
     } finally {
       this.running = false;
     }
+  }
+
+  // ─── Branch A: Pre-Compute ──────────────────────────────────────────────────
+
+  private async runPreCompute(
+    cycle: number,
+    startMs: number,
+    nextWindowSlug: string,
+    nextWindowStartSec: number,
+    _executionMode: string,
+    configData: ServiceResponse,
+    strategyContext: ServiceResponse | null,
+  ): Promise<PipelineCycleResult> {
+    this.preComputingForWindow = nextWindowSlug;
+    this.logger.log(`Pre-computing for window ${nextWindowSlug} (starts in ${nextWindowStartSec - Math.floor(Date.now() / 1000)}s)`);
+
+    // Fetch current features (will be ~30-40s old by window open, but that's fine for heavy thinking)
+    const features: ServiceResponse = await this.fetchJson(`${FEATURE_ENGINE_URL}/api/v1/features/current`);
+    if (!features) {
+      this.preComputingForWindow = null;
+      return this.finishCycle(cycle, startMs, 'no_features', { reason: 'Feature engine returned no data (pre-compute)' });
+    }
+
+    // Fetch risk state
+    const riskState: ServiceResponse = await this.fetchJson(`${RISK_SERVICE_URL}/api/v1/risk/state`);
+    if (!riskState) {
+      this.preComputingForWindow = null;
+      return this.finishCycle(cycle, startMs, 'error', { reason: 'Risk service unavailable (pre-compute)' });
+    }
+
+    const agentProfile = strategyContext?.agentProfile;
+
+    // Call regime + edge agents in parallel (the slow part — GPT-5.4)
+    const windowId = nextWindowSlug;
+    const [regimeResult, edgeResult]: [ServiceResponse, ServiceResponse] = await Promise.all([
+      this.postJson(`${AGENT_GATEWAY_URL}/api/v1/agent/regime/evaluate`, {
+        windowId,
+        features,
+        agentProfile: agentProfile?.regimeAgentProfile,
+      }),
+      this.postJson(`${AGENT_GATEWAY_URL}/api/v1/agent/edge/evaluate`, {
+        windowId,
+        features,
+        agentProfile: agentProfile?.edgeAgentProfile,
+      }),
+    ]);
+
+    if (!regimeResult || !edgeResult) {
+      this.preComputingForWindow = null;
+      return this.finishCycle(cycle, startMs, 'error', {
+        windowId,
+        reason: 'Agent evaluation failed (pre-compute)',
+        regimeOk: !!regimeResult,
+        edgeOk: !!edgeResult,
+      });
+    }
+
+    const regime = regimeResult.parsedOutput;
+    const edge = edgeResult.parsedOutput;
+
+    this.logger.log(
+      `[pre-compute:${windowId}] Regime: ${regime.regime} (${regime.confidence}), Edge: ${edge.direction} mag=${edge.magnitude} conf=${edge.confidence}`,
+    );
+
+    // Call supervisor agent (GPT-5.4)
+    const supervisorResult: ServiceResponse = await this.postJson(
+      `${AGENT_GATEWAY_URL}/api/v1/agent/supervisor/evaluate`,
+      {
+        windowId,
+        features,
+        regime,
+        edge,
+        riskState: riskState.state,
+        riskConfig: riskState.config,
+        agentProfile: agentProfile?.supervisorAgentProfile,
+      },
+    );
+
+    if (!supervisorResult) {
+      this.preComputingForWindow = null;
+      return this.finishCycle(cycle, startMs, 'error', { windowId, reason: 'Supervisor evaluation failed (pre-compute)' });
+    }
+
+    const decision = supervisorResult.parsedOutput;
+    this.logger.log(
+      `[pre-compute:${windowId}] Supervisor: ${decision.action} size=$${decision.sizeUsd} conf=${decision.confidence}`,
+    );
+
+    // Post-filter: enforce minConfidence from strategy decisionPolicy
+    const minConfidence = strategyContext?.decisionPolicy?.minConfidence;
+    if (minConfidence && decision.action !== 'hold' && decision.confidence < minConfidence) {
+      this.logger.log(`[pre-compute:${windowId}] Confidence ${decision.confidence} below strategy minimum ${minConfidence}, forcing hold`);
+      decision.action = 'hold';
+      decision.sizeUsd = 0;
+    }
+
+    // Cache the pre-computed decision
+    this.preComputedDecision = {
+      targetWindowSlug: nextWindowSlug,
+      targetWindowStartSec: nextWindowStartSec,
+      regime,
+      edge,
+      supervisorResult,
+      decision,
+      features,
+      riskState,
+      agentProfile,
+      computedAt: Date.now(),
+    };
+
+    this.eventBus.emit('pipeline.precomputed', {
+      targetWindowSlug: nextWindowSlug,
+      action: String(decision.action),
+      sizeUsd: Number(decision.sizeUsd ?? 0),
+      confidence: Number(decision.confidence),
+      durationMs: Date.now() - startMs,
+    });
+
+    return this.finishCycle(cycle, startMs, 'precomputed', {
+      windowId: nextWindowSlug,
+      action: decision.action,
+      sizeUsd: decision.sizeUsd,
+      confidence: decision.confidence,
+      durationMs: Date.now() - startMs,
+    });
+  }
+
+  // ─── Branch B: Gatekeeper ───────────────────────────────────────────────────
+
+  private async runGatekeeper(
+    cycle: number,
+    startMs: number,
+    currentWindowSlug: string,
+    executionMode: string,
+  ): Promise<PipelineCycleResult> {
+    const preComputed = this.preComputedDecision!;
+    const decision = preComputed.decision;
+    const windowId = currentWindowSlug;
+
+    // Mark gatekeeper as running for this window
+    this.gatekeeperRanForWindow = currentWindowSlug;
+    this.lastTradeWindowId = currentWindowSlug;
+
+    // If pre-computed decision was hold, skip gatekeeper entirely
+    if (decision.action === 'hold') {
+      this.logger.log(`[gatekeeper:${windowId}] Pre-computed decision was HOLD, skipping gatekeeper`);
+
+      this.eventBus.emit('agent.decision.made', {
+        windowId,
+        action: 'hold',
+        sizeUsd: 0,
+        confidence: Number(decision.confidence),
+      });
+
+      return this.finishCycle(cycle, startMs, 'agent_hold', {
+        windowId,
+        regime: preComputed.regime?.regime,
+        edge: preComputed.edge?.direction,
+        reasoning: decision.reasoning,
+        source: 'precomputed',
+      });
+    }
+
+    // Fetch FRESH features
+    const freshFeatures: ServiceResponse = await this.fetchJson(`${FEATURE_ENGINE_URL}/api/v1/features/current`);
+    if (!freshFeatures) {
+      return this.finishCycle(cycle, startMs, 'no_features', { reason: 'Feature engine returned no data (gatekeeper)' });
+    }
+
+    // Step 1: Nano validator (~100-200ms) — check fresh features sanity
+    const validatorResult: ServiceResponse = await this.postJson(
+      `${AGENT_GATEWAY_URL}/api/v1/agent/validator/evaluate`,
+      { windowId, features: freshFeatures },
+    );
+
+    if (validatorResult?.parsedOutput && !validatorResult.parsedOutput.valid) {
+      const issues: string[] = validatorResult.parsedOutput.issues ?? [];
+      this.logger.warn(`[gatekeeper:${windowId}] Nano validator REJECTED: ${issues.join(', ')}`);
+
+      this.eventBus.emit('validator.rejected', { windowId, issues });
+
+      return this.finishCycle(cycle, startMs, 'validator_rejected', {
+        windowId,
+        issues,
+        source: 'validator',
+      });
+    }
+
+    // Step 2: Gatekeeper (~1-2s) — compare pre-computed decision vs fresh data
+    const preComputeFeaturesSummary = {
+      returnBps: preComputed.features?.price?.returnBps ?? 0,
+      spreadBps: preComputed.features?.book?.spreadBps ?? 0,
+      depthScore: preComputed.features?.book?.depthScore ?? 0,
+      currentPrice: preComputed.features?.price?.currentPrice ?? 0,
+      volatility: preComputed.features?.price?.volatility ?? 0,
+    };
+
+    const timeElapsedSec = Math.floor((Date.now() - preComputed.computedAt) / 1000);
+
+    const gatekeeperResult: ServiceResponse = await this.postJson(
+      `${AGENT_GATEWAY_URL}/api/v1/agent/gatekeeper/evaluate`,
+      {
+        windowId,
+        freshFeatures,
+        preComputedDecision: decision,
+        preComputeFeaturesSummary,
+        timeElapsedSec,
+      },
+    );
+
+    if (!gatekeeperResult?.parsedOutput) {
+      // Gatekeeper failed — fall through to execute anyway (fail-open for speed)
+      this.logger.warn(`[gatekeeper:${windowId}] Gatekeeper call failed, proceeding with pre-computed decision`);
+    } else if (!gatekeeperResult.parsedOutput.validated) {
+      const reasoning: string = gatekeeperResult.parsedOutput.reasoning ?? 'unknown';
+      this.logger.log(`[gatekeeper:${windowId}] INVALIDATED: ${reasoning}`);
+
+      this.eventBus.emit('gatekeeper.invalidated', { windowId, reasoning });
+
+      return this.finishCycle(cycle, startMs, 'gatekeeper_invalidated', {
+        windowId,
+        action: decision.action,
+        reasoning,
+        source: 'gatekeeper',
+      });
+    } else {
+      const reasoning: string = gatekeeperResult.parsedOutput.reasoning ?? '';
+      this.logger.log(`[gatekeeper:${windowId}] VALIDATED: ${reasoning}`);
+
+      // Apply size adjustment if gatekeeper suggested one
+      if (gatekeeperResult.parsedOutput.adjustedSizeUsd != null) {
+        decision.sizeUsd = gatekeeperResult.parsedOutput.adjustedSizeUsd;
+      }
+
+      this.eventBus.emit('gatekeeper.validated', {
+        windowId,
+        adjustedSizeUsd: gatekeeperResult.parsedOutput.adjustedSizeUsd,
+        reasoning,
+      });
+    }
+
+    // Emit agent decision event
+    this.eventBus.emit('agent.decision.made', {
+      windowId,
+      action: String(decision.action),
+      sizeUsd: Number(decision.sizeUsd ?? 0),
+      confidence: Number(decision.confidence),
+    });
+
+    // Proceed to risk evaluation + execution using fresh features
+    return this.executeAfterApproval(cycle, startMs, windowId, decision, preComputed.supervisorResult, freshFeatures, executionMode);
+  }
+
+  // ─── Branch C: Fallback Reactive Pipeline ───────────────────────────────────
+
+  private async runReactivePipeline(
+    cycle: number,
+    startMs: number,
+    executionMode: string,
+    configData: ServiceResponse,
+    strategyContext: ServiceResponse | null,
+  ): Promise<PipelineCycleResult> {
+    // 1. Fetch current features
+    const features: ServiceResponse = await this.fetchJson(`${FEATURE_ENGINE_URL}/api/v1/features/current`);
+    if (!features) {
+      return this.finishCycle(cycle, startMs, 'no_features', { reason: 'Feature engine returned no data' });
+    }
+
+    const windowId: string = features.windowId ?? features.market?.windowId ?? 'unknown';
+    this.lastWindowId = windowId;
+
+    // Skip if not tradeable
+    if (!features.signals?.tradeable) {
+      return this.finishCycle(cycle, startMs, 'not_tradeable', {
+        windowId,
+        timeToCloseSec: features.market?.timeToCloseSec,
+      });
+    }
+
+    // Skip if we already evaluated or traded this window
+    if (this.lastTradeWindowId === windowId) {
+      return this.finishCycle(cycle, startMs, 'skipped', {
+        windowId,
+        reason: 'Already evaluated this window',
+      });
+    }
+
+    // Strategy filters — pre-filter before calling agents
+    const filters = strategyContext?.filters;
+    if (filters) {
+      const reasons: string[] = [];
+      const spreadBps = features.book?.spreadBps ?? 0;
+      const depthScore = features.book?.depthScore ?? 0;
+      const timeToCloseSec = Math.floor((features.market?.remainingMs ?? 0) / 1000);
+
+      if (spreadBps > filters.maxSpreadBps) reasons.push(`spread ${spreadBps}bps > max ${filters.maxSpreadBps}bps`);
+      if (depthScore < filters.minDepthScore) reasons.push(`depth ${depthScore.toFixed(2)} < min ${filters.minDepthScore}`);
+      if (timeToCloseSec < filters.minTimeToCloseSec) reasons.push(`${timeToCloseSec}s to close < min ${filters.minTimeToCloseSec}s`);
+      if (timeToCloseSec > filters.maxTimeToCloseSec) reasons.push(`${timeToCloseSec}s to close > max ${filters.maxTimeToCloseSec}s`);
+
+      if (reasons.length > 0) {
+        return this.finishCycle(cycle, startMs, 'strategy_filtered', { windowId, reasons });
+      }
+    }
+
+    // 2. Get risk state
+    const riskState: ServiceResponse = await this.fetchJson(`${RISK_SERVICE_URL}/api/v1/risk/state`);
+    if (!riskState) {
+      return this.finishCycle(cycle, startMs, 'error', { reason: 'Risk service unavailable' });
+    }
+
+    const agentProfile = strategyContext?.agentProfile;
+
+    // 3. Call regime + edge agents in parallel
+    const [regimeResult, edgeResult]: [ServiceResponse, ServiceResponse] = await Promise.all([
+      this.postJson(`${AGENT_GATEWAY_URL}/api/v1/agent/regime/evaluate`, {
+        windowId,
+        features,
+        agentProfile: agentProfile?.regimeAgentProfile,
+      }),
+      this.postJson(`${AGENT_GATEWAY_URL}/api/v1/agent/edge/evaluate`, {
+        windowId,
+        features,
+        agentProfile: agentProfile?.edgeAgentProfile,
+      }),
+    ]);
+
+    if (!regimeResult || !edgeResult) {
+      return this.finishCycle(cycle, startMs, 'error', {
+        windowId,
+        reason: 'Agent evaluation failed',
+        regimeOk: !!regimeResult,
+        edgeOk: !!edgeResult,
+      });
+    }
+
+    const regime: ServiceResponse = regimeResult.parsedOutput;
+    const edge: ServiceResponse = edgeResult.parsedOutput;
+
+    this.logger.log(
+      `[${windowId}] Regime: ${regime.regime} (${regime.confidence}), Edge: ${edge.direction} mag=${edge.magnitude} conf=${edge.confidence}`,
+    );
+
+    // 4. Call supervisor agent
+    const supervisorResult: ServiceResponse = await this.postJson(
+      `${AGENT_GATEWAY_URL}/api/v1/agent/supervisor/evaluate`,
+      {
+        windowId,
+        features,
+        regime,
+        edge,
+        riskState: riskState.state,
+        riskConfig: riskState.config,
+        agentProfile: agentProfile?.supervisorAgentProfile,
+      },
+    );
+
+    if (!supervisorResult) {
+      return this.finishCycle(cycle, startMs, 'error', { windowId, reason: 'Supervisor evaluation failed' });
+    }
+
+    const decision: ServiceResponse = supervisorResult.parsedOutput;
+    this.logger.log(
+      `[${windowId}] Supervisor: ${decision.action} size=$${decision.sizeUsd} conf=${decision.confidence}`,
+    );
+
+    // Post-filter: enforce minConfidence from strategy decisionPolicy
+    const minConfidence = strategyContext?.decisionPolicy?.minConfidence;
+    if (minConfidence && decision.action !== 'hold' && decision.confidence < minConfidence) {
+      this.logger.log(`[${windowId}] Confidence ${decision.confidence} below strategy minimum ${minConfidence}, forcing hold`);
+      decision.action = 'hold';
+      decision.sizeUsd = 0;
+    }
+
+    // Emit agent decision event
+    this.eventBus.emit('agent.decision.made', {
+      windowId,
+      action: String(decision.action),
+      sizeUsd: Number(decision.sizeUsd ?? 0),
+      confidence: Number(decision.confidence),
+    });
+
+    // Mark this window as evaluated (regardless of hold/trade)
+    this.lastTradeWindowId = windowId;
+
+    // 5. If hold, stop here
+    if (decision.action === 'hold') {
+      return this.finishCycle(cycle, startMs, 'agent_hold', {
+        windowId,
+        regime: regime.regime,
+        edge: edge.direction,
+        reasoning: decision.reasoning,
+      });
+    }
+
+    // 6-7. Risk evaluation + execution
+    return this.executeAfterApproval(cycle, startMs, windowId, decision, supervisorResult, features, executionMode);
+  }
+
+  // ─── Shared: Risk Evaluation + Execution ─────────────────────────────────────
+
+  private async executeAfterApproval(
+    cycle: number,
+    startMs: number,
+    windowId: string,
+    decision: ServiceResponse,
+    supervisorResult: ServiceResponse,
+    features: ServiceResponse,
+    executionMode: string,
+  ): Promise<PipelineCycleResult> {
+    // Risk evaluation
+    const riskState: ServiceResponse = await this.fetchJson(`${RISK_SERVICE_URL}/api/v1/risk/state`);
+    const riskEval: ServiceResponse = await this.postJson(`${RISK_SERVICE_URL}/api/v1/risk/evaluate`, {
+      windowId,
+      agentDecisionId: supervisorResult.id,
+      proposal: decision,
+      features,
+      balanceUsd: INITIAL_BALANCE_USD,
+      openExposureUsd: riskState?.state?.openPositionUsd ?? 0,
+    });
+
+    if (!riskEval || !riskEval.approved) {
+      return this.finishCycle(cycle, startMs, 'risk_rejected', {
+        windowId,
+        action: decision.action,
+        rejectionReasons: riskEval?.rejectionReasons ?? ['Risk service unavailable'],
+      });
+    }
+
+    this.logger.log(`[${windowId}] Risk approved: $${riskEval.approvedSizeUsd}`);
+
+    // Execute trade
+    const side = decision.action === 'buy_up' ? 'UP' : 'DOWN';
+    const executionEndpoint =
+      executionMode === 'live' ? 'live-order' : 'paper-order';
+
+    // Fetch market data for tokenIds (needed for live trading)
+    let tokenId: string | undefined;
+    let conditionId: string | undefined;
+    if (executionMode === 'live') {
+      const marketData: ServiceResponse = await this.fetchJson(`${MARKET_SERVICE_URL}/api/v1/market/active`);
+      if (marketData) {
+        tokenId = side === 'UP' ? marketData.upTokenId : marketData.downTokenId;
+        conditionId = marketData.conditionId;
+      }
+    }
+
+    const order: ServiceResponse = await this.postJson(
+      `${EXECUTION_SERVICE_URL}/api/v1/execution/${executionEndpoint}`,
+      {
+        marketId: windowId,
+        side,
+        mode: executionMode,
+        sizeUsd: riskEval.approvedSizeUsd,
+        maxEntryPrice: side === 'UP'
+          ? (features.book?.upAsk > 0 ? features.book.upAsk : 0.55)
+          : (features.book?.downAsk > 0 ? features.book.downAsk : 0.55),
+        mustExecuteBeforeSec: Math.max(Math.floor(((features.market?.remainingMs as number) ?? 60000) / 1000) - 15, 5),
+        source: 'pipeline-orchestrator',
+        windowId,
+        riskDecisionId: riskEval.id,
+        startPrice: features.market?.startPrice ?? features.price?.currentPrice ?? 0,
+        tokenId,
+        conditionId,
+      },
+    );
+
+    if (!order) {
+      return this.finishCycle(cycle, startMs, 'error', { windowId, reason: 'Execution failed' });
+    }
+
+    this.lastTradeWindowId = windowId;
+    this.logger.log(
+      `[${windowId}] Order executed: ${order.id} ${side} $${riskEval.approvedSizeUsd} (${executionMode})`,
+    );
+
+    return this.finishCycle(cycle, startMs, 'executed', {
+      windowId,
+      orderId: order.id,
+      side,
+      sizeUsd: riskEval.approvedSizeUsd,
+      mode: executionMode,
+      confidence: decision.confidence,
+    });
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -383,6 +796,14 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(`Cycle #${cycle}: TRADE EXECUTED in ${result.durationMs}ms`);
     } else if (stage === 'risk_rejected') {
       this.logger.warn(`Cycle #${cycle}: RISK REJECTED`, JSON.stringify(details));
+    } else if (stage === 'precomputed') {
+      this.logger.log(`Cycle #${cycle}: PRE-COMPUTED in ${result.durationMs}ms`);
+    } else if (stage === 'gatekeeper_validated') {
+      this.logger.log(`Cycle #${cycle}: GATEKEEPER VALIDATED in ${result.durationMs}ms`);
+    } else if (stage === 'gatekeeper_invalidated') {
+      this.logger.warn(`Cycle #${cycle}: GATEKEEPER INVALIDATED`, JSON.stringify(details));
+    } else if (stage === 'validator_rejected') {
+      this.logger.warn(`Cycle #${cycle}: VALIDATOR REJECTED`, JSON.stringify(details));
     }
 
     return result;

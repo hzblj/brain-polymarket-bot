@@ -47,7 +47,7 @@ const DEFAULT_STRATEGY_VERSION_CONFIG: StrategyVersionConfig = {
   agentProfile: {
     regimeAgentProfile: 'regime-default-v1',
     edgeAgentProfile: 'edge-momentum-v1',
-    supervisorAgentProfile: 'supervisor-conservative-v1',
+    supervisorAgentProfile: 'supervisor-momentum-v1',
   },
   decisionPolicy: {
     allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'],
@@ -93,9 +93,9 @@ const MEAN_REVERSION_VERSION_CONFIG: StrategyVersionConfig = {
     windowSec: 300,
   },
   agentProfile: {
-    regimeAgentProfile: 'regime-mean-reversion-v1',
-    edgeAgentProfile: 'edge-reversion-v1',
-    supervisorAgentProfile: 'supervisor-aggressive-v1',
+    regimeAgentProfile: 'regime-default-v1',
+    edgeAgentProfile: 'edge-momentum-v1',
+    supervisorAgentProfile: 'supervisor-momentum-v1',
   },
   decisionPolicy: {
     allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'],
@@ -141,9 +141,9 @@ const BASIS_ARB_VERSION_CONFIG: StrategyVersionConfig = {
     windowSec: 300,
   },
   agentProfile: {
-    regimeAgentProfile: 'regime-basis-v1',
-    edgeAgentProfile: 'edge-basis-v1',
-    supervisorAgentProfile: 'supervisor-speed-v1',
+    regimeAgentProfile: 'regime-default-v1',
+    edgeAgentProfile: 'edge-momentum-v1',
+    supervisorAgentProfile: 'supervisor-momentum-v1',
   },
   decisionPolicy: {
     allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'],
@@ -189,9 +189,9 @@ const VOL_FADE_VERSION_CONFIG: StrategyVersionConfig = {
     windowSec: 300,
   },
   agentProfile: {
-    regimeAgentProfile: 'regime-vol-v1',
-    edgeAgentProfile: 'edge-vol-fade-v1',
-    supervisorAgentProfile: 'supervisor-patient-v1',
+    regimeAgentProfile: 'regime-default-v1',
+    edgeAgentProfile: 'edge-momentum-v1',
+    supervisorAgentProfile: 'supervisor-momentum-v1',
   },
   decisionPolicy: {
     allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'],

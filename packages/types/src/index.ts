@@ -302,7 +302,7 @@ export interface FeaturePayload {
 
 // ─── Agent Types ─────────────────────────────────────────────────────────────
 
-export type AgentType = 'regime' | 'edge' | 'supervisor';
+export type AgentType = 'regime' | 'edge' | 'supervisor' | 'validator' | 'gatekeeper';
 
 export type Regime = 'trending_up' | 'trending_down' | 'mean_reverting' | 'volatile' | 'quiet';
 
@@ -330,6 +330,17 @@ export interface SupervisorOutput {
   reasoning: string;
   regimeSummary: string;
   edgeSummary: string;
+}
+
+export interface ValidatorOutput {
+  valid: boolean;
+  issues: string[];
+}
+
+export interface GatekeeperOutput {
+  validated: boolean;
+  adjustedSizeUsd?: number;
+  reasoning: string;
 }
 
 export interface AgentDecision {

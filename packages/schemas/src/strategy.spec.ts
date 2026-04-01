@@ -15,7 +15,7 @@ describe('Strategy Schemas', () => {
     agentProfile: {
       regimeAgentProfile: 'regime-default-v1',
       edgeAgentProfile: 'edge-momentum-v1',
-      supervisorAgentProfile: 'supervisor-conservative-v1',
+      supervisorAgentProfile: 'supervisor-momentum-v1',
     },
     decisionPolicy: {
       allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'],

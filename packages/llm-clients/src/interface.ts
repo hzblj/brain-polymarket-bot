@@ -17,12 +17,19 @@ export interface LlmResponse<T> {
   outputTokens: number;
 }
 
+export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
+
+export interface LlmEvaluateOptions {
+  model?: string;
+  reasoningEffort?: ReasoningEffort;
+}
+
 export interface LlmClient {
   readonly provider: string;
   evaluate<T>(
     systemPrompt: string,
     userPrompt: string,
     schema: z.ZodSchema<T>,
-    options?: { model?: string },
+    options?: LlmEvaluateOptions,
   ): Promise<LlmResponse<T>>;
 }

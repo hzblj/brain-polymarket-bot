@@ -132,6 +132,8 @@ function buildFetchMock(overrides: Record<string, () => Promise<unknown>> = {}) 
 
     // Default healthy responses for the full happy-path
     if (url.includes('/health')) return healthOk();
+    if (url.includes('/config/strategy')) return serviceOk({ agentProfile: null });
+    if (url.includes('/api/v1/config')) return serviceOk({ trading: { mode: 'paper' } });
     if (url.includes('/features/current')) return serviceOk(mockFeatures);
     if (url.includes('/risk/state')) return serviceOk(mockRiskState);
     if (url.includes('/regime/evaluate')) return serviceOk(mockRegimeResult);
@@ -153,7 +155,11 @@ describe('PipelineService', () => {
   let eventBus: EventBus;
 
   beforeEach(() => {
-    vi.useFakeTimers({ shouldAdvanceTime: false });
+    // Set time to 2 seconds after a 5-minute window boundary so that
+    // secondsToNextWindow is ~298s — well outside the pre-compute window (45s).
+    // This ensures tests hit Branch C (reactive pipeline) by default.
+    const windowBoundary = Math.floor(Date.now() / 300_000) * 300_000;
+    vi.useFakeTimers({ shouldAdvanceTime: false, now: windowBoundary + 2_000 });
     eventBus = new EventBus();
     service = new PipelineService(eventBus);
     // Do NOT call onModuleInit — we avoid the interval loop in tests
@@ -296,7 +302,7 @@ describe('PipelineService', () => {
       // Second cycle with the same windowId should be skipped
       const second = await service.triggerOnce();
       expect(second.stage).toBe('skipped');
-      expect(second.details).toHaveProperty('reason', 'Already traded this window');
+      expect(second.details).toHaveProperty('reason', 'Already evaluated this window');
     });
   });
 

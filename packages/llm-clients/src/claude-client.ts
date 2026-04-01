@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { BrainLoggerService } from '@brain/logger';
 import { Injectable } from '@nestjs/common';
 import type { z } from 'zod';
-import type { LlmClient, LlmClientOptions, LlmResponse } from './interface';
+import type { LlmClient, LlmClientOptions, LlmEvaluateOptions, LlmResponse } from './interface';
 import { zodToJsonSchema } from './zod-to-json';
 
 @Injectable()
@@ -33,7 +33,7 @@ export class ClaudeClient implements LlmClient {
     systemPrompt: string,
     userPrompt: string,
     schema: z.ZodSchema<T>,
-    options?: { model?: string },
+    options?: LlmEvaluateOptions,
   ): Promise<LlmResponse<T>> {
     const startTime = Date.now();
     const jsonSchema = zodToJsonSchema(schema);

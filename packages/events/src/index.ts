@@ -34,6 +34,12 @@ export interface BrainEventMap {
   // Agent gateway events
   'agent.decision.made': { windowId: string; action: string; sizeUsd: number; confidence: number };
 
+  // Pipeline pre-computation events
+  'pipeline.precomputed': { targetWindowSlug: string; action: string; sizeUsd: number; confidence: number; durationMs: number };
+  'validator.rejected': { windowId: string; issues: string[] };
+  'gatekeeper.validated': { windowId: string; adjustedSizeUsd?: number; reasoning: string };
+  'gatekeeper.invalidated': { windowId: string; reasoning: string };
+
   // Risk events
   'risk.approved': { windowId: string; agentDecisionId: string; approved: boolean; approvedSizeUsd: number; rejectionReasons: string[] };
   'risk.rejected': { windowId: string; agentDecisionId: string; approved: boolean; approvedSizeUsd: number; rejectionReasons: string[] };

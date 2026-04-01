@@ -577,7 +577,7 @@ describe('AgentGatewayService', () => {
     it('returns provider, model, and cache info', async () => {
       const context = await service.getContext();
       expect(context.provider).toBe('openai');
-      expect(context.model).toBe('gpt-4o');
+      expect(context.model).toBe('gpt-5.4');
       expect(context.cacheSize).toBe(0);
       expect(context.tracesInMemory).toBe(0);
     });
@@ -783,36 +783,6 @@ describe('AgentGatewayService', () => {
   // ─── Agent Profile Selection ──────────────────────────────────────────────
 
   describe('agent profile selection', () => {
-    it('uses mean-reversion regime prompt when profile is specified', async () => {
-      const trace = await service.evaluateRegime({
-        windowId: 'win-profile-001',
-        features: makeFeaturePayload(),
-        agentProfile: 'regime-mean-reversion-v1',
-      });
-
-      expect(trace.systemPrompt).toContain('overextended moves and mean-reversion');
-    });
-
-    it('uses basis regime prompt when profile is specified', async () => {
-      const trace = await service.evaluateRegime({
-        windowId: 'win-profile-002',
-        features: makeFeaturePayload({ eventTime: 1700000002000 }),
-        agentProfile: 'regime-basis-v1',
-      });
-
-      expect(trace.systemPrompt).toContain('cross-venue basis analysis');
-    });
-
-    it('uses vol-fade regime prompt when profile is specified', async () => {
-      const trace = await service.evaluateRegime({
-        windowId: 'win-profile-003',
-        features: makeFeaturePayload({ eventTime: 1700000003000 }),
-        agentProfile: 'regime-vol-v1',
-      });
-
-      expect(trace.systemPrompt).toContain('volatility analysis');
-    });
-
     it('uses default regime prompt when no profile is specified', async () => {
       const trace = await service.evaluateRegime({
         windowId: 'win-profile-004',
@@ -820,7 +790,6 @@ describe('AgentGatewayService', () => {
       });
 
       expect(trace.systemPrompt).toContain('market regime classification agent for a Polymarket');
-      expect(trace.systemPrompt).not.toContain('overextended');
     });
 
     it('falls back to default prompt for unknown profile', async () => {
@@ -831,78 +800,6 @@ describe('AgentGatewayService', () => {
       });
 
       expect(trace.systemPrompt).toContain('market regime classification agent for a Polymarket');
-    });
-
-    it('uses reversion edge prompt when profile is specified', async () => {
-      const trace = await service.evaluateEdge({
-        windowId: 'win-profile-010',
-        features: makeFeaturePayload({ eventTime: 1700000010000 }),
-        agentProfile: 'edge-reversion-v1',
-      });
-
-      expect(trace.systemPrompt).toContain('mean-reversion pricing');
-    });
-
-    it('uses basis edge prompt when profile is specified', async () => {
-      const trace = await service.evaluateEdge({
-        windowId: 'win-profile-011',
-        features: makeFeaturePayload({ eventTime: 1700000011000 }),
-        agentProfile: 'edge-basis-v1',
-      });
-
-      expect(trace.systemPrompt).toContain('cross-venue basis arbitrage');
-    });
-
-    it('uses vol-fade edge prompt when profile is specified', async () => {
-      const trace = await service.evaluateEdge({
-        windowId: 'win-profile-012',
-        features: makeFeaturePayload({ eventTime: 1700000012000 }),
-        agentProfile: 'edge-vol-fade-v1',
-      });
-
-      expect(trace.systemPrompt).toContain('volatility premium harvesting');
-    });
-
-    it('uses aggressive supervisor prompt when profile is specified', async () => {
-      const trace = await service.evaluateSupervisor({
-        windowId: 'win-profile-020',
-        features: makeFeaturePayload({ eventTime: 1700000020000 }),
-        regime: makeRegimeOutput(),
-        edge: makeEdgeOutput(),
-        riskState: makeRiskState(),
-        riskConfig: makeRiskConfig(),
-        agentProfile: 'supervisor-aggressive-v1',
-      });
-
-      expect(trace.systemPrompt).toContain('mean-reversion strategy');
-    });
-
-    it('uses speed supervisor prompt when profile is specified', async () => {
-      const trace = await service.evaluateSupervisor({
-        windowId: 'win-profile-021',
-        features: makeFeaturePayload({ eventTime: 1700000021000 }),
-        regime: makeRegimeOutput(),
-        edge: makeEdgeOutput(),
-        riskState: makeRiskState(),
-        riskConfig: makeRiskConfig(),
-        agentProfile: 'supervisor-speed-v1',
-      });
-
-      expect(trace.systemPrompt).toContain('basis arbitrage strategy');
-    });
-
-    it('uses patient supervisor prompt when profile is specified', async () => {
-      const trace = await service.evaluateSupervisor({
-        windowId: 'win-profile-022',
-        features: makeFeaturePayload({ eventTime: 1700000022000 }),
-        regime: makeRegimeOutput(),
-        edge: makeEdgeOutput(),
-        riskState: makeRiskState(),
-        riskConfig: makeRiskConfig(),
-        agentProfile: 'supervisor-patient-v1',
-      });
-
-      expect(trace.systemPrompt).toContain('volatility fade strategy');
     });
   });
 });

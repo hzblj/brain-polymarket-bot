@@ -77,14 +77,11 @@ Polymarket BTC 5-minute Up/Down trading bot. Monorepo s 13 NestJS microservices,
 
 ## Strategie
 
-Kazda strategie ma vlastni sadu system promptu pro regime/edge/supervisor agenty. Vyber strategie se ridi pres `strategy-assignment` v config-service.
+Kazda strategie ma vlastni sadu system promptu pro regime/edge/supervisor agenty. Vyber strategie se ridi pres `strategy-assignment` v config-service. Registry v agent-gateway podporuji vicero profilu — zatim je aktivni jen default sada.
 
 | Strategie | Profily | Styl | Kdy obchoduje |
 |-----------|---------|------|---------------|
-| **Momentum** (default) | regime-default-v1, edge-momentum-v1, supervisor-conservative-v1 | Trendovy | Silny momentum + edge > 5% + regime trending |
-| **Mean Reversion** | regime-mean-reversion-v1, edge-reversion-v1, supervisor-aggressive-v1 | Citadel/Renaissance | Overextended move + vysoka meanReversionStrength + fade |
-| **Basis Arbitrage** | regime-basis-v1, edge-basis-v1, supervisor-speed-v1 | Jump/HFT | Divergence Binance vs Polymarket + exchange leads |
-| **Vol Fade** | regime-vol-v1, edge-vol-fade-v1, supervisor-patient-v1 | Wintermute/MM | Implied vol > realized vol + underpriced token |
+| **Momentum** (default) | regime-default-v1, edge-momentum-v1, supervisor-momentum-v1 | Trendovy | Silny momentum + edge > 5% + regime trending |
 
 ### Datove vstupy pro agenty
 
