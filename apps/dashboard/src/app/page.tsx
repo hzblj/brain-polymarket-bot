@@ -83,9 +83,9 @@ function BtcPriceChart({ startPrice }: { startPrice: number }) {
   const lastPrice = dataPoints[dataPoints.length - 1]?.resolverPrice ?? 0;
 
   // Add 5 min of empty future points so chart has right-side breathing room
-  const lastTime = history[history.length - 1]?.time ?? Date.now();
+  const lastTimeMs = new Date(history[history.length - 1]?.time ?? Date.now()).getTime();
   const futurePoints = Array.from({ length: 20 }, (_, i) => ({
-    label: new Date(lastTime + (i + 1) * 15_000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    label: new Date(lastTimeMs + (i + 1) * 15_000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
     resolverPrice: undefined as number | undefined,
   }));
   const chartData = [...dataPoints, ...futurePoints];
