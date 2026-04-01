@@ -135,7 +135,12 @@ function BtcPriceChart({ startPrice }: { startPrice: number }) {
               stroke={CHART_COLORS.startLine}
               strokeDasharray="4 4"
               strokeWidth={1}
-              label={{ value: 'Start', fill: CHART_COLORS.startLine, fontSize: 10, position: 'right' }}
+              label={({ viewBox }: { viewBox: { x: number; y: number; width: number } }) => (
+                <g>
+                  <rect x={viewBox.x + viewBox.width + 4} y={viewBox.y - 10} width={32} height={20} rx={4} fill={CHART_COLORS.startLine} opacity={0.15} />
+                  <text x={viewBox.x + viewBox.width + 20} y={viewBox.y + 4} textAnchor="middle" fill={CHART_COLORS.startLine} fontSize={10}>start</text>
+                </g>
+              )}
             />
           )}
           <Line
