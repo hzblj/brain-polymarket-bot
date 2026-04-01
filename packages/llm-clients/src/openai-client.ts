@@ -52,7 +52,7 @@ export class OpenAIClient implements LlmClient {
           model: useModel,
           instructions: systemPrompt,
           input: [{ role: 'user', content: userPrompt }],
-          temperature: this.temperature,
+          ...(/^(o1|o3|o4|gpt-5)/.test(useModel) ? {} : { temperature: this.temperature }),
           ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
           max_output_tokens: 2048,
           tools: [
