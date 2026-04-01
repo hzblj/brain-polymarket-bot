@@ -97,9 +97,9 @@ function BtcPriceChart({ startPrice }: { startPrice: number }) {
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
           BTC/USD
         </h2>
-        <div className="flex items-center gap-3 text-xs">
+        <div className="flex items-baseline gap-3 text-xs">
           <span className="text-text-muted">Start: ${formatPrice(startPrice, 2)}</span>
-          <span className={isUp ? 'text-positive font-bold' : 'text-negative font-bold'}>
+          <span className={isUp ? 'text-positive font-medium' : 'text-negative font-medium'}>
             Now: ${formatPrice(lastPrice, 2)} {isUp ? '▲' : '▼'}
           </span>
         </div>
