@@ -433,6 +433,16 @@ export class DashboardService {
     const sumWins = trades.filter((t) => num(t.pnlUsd) > 0).reduce((s, t) => s + num(t.pnlUsd), 0);
     const sumLosses = Math.abs(trades.filter((t) => num(t.pnlUsd) < 0).reduce((s, t) => s + num(t.pnlUsd), 0));
 
+    // Compute current streaks (most recent trades first)
+    let winStreak = 0;
+    let lossStreak = 0;
+    for (const t of trades) {
+      const outcome = str(t.outcome);
+      if (outcome === 'win') { if (lossStreak === 0) winStreak++; else break; }
+      else if (outcome === 'loss') { if (winStreak === 0) lossStreak++; else break; }
+      else break;
+    }
+
     return {
       realizedPnl,
       unrealizedPnl: num(val(riskState, 'state', 'openPositionUsd') as number),
@@ -444,6 +454,8 @@ export class DashboardService {
       profitFactor: sumLosses > 0 ? sumWins / sumLosses : 0,
       avgPnl: tradeCount > 0 ? realizedPnl / tradeCount : 0,
       maxDrawdown: num(val(riskState, 'state', 'dailyPnlUsd') as number),
+      winStreak,
+      lossStreak,
     };
   }
 

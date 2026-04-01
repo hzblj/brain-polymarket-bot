@@ -96,6 +96,8 @@ export async function getTodayMetrics() {
     profitFactor: number;
     avgPnl: number;
     maxDrawdown: number;
+    winStreak: number;
+    lossStreak: number;
   }>('/api/v1/dashboard/metrics');
 }
 

@@ -263,6 +263,18 @@ export default function OverviewPage() {
               : "default"
           }
         />
+        <KpiCard
+          label="Win Streak"
+          value={today?.winStreak ?? 0}
+          icon={TrendingUp}
+          variant={today?.winStreak ? "positive" : "default"}
+        />
+        <KpiCard
+          label="Loss Streak"
+          value={today?.lossStreak ?? 0}
+          icon={TrendingUp}
+          variant={today?.lossStreak ? "negative" : "default"}
+        />
       </div>
 
       {/* ── Row 1: Pipeline + Chart + Market Snapshot ─────────────── */}
