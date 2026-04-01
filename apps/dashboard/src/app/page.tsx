@@ -189,7 +189,6 @@ export default function OverviewPage() {
           label="Active Market"
           value={s?.activeMarket?.asset ?? "—"}
           icon={Crosshair}
-          subtitle={s?.activeMarket?.label}
         />
         <KpiCard
           label="Time To Close"
@@ -200,7 +199,6 @@ export default function OverviewPage() {
           label="Strategy"
           value={s?.currentStrategy?.key ?? "—"}
           icon={Layers}
-          subtitle={s?.currentStrategy ? `v${s.currentStrategy.version}` : undefined}
         />
         <KpiCard
           label="Risk State"

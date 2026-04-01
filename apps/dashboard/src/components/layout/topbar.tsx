@@ -62,10 +62,8 @@ export function Topbar() {
         </span>
 
         <span className="text-[10px] text-text-muted px-1.5 py-0.5 bg-surface-2/50 rounded">
-          {market}
+          BTC 5m Up/Down
         </span>
-
-        <span className="text-[10px] text-text-secondary">{strategy}</span>
       </div>
 
       {/* Right */}
