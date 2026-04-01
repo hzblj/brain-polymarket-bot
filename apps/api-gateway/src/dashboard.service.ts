@@ -349,7 +349,7 @@ export class DashboardService {
         return {
           label: 'Eval',
           status: rawEval ? 'success' as const : 'pending' as const,
-          value: rawEval ? `patch → ${str(evalOutput?.targetAgent as string, '?')}` : 'waiting for loss',
+          value: rawEval ? `patch → ${str(evalOutput?.targetAgent as string, '?')}` : 'Waiting...',
           confidence: evalOutput ? num(evalOutput.confidence as number) : null,
           timestamp: rawEval ? str(rawEval.createdAt as string) : null,
           detail: evalOutput ? {
