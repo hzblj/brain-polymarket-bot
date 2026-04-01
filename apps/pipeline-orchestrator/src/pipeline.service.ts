@@ -74,6 +74,9 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
   private lastRoutingNoMatchWindow: string | null = null;
   private lastRoutingNoMatchTime = 0;
 
+  // Dedup: track windows currently being evaluated in reactive pipeline
+  private reactiveEvaluatingWindow: string | null = null;
+
   constructor(@Inject(EventBus) private readonly eventBus: EventBus) {}
 
   onModuleInit(): void {
@@ -121,6 +124,9 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
   }
 
   async triggerOnce(): Promise<PipelineCycleResult> {
+    if (this.running) {
+      return { cycle: this.cycleCount, timestamp: new Date().toISOString(), stage: 'skipped', details: { reason: 'Cycle already running' }, durationMs: 0 };
+    }
     return this.runCycle();
   }
 
@@ -605,9 +611,19 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
+    // Dedup: prevent parallel reactive evaluations for the same window
+    if (this.reactiveEvaluatingWindow === windowId) {
+      return this.finishCycle(cycle, startMs, 'skipped', {
+        windowId,
+        reason: 'Reactive evaluation already in progress for this window',
+      });
+    }
+    this.reactiveEvaluatingWindow = windowId;
+
     // 2. Get risk state
     const riskState: ServiceResponse = await this.fetchJson(`${RISK_SERVICE_URL}/api/v1/risk/state`);
     if (!riskState) {
+      this.reactiveEvaluatingWindow = null;
       return this.finishCycle(cycle, startMs, 'error', { reason: 'Risk service unavailable' });
     }
 
@@ -618,6 +634,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (!regimeResult) {
+      this.reactiveEvaluatingWindow = null;
       return this.finishCycle(cycle, startMs, 'error', { windowId, reason: 'Regime evaluation failed' });
     }
 
@@ -628,6 +645,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
     const selectedStrategy = this.routeToStrategy(allStrategies, regime.regime);
     if (!selectedStrategy) {
       // Do NOT set lastTradeWindowId — regime may change within the window, allow retry after cooldown
+      this.reactiveEvaluatingWindow = null;
       this.lastRoutingNoMatchWindow = windowId;
       this.lastRoutingNoMatchTime = Date.now();
       return this.finishCycle(cycle, startMs, 'agent_hold', {
