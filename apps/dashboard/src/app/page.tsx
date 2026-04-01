@@ -84,9 +84,9 @@ function BtcPriceChart({ startPrice }: { startPrice: number }) {
   const isUp = lastPrice > startPrice;
 
   return (
-    <div className="rounded-lg border border-border bg-surface-1 p-4">
-      <div className="flex items-center justify-between mb-2">
-        <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
+    <div className="rounded-lg border border-border bg-surface-1 px-2 pt-2 pb-0">
+      <div className="flex items-center justify-between mb-1 px-2">
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
           BTC/USD
         </h2>
         <div className="flex items-center gap-3 text-xs">
@@ -96,8 +96,8 @@ function BtcPriceChart({ startPrice }: { startPrice: number }) {
           </span>
         </div>
       </div>
-      <ResponsiveContainer width="100%" height={180}>
-        <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 4, left: 8 }}>
+      <ResponsiveContainer width="100%" height={160}>
+        <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} />
           <XAxis
             dataKey="label"
