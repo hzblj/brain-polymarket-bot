@@ -66,7 +66,12 @@ function str(v: unknown, fallback = ''): string {
 
 function extractOutput(trace: Rec | null): Rec | null {
   if (!trace) return null;
-  return (trace.parsedOutput ?? trace.output ?? null) as Rec | null;
+  const raw = trace.parsedOutput ?? trace.output ?? null;
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw) as Rec; } catch { return null; }
+  }
+  return raw as Rec;
 }
 
 function traceToStep(label: string, trace: Rec | null, valueKey: string) {

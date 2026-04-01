@@ -13,7 +13,7 @@ const MARKET_SERVICE_URL = process.env.MARKET_SERVICE_URL ?? `http://${LOCAL_HOS
 
 const PIPELINE_INTERVAL_MS = Number(process.env.PIPELINE_INTERVAL_MS) || 2_000;
 const INITIAL_BALANCE_USD = Number(process.env.INITIAL_BALANCE_USD) || 100;
-const PRE_COMPUTE_LEAD_TIME_SEC = Number(process.env.PRE_COMPUTE_LEAD_TIME_SEC) || 45;
+const PRE_COMPUTE_LEAD_TIME_SEC = Number(process.env.PRE_COMPUTE_LEAD_TIME_SEC) || 90;
 const WINDOW_DURATION_SEC = 300; // 5 minutes
 
 // ─── Pipeline state ─────────────────────────────────────────────────────────
