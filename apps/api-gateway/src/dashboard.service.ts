@@ -262,7 +262,7 @@ export class DashboardService {
       : null;
 
     // Post-agent steps (validator/gatekeeper/risk/execution/eval): show hold or waiting
-    const postAgentPendingValue = preComputedHold ? 'hold (skipped)'
+    const postAgentPendingValue = preComputedHold ? 'skipped'
       : isPreComputed ? 'Waiting...'
       : pendingValue;
 
