@@ -196,11 +196,6 @@ export default function OverviewPage() {
           icon={Clock}
         />
         <KpiCard
-          label="Strategy"
-          value={s?.currentStrategy?.key ?? "—"}
-          icon={Layers}
-        />
-        <KpiCard
           label="Risk State"
           value={s?.killSwitch ? "Kill Switch ON" : "Trading Enabled"}
           icon={Shield}
