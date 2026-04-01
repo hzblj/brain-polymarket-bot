@@ -24,6 +24,8 @@ import {
   REGIME_SYSTEM_PROMPT,
   EDGE_SYSTEM_PROMPT,
   SUPERVISOR_SYSTEM_PROMPT,
+  EDGE_MEAN_REVERSION_PROMPT,
+  SUPERVISOR_MEAN_REVERSION_PROMPT,
   VALIDATOR_SYSTEM_PROMPT,
   GATEKEEPER_SYSTEM_PROMPT,
   EVAL_SYSTEM_PROMPT,
@@ -37,10 +39,12 @@ export const REGIME_PROMPT_REGISTRY: Record<string, string> = {
 
 export const EDGE_PROMPT_REGISTRY: Record<string, string> = {
   'edge-momentum-v1': EDGE_SYSTEM_PROMPT,
+  'edge-mean-reversion-v1': EDGE_MEAN_REVERSION_PROMPT,
 };
 
 export const SUPERVISOR_PROMPT_REGISTRY: Record<string, string> = {
   'supervisor-momentum-v1': SUPERVISOR_SYSTEM_PROMPT,
+  'supervisor-mean-reversion-v1': SUPERVISOR_MEAN_REVERSION_PROMPT,
 };
 
 export function resolvePrompt(

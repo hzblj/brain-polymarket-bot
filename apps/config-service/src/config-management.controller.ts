@@ -91,6 +91,12 @@ export class ConfigManagementController {
     return { ok: true, data: strategy };
   }
 
+  @Get('strategies/active')
+  async getAllActiveStrategies() {
+    const all = await this.strategyService.getAllActiveStrategies();
+    return { ok: true, data: all };
+  }
+
   @Post('strategy')
   @HttpCode(200)
   async switchStrategy(@Body() body: { marketConfigId: string; strategyVersionId: string }) {

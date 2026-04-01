@@ -221,10 +221,10 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      // 0c. Check dependency health + fetch strategy context in parallel
-      const [health, strategyContext]: [{ ok: boolean; down: string[] }, ServiceResponse | null] = await Promise.all([
+      // 0c. Check dependency health + fetch all active strategies in parallel
+      const [health, allStrategiesRaw]: [{ ok: boolean; down: string[] }, ServiceResponse | null] = await Promise.all([
         this.checkDependencyHealth(),
-        this.fetchJson(`${CONFIG_SERVICE_URL}/api/v1/config/strategy`).catch(() => null),
+        this.fetchJson(`${CONFIG_SERVICE_URL}/api/v1/config/strategies/active`).catch(() => null),
       ]);
       if (!health.ok) {
         this.logger.warn(`Dependency health check failed: ${health.down.join(', ')}`);
@@ -234,15 +234,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
         });
       }
 
-      // 0d. Sync risk service config with strategy riskProfile
-      if (strategyContext?.riskProfile) {
-        await this.postJson(`${RISK_SERVICE_URL}/api/v1/risk/config`, strategyContext.riskProfile).catch(() => null);
-      }
-
-      // 0e. Override execution mode from strategy if set
-      if (strategyContext?.executionPolicy?.mode) {
-        executionMode = strategyContext.executionPolicy.mode;
-      }
+      const allStrategies: ServiceResponse[] = allStrategiesRaw?.data ?? allStrategiesRaw ?? [];
 
       // ─── Window timing & cache cleanup ───────────────────────────────────────
       const timing = this.getWindowTiming();
@@ -266,7 +258,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
         this.preComputedDecision?.targetWindowSlug !== timing.nextWindowSlug;
 
       if (shouldPreCompute) {
-        return this.runPreCompute(cycle, startMs, timing.nextWindowSlug, timing.nextWindowStartSec, executionMode, configData, strategyContext);
+        return this.runPreCompute(cycle, startMs, timing.nextWindowSlug, timing.nextWindowStartSec, executionMode, configData, allStrategies);
       }
 
       // ─── BRANCH B: Gatekeeper for current window ──────────────────────────
@@ -279,7 +271,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       }
 
       // ─── BRANCH C: Fallback reactive pipeline ─────────────────────────────
-      return this.runReactivePipeline(cycle, startMs, executionMode, configData, strategyContext);
+      return this.runReactivePipeline(cycle, startMs, executionMode, configData, allStrategies);
     } catch (error) {
       return this.finishCycle(cycle, startMs, 'error', {
         message: (error as Error).message,
@@ -298,60 +290,77 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
     nextWindowStartSec: number,
     _executionMode: string,
     configData: ServiceResponse,
-    strategyContext: ServiceResponse | null,
+    allStrategies: ServiceResponse[],
   ): Promise<PipelineCycleResult> {
     this.preComputingForWindow = nextWindowSlug;
     this.logger.log(`Pre-computing for window ${nextWindowSlug} (starts in ${nextWindowStartSec - Math.floor(Date.now() / 1000)}s)`);
 
-    // Fetch current features (will be ~30-40s old by window open, but that's fine for heavy thinking)
     const features: ServiceResponse = await this.fetchJson(`${FEATURE_ENGINE_URL}/api/v1/features/current`);
     if (!features) {
       this.preComputingForWindow = null;
       return this.finishCycle(cycle, startMs, 'no_features', { reason: 'Feature engine returned no data (pre-compute)' });
     }
 
-    // Fetch risk state
     const riskState: ServiceResponse = await this.fetchJson(`${RISK_SERVICE_URL}/api/v1/risk/state`);
     if (!riskState) {
       this.preComputingForWindow = null;
       return this.finishCycle(cycle, startMs, 'error', { reason: 'Risk service unavailable (pre-compute)' });
     }
 
-    const agentProfile = strategyContext?.agentProfile;
-
-    // Call regime + edge agents in parallel (the slow part — GPT-5.4)
     const windowId = nextWindowSlug;
-    const [regimeResult, edgeResult]: [ServiceResponse, ServiceResponse] = await Promise.all([
-      this.postJson(`${AGENT_GATEWAY_URL}/api/v1/agent/regime/evaluate`, {
-        windowId,
-        features,
-        agentProfile: agentProfile?.regimeAgentProfile,
-      }),
-      this.postJson(`${AGENT_GATEWAY_URL}/api/v1/agent/edge/evaluate`, {
-        windowId,
-        features,
-        agentProfile: agentProfile?.edgeAgentProfile,
-      }),
-    ]);
 
-    if (!regimeResult || !edgeResult) {
+    // Step 1: Call regime agent first (shared across strategies)
+    const regimeResult: ServiceResponse = await this.postJson(`${AGENT_GATEWAY_URL}/api/v1/agent/regime/evaluate`, {
+      windowId,
+      features,
+    });
+
+    if (!regimeResult) {
       this.preComputingForWindow = null;
-      return this.finishCycle(cycle, startMs, 'error', {
-        windowId,
-        reason: 'Agent evaluation failed (pre-compute)',
-        regimeOk: !!regimeResult,
-        edgeOk: !!edgeResult,
-      });
+      return this.finishCycle(cycle, startMs, 'error', { windowId, reason: 'Regime evaluation failed (pre-compute)' });
     }
 
     const regime = regimeResult.parsedOutput;
-    const edge = edgeResult.parsedOutput;
+    this.logger.log(`[pre-compute:${windowId}] Regime: ${regime.regime} (${regime.confidence})`);
 
+    // Step 2: Route to strategy based on regime
+    const selectedStrategy = this.routeToStrategy(allStrategies, regime.regime);
+    if (!selectedStrategy) {
+      this.preComputingForWindow = null;
+      return this.finishCycle(cycle, startMs, 'agent_hold', {
+        windowId,
+        regime: regime.regime,
+        reason: `No strategy matches regime '${regime.regime}'`,
+      });
+    }
+
+    this.logger.log(`[pre-compute:${windowId}] Routed to strategy: ${selectedStrategy.strategyKey}`);
+
+    // Sync risk profile for selected strategy
+    if (selectedStrategy.riskProfile) {
+      await this.postJson(`${RISK_SERVICE_URL}/api/v1/risk/config`, selectedStrategy.riskProfile).catch(() => null);
+    }
+
+    const agentProfile = selectedStrategy.agentProfile;
+
+    // Step 3: Call edge agent with strategy-specific profile
+    const edgeResult: ServiceResponse = await this.postJson(`${AGENT_GATEWAY_URL}/api/v1/agent/edge/evaluate`, {
+      windowId,
+      features,
+      agentProfile: agentProfile?.edgeAgentProfile,
+    });
+
+    if (!edgeResult) {
+      this.preComputingForWindow = null;
+      return this.finishCycle(cycle, startMs, 'error', { windowId, reason: 'Edge evaluation failed (pre-compute)' });
+    }
+
+    const edge = edgeResult.parsedOutput;
     this.logger.log(
-      `[pre-compute:${windowId}] Regime: ${regime.regime} (${regime.confidence}), Edge: ${edge.direction} mag=${edge.magnitude} conf=${edge.confidence}`,
+      `[pre-compute:${windowId}] Edge: ${edge.direction} mag=${edge.magnitude} conf=${edge.confidence}`,
     );
 
-    // Call supervisor agent (GPT-5.4)
+    // Step 4: Call supervisor agent with strategy-specific profile
     const supervisorResult: ServiceResponse = await this.postJson(
       `${AGENT_GATEWAY_URL}/api/v1/agent/supervisor/evaluate`,
       {
@@ -375,8 +384,8 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       `[pre-compute:${windowId}] Supervisor: ${decision.action} size=$${decision.sizeUsd} conf=${decision.confidence}`,
     );
 
-    // Post-filter: enforce minConfidence from strategy decisionPolicy
-    const minConfidence = strategyContext?.decisionPolicy?.minConfidence;
+    // Post-filter: enforce minConfidence from selected strategy
+    const minConfidence = selectedStrategy.decisionPolicy?.minConfidence;
     if (minConfidence && decision.action !== 'hold' && decision.confidence < minConfidence) {
       this.logger.log(`[pre-compute:${windowId}] Confidence ${decision.confidence} below strategy minimum ${minConfidence}, forcing hold`);
       decision.action = 'hold';
@@ -547,7 +556,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
     startMs: number,
     executionMode: string,
     configData: ServiceResponse,
-    strategyContext: ServiceResponse | null,
+    allStrategies: ServiceResponse[],
   ): Promise<PipelineCycleResult> {
     // 1. Fetch current features
     const features: ServiceResponse = await this.fetchJson(`${FEATURE_ENGINE_URL}/api/v1/features/current`);
@@ -558,7 +567,6 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
     const windowId: string = features.windowId ?? features.market?.windowId ?? 'unknown';
     this.lastWindowId = windowId;
 
-    // Skip if not tradeable
     if (!features.signals?.tradeable) {
       return this.finishCycle(cycle, startMs, 'not_tradeable', {
         windowId,
@@ -566,7 +574,6 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
-    // Skip if we already evaluated or traded this window
     if (this.lastTradeWindowId === windowId) {
       return this.finishCycle(cycle, startMs, 'skipped', {
         windowId,
@@ -574,8 +581,40 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
-    // Strategy filters — pre-filter before calling agents
-    const filters = strategyContext?.filters;
+    // 2. Get risk state
+    const riskState: ServiceResponse = await this.fetchJson(`${RISK_SERVICE_URL}/api/v1/risk/state`);
+    if (!riskState) {
+      return this.finishCycle(cycle, startMs, 'error', { reason: 'Risk service unavailable' });
+    }
+
+    // 3. Call regime agent first (shared across strategies)
+    const regimeResult: ServiceResponse = await this.postJson(`${AGENT_GATEWAY_URL}/api/v1/agent/regime/evaluate`, {
+      windowId,
+      features,
+    });
+
+    if (!regimeResult) {
+      return this.finishCycle(cycle, startMs, 'error', { windowId, reason: 'Regime evaluation failed' });
+    }
+
+    const regime: ServiceResponse = regimeResult.parsedOutput;
+    this.logger.log(`[${windowId}] Regime: ${regime.regime} (${regime.confidence})`);
+
+    // 4. Route to strategy based on regime
+    const selectedStrategy = this.routeToStrategy(allStrategies, regime.regime);
+    if (!selectedStrategy) {
+      this.lastTradeWindowId = windowId;
+      return this.finishCycle(cycle, startMs, 'agent_hold', {
+        windowId,
+        regime: regime.regime,
+        reason: `No strategy matches regime '${regime.regime}'`,
+      });
+    }
+
+    this.logger.log(`[${windowId}] Routed to: ${selectedStrategy.strategyKey}`);
+
+    // 5. Apply selected strategy's filters
+    const filters = selectedStrategy.filters;
     if (filters) {
       const reasons: string[] = [];
       const spreadBps = features.book?.spreadBps ?? 0;
@@ -588,49 +627,39 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       if (timeToCloseSec > filters.maxTimeToCloseSec) reasons.push(`${timeToCloseSec}s to close > max ${filters.maxTimeToCloseSec}s`);
 
       if (reasons.length > 0) {
-        return this.finishCycle(cycle, startMs, 'strategy_filtered', { windowId, reasons });
+        return this.finishCycle(cycle, startMs, 'strategy_filtered', { windowId, strategy: selectedStrategy.strategyKey, reasons });
       }
     }
 
-    // 2. Get risk state
-    const riskState: ServiceResponse = await this.fetchJson(`${RISK_SERVICE_URL}/api/v1/risk/state`);
-    if (!riskState) {
-      return this.finishCycle(cycle, startMs, 'error', { reason: 'Risk service unavailable' });
+    // 6. Sync risk profile for selected strategy
+    if (selectedStrategy.riskProfile) {
+      await this.postJson(`${RISK_SERVICE_URL}/api/v1/risk/config`, selectedStrategy.riskProfile).catch(() => null);
     }
 
-    const agentProfile = strategyContext?.agentProfile;
-
-    // 3. Call regime + edge agents in parallel
-    const [regimeResult, edgeResult]: [ServiceResponse, ServiceResponse] = await Promise.all([
-      this.postJson(`${AGENT_GATEWAY_URL}/api/v1/agent/regime/evaluate`, {
-        windowId,
-        features,
-        agentProfile: agentProfile?.regimeAgentProfile,
-      }),
-      this.postJson(`${AGENT_GATEWAY_URL}/api/v1/agent/edge/evaluate`, {
-        windowId,
-        features,
-        agentProfile: agentProfile?.edgeAgentProfile,
-      }),
-    ]);
-
-    if (!regimeResult || !edgeResult) {
-      return this.finishCycle(cycle, startMs, 'error', {
-        windowId,
-        reason: 'Agent evaluation failed',
-        regimeOk: !!regimeResult,
-        edgeOk: !!edgeResult,
-      });
+    // Override execution mode from selected strategy
+    if (selectedStrategy.executionPolicy?.mode) {
+      executionMode = selectedStrategy.executionPolicy.mode;
     }
 
-    const regime: ServiceResponse = regimeResult.parsedOutput;
+    const agentProfile = selectedStrategy.agentProfile;
+
+    // 7. Call edge agent with strategy-specific profile
+    const edgeResult: ServiceResponse = await this.postJson(`${AGENT_GATEWAY_URL}/api/v1/agent/edge/evaluate`, {
+      windowId,
+      features,
+      agentProfile: agentProfile?.edgeAgentProfile,
+    });
+
+    if (!edgeResult) {
+      return this.finishCycle(cycle, startMs, 'error', { windowId, reason: 'Edge evaluation failed' });
+    }
+
     const edge: ServiceResponse = edgeResult.parsedOutput;
-
     this.logger.log(
-      `[${windowId}] Regime: ${regime.regime} (${regime.confidence}), Edge: ${edge.direction} mag=${edge.magnitude} conf=${edge.confidence}`,
+      `[${windowId}] Edge: ${edge.direction} mag=${edge.magnitude} conf=${edge.confidence}`,
     );
 
-    // 4. Call supervisor agent
+    // 8. Call supervisor agent with strategy-specific profile
     const supervisorResult: ServiceResponse = await this.postJson(
       `${AGENT_GATEWAY_URL}/api/v1/agent/supervisor/evaluate`,
       {
@@ -653,15 +682,14 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       `[${windowId}] Supervisor: ${decision.action} size=$${decision.sizeUsd} conf=${decision.confidence}`,
     );
 
-    // Post-filter: enforce minConfidence from strategy decisionPolicy
-    const minConfidence = strategyContext?.decisionPolicy?.minConfidence;
+    // 9. Post-filter: enforce minConfidence from selected strategy
+    const minConfidence = selectedStrategy.decisionPolicy?.minConfidence;
     if (minConfidence && decision.action !== 'hold' && decision.confidence < minConfidence) {
       this.logger.log(`[${windowId}] Confidence ${decision.confidence} below strategy minimum ${minConfidence}, forcing hold`);
       decision.action = 'hold';
       decision.sizeUsd = 0;
     }
 
-    // Emit agent decision event
     this.eventBus.emit('agent.decision.made', {
       windowId,
       action: String(decision.action),
@@ -669,20 +697,18 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       confidence: Number(decision.confidence),
     });
 
-    // Mark this window as evaluated (regardless of hold/trade)
     this.lastTradeWindowId = windowId;
 
-    // 5. If hold, stop here
     if (decision.action === 'hold') {
       return this.finishCycle(cycle, startMs, 'agent_hold', {
         windowId,
+        strategy: selectedStrategy.strategyKey,
         regime: regime.regime,
         edge: edge.direction,
         reasoning: decision.reasoning,
       });
     }
 
-    // 6-7. Risk evaluation + execution
     return this.executeAfterApproval(cycle, startMs, windowId, decision, supervisorResult, features, executionMode);
   }
 
@@ -774,6 +800,28 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Routes to the best matching strategy based on regime classification.
+   * Returns null if no strategy matches (e.g. volatile regime).
+   */
+  private routeToStrategy(allStrategies: ServiceResponse[], regime: string): ServiceResponse | null {
+    if (!Array.isArray(allStrategies) || allStrategies.length === 0) return null;
+
+    // Find strategy whose allowedRegimes includes this regime
+    const matched = allStrategies.find(
+      (s: ServiceResponse) => s.filters?.allowedRegimes?.includes(regime),
+    );
+
+    if (matched) return matched;
+
+    // Fallback: if no strategy has allowedRegimes defined, use the first one (backward compat)
+    const fallback = allStrategies.find(
+      (s: ServiceResponse) => !s.filters?.allowedRegimes,
+    );
+
+    return fallback ?? null;
+  }
 
   private finishCycle(
     cycle: number,

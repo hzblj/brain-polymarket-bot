@@ -249,8 +249,20 @@ export class DashboardService {
       : pipeRunning ? 'running' as const
       : 'pending' as const;
 
+    // Derive selected strategy from pipeline details
+    const selectedStrategy = str(pipeDetails.strategy as string);
+    const regimeNoMatch = pipeStage === 'agent_hold' && str(pipeDetails.reason as string).includes('No strategy matches');
+    const hasRouter = !!regime && (!!selectedStrategy || regimeNoMatch);
+
     return [
       regime ? traceToStep('Regime', regime, 'regime') : { label: 'Regime', status: pendingStatus, value: pendingValue, confidence: null, timestamp: null },
+      ...(hasRouter ? [{
+        label: 'Router',
+        status: regimeNoMatch ? 'failed' as const : 'success' as const,
+        value: regimeNoMatch ? 'no match' : selectedStrategy,
+        confidence: null,
+        timestamp: regime ? str(regime.createdAt as string) : null,
+      }] : []),
       edge ? traceToStep('Edge', edge, 'direction') : { label: 'Edge', status: pendingStatus, value: pendingValue, confidence: null, timestamp: null },
       supervisor ? traceToStep('Supervisor', supervisor, 'action') : { label: 'Supervisor', status: pendingStatus, value: pendingValue, confidence: null, timestamp: null },
       ...(validator ? [{

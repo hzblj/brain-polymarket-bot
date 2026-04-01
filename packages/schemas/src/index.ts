@@ -203,6 +203,7 @@ export const StrategyFiltersSchema = z.object({
   minDepthScore: z.number().nonnegative(),
   minTimeToCloseSec: z.number().nonnegative(),
   maxTimeToCloseSec: z.number().positive(),
+  allowedRegimes: z.array(RegimeSchema).min(1).optional(),
 });
 
 export const StrategyRiskProfileSchema = z.object({

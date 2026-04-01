@@ -283,10 +283,10 @@ export class ConfigManagementService implements OnModuleInit {
           edgeAgentProfile: 'edge-momentum-v1',
           supervisorAgentProfile: 'supervisor-momentum-v1',
         },
-        decisionPolicy: { allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'], minConfidence: 0.7 },
-        filters: { maxSpreadBps: 250, minDepthScore: 0.6, minTimeToCloseSec: 15, maxTimeToCloseSec: 90 },
+        decisionPolicy: { allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'], minConfidence: 0.6 },
+        filters: { maxSpreadBps: 150, minDepthScore: 0.4, minTimeToCloseSec: 30, maxTimeToCloseSec: 120, allowedRegimes: ['trending_up', 'trending_down'] },
         riskProfile: { maxSizeUsd: 0.5, dailyLossLimitUsd: 10, maxTradesPerWindow: 1 },
-        executionPolicy: { entryWindowStartSec: 90, entryWindowEndSec: 10, mode: 'paper' },
+        executionPolicy: { entryWindowStartSec: 120, entryWindowEndSec: 15, mode: 'paper' },
       };
       const checksum = createHash('sha256').update(JSON.stringify(versionConfig)).digest('hex');
 

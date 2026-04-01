@@ -29,7 +29,6 @@ export class OpenAIClient implements LlmClient {
     });
   }
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: LLM response parsing with retries
   async evaluate<T>(
     systemPrompt: string,
     userPrompt: string,
@@ -39,9 +38,6 @@ export class OpenAIClient implements LlmClient {
     const useModel = options?.model ?? this.model;
     const startTime = Date.now();
     const jsonSchema = zodToJsonSchema(schema);
-
-    // Reasoning models (o1, o3, o4, gpt-5.4, etc.) don't support temperature, use developer role
-    const isReasoningModel = /^(o1|o3|o4|gpt-5)/.test(useModel);
     const reasoningEffort = options?.reasoningEffort;
 
     let lastError: Error | null = null;
@@ -52,44 +48,37 @@ export class OpenAIClient implements LlmClient {
           this.logger.warn('Retrying OpenAI evaluation', { attempt, maxRetries: this.maxRetries });
         }
 
-        const response = await this.client.chat.completions.create({
+        const response = await this.client.responses.create({
           model: useModel,
-          ...(isReasoningModel ? {} : { temperature: this.temperature }),
-          ...(isReasoningModel && reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
-          max_completion_tokens: 2048,
-          messages: isReasoningModel
-            ? [
-                { role: 'developer', content: systemPrompt },
-                { role: 'user', content: userPrompt },
-              ]
-            : [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: userPrompt },
-              ],
+          instructions: systemPrompt,
+          input: [{ role: 'user', content: userPrompt }],
+          temperature: this.temperature,
+          ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
+          max_output_tokens: 2048,
           tools: [
             {
-              type: 'function',
-              function: {
-                name: 'structured_output',
-                description: 'Return your analysis as structured data matching the schema.',
-                parameters: jsonSchema,
-              },
+              type: 'function' as const,
+              name: 'structured_output',
+              description: 'Return your analysis as structured data matching the schema.',
+              parameters: jsonSchema,
+              strict: true,
             },
           ],
-          tool_choice: { type: 'function', function: { name: 'structured_output' } },
+          tool_choice: { type: 'function', name: 'structured_output' },
+          store: false,
         });
 
-        const message = response.choices[0]?.message;
-        if (!message) {
-          throw new Error('OpenAI returned no choices');
+        // Find the function_call output item
+        const functionCall = response.output.find(
+          (item): item is Extract<typeof item, { type: 'function_call' }> =>
+            item.type === 'function_call' && item.name === 'structured_output',
+        );
+
+        if (!functionCall) {
+          throw new Error('OpenAI did not return expected function_call output');
         }
 
-        const toolCall = message.tool_calls?.[0];
-        if (!toolCall || toolCall.function.name !== 'structured_output') {
-          throw new Error('OpenAI did not return expected tool call');
-        }
-
-        const rawOutput = JSON.parse(toolCall.function.arguments);
+        const rawOutput = JSON.parse(functionCall.arguments);
         const parsed = schema.parse(rawOutput);
         const latencyMs = Date.now() - startTime;
 
@@ -98,8 +87,8 @@ export class OpenAIClient implements LlmClient {
         this.logger.debug('OpenAI evaluation complete', {
           model: useModel,
           latencyMs,
-          inputTokens: usage?.prompt_tokens ?? 0,
-          outputTokens: usage?.completion_tokens ?? 0,
+          inputTokens: usage?.input_tokens ?? 0,
+          outputTokens: usage?.output_tokens ?? 0,
         });
 
         return {
@@ -107,8 +96,8 @@ export class OpenAIClient implements LlmClient {
           model: useModel,
           provider: this.provider,
           latencyMs,
-          inputTokens: usage?.prompt_tokens ?? 0,
-          outputTokens: usage?.completion_tokens ?? 0,
+          inputTokens: usage?.input_tokens ?? 0,
+          outputTokens: usage?.output_tokens ?? 0,
         };
       } catch (err) {
         lastError = err as Error;

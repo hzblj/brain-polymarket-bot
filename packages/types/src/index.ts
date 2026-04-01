@@ -503,6 +503,7 @@ export interface StrategyFilters {
   minDepthScore: number;
   minTimeToCloseSec: number;
   maxTimeToCloseSec: number;
+  allowedRegimes?: Regime[];
 }
 
 export interface StrategyRiskProfile {

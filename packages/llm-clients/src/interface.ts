@@ -17,7 +17,7 @@ export interface LlmResponse<T> {
   outputTokens: number;
 }
 
-export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
+export type ReasoningEffort = 'low' | 'medium' | 'high';
 
 export interface LlmEvaluateOptions {
   model?: string;

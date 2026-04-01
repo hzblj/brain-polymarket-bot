@@ -51,13 +51,14 @@ const DEFAULT_STRATEGY_VERSION_CONFIG: StrategyVersionConfig = {
   },
   decisionPolicy: {
     allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'],
-    minConfidence: 0.7,
+    minConfidence: 0.6,
   },
   filters: {
-    maxSpreadBps: 250,
-    minDepthScore: 0.6,
-    minTimeToCloseSec: 15,
-    maxTimeToCloseSec: 90,
+    maxSpreadBps: 150,
+    minDepthScore: 0.4,
+    minTimeToCloseSec: 30,
+    maxTimeToCloseSec: 120,
+    allowedRegimes: ['trending_up', 'trending_down'],
   },
   riskProfile: {
     maxSizeUsd: 0.5,
@@ -65,8 +66,8 @@ const DEFAULT_STRATEGY_VERSION_CONFIG: StrategyVersionConfig = {
     maxTradesPerWindow: 1,
   },
   executionPolicy: {
-    entryWindowStartSec: 90,
-    entryWindowEndSec: 10,
+    entryWindowStartSec: 120,
+    entryWindowEndSec: 15,
     mode: 'paper',
   },
 };
@@ -94,26 +95,27 @@ const MEAN_REVERSION_VERSION_CONFIG: StrategyVersionConfig = {
   },
   agentProfile: {
     regimeAgentProfile: 'regime-default-v1',
-    edgeAgentProfile: 'edge-momentum-v1',
-    supervisorAgentProfile: 'supervisor-momentum-v1',
+    edgeAgentProfile: 'edge-mean-reversion-v1',
+    supervisorAgentProfile: 'supervisor-mean-reversion-v1',
   },
   decisionPolicy: {
     allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'],
-    minConfidence: 0.55,
+    minConfidence: 0.58,
   },
   filters: {
-    maxSpreadBps: 200,
-    minDepthScore: 0.5,
-    minTimeToCloseSec: 30,
-    maxTimeToCloseSec: 120,
+    maxSpreadBps: 180,
+    minDepthScore: 0.35,
+    minTimeToCloseSec: 40,
+    maxTimeToCloseSec: 180,
+    allowedRegimes: ['mean_reverting', 'quiet'],
   },
   riskProfile: {
-    maxSizeUsd: 0.5,
+    maxSizeUsd: 0.35,
     dailyLossLimitUsd: 10,
     maxTradesPerWindow: 1,
   },
   executionPolicy: {
-    entryWindowStartSec: 120,
+    entryWindowStartSec: 180,
     entryWindowEndSec: 30,
     mode: 'paper',
   },
@@ -218,9 +220,9 @@ const VOL_FADE_VERSION_CONFIG: StrategyVersionConfig = {
 // ─── All Additional Strategies ──────────────────────────────────────────────
 
 const ADDITIONAL_STRATEGIES = [
-  { key: MEAN_REVERSION_STRATEGY_KEY, identity: MEAN_REVERSION_STRATEGY_IDENTITY, config: MEAN_REVERSION_VERSION_CONFIG },
-  { key: BASIS_ARB_STRATEGY_KEY, identity: BASIS_ARB_STRATEGY_IDENTITY, config: BASIS_ARB_VERSION_CONFIG },
-  { key: VOL_FADE_STRATEGY_KEY, identity: VOL_FADE_STRATEGY_IDENTITY, config: VOL_FADE_VERSION_CONFIG },
+  { key: MEAN_REVERSION_STRATEGY_KEY, identity: MEAN_REVERSION_STRATEGY_IDENTITY, config: MEAN_REVERSION_VERSION_CONFIG, active: true },
+  { key: BASIS_ARB_STRATEGY_KEY, identity: BASIS_ARB_STRATEGY_IDENTITY, config: BASIS_ARB_VERSION_CONFIG, active: false },
+  { key: VOL_FADE_STRATEGY_KEY, identity: VOL_FADE_STRATEGY_IDENTITY, config: VOL_FADE_VERSION_CONFIG, active: false },
 ];
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -379,7 +381,8 @@ export async function seed(dbPath?: string) {
       console.log(`  Created strategy version v1: ${identity.name} (${verIdAdditional})`);
     }
 
-    // Upsert assignment (inactive by default — only default strategy is active)
+    // Upsert assignment
+    const shouldBeActive = s.active ?? false;
     const existingAssign = await db
       .select()
       .from(strategyAssignments)
@@ -395,10 +398,10 @@ export async function seed(dbPath?: string) {
           marketConfigId,
           strategyVersionId: verIdAdditional,
           priority: 1,
-          isActive: false,
+          isActive: shouldBeActive,
         })
         .returning({ id: strategyAssignments.id });
-      console.log(`  Created assignment (inactive): ${identity.name} (${inserted!.id})`);
+      console.log(`  Created assignment (${shouldBeActive ? 'active' : 'inactive'}): ${identity.name} (${inserted!.id})`);
     }
   }
 

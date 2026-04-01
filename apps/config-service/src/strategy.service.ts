@@ -84,6 +84,65 @@ export class StrategyService {
   }
 
   /**
+   * Returns all active strategies for the given market config.
+   * Used by pipeline to route based on regime.
+   */
+  async getAllActiveStrategies(marketConfigId?: string): Promise<ActiveStrategyContext[]> {
+    let resolvedMarketConfigId = marketConfigId;
+    if (!resolvedMarketConfigId) {
+      const defaults = await this.db
+        .select()
+        .from(marketConfigs)
+        .where(eq(marketConfigs.isActive, true))
+        .limit(1);
+      if (defaults.length === 0) return [];
+      resolvedMarketConfigId = defaults[0]!.id;
+    }
+
+    const assignments = await this.db
+      .select()
+      .from(strategyAssignments)
+      .where(
+        and(
+          eq(strategyAssignments.marketConfigId, resolvedMarketConfigId),
+          eq(strategyAssignments.isActive, true),
+        ),
+      )
+      .orderBy(desc(strategyAssignments.priority));
+
+    const results: ActiveStrategyContext[] = [];
+
+    for (const assignment of assignments) {
+      const [version] = await this.db
+        .select()
+        .from(strategyVersions)
+        .where(eq(strategyVersions.id, assignment.strategyVersionId))
+        .limit(1);
+      if (!version) continue;
+
+      const [strategy] = await this.db
+        .select()
+        .from(strategies)
+        .where(eq(strategies.id, version.strategyId))
+        .limit(1);
+      if (!strategy) continue;
+
+      const config = version.configJson as unknown as StrategyVersionConfig;
+      results.push({
+        strategyKey: strategy.key,
+        version: version.version,
+        decisionPolicy: config.decisionPolicy,
+        filters: config.filters,
+        riskProfile: config.riskProfile,
+        executionPolicy: config.executionPolicy,
+        agentProfile: config.agentProfile,
+      });
+    }
+
+    return results;
+  }
+
+  /**
    * Switches the active strategy assignment for a market config.
    */
   async switchStrategy(
