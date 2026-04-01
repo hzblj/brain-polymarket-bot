@@ -250,7 +250,8 @@ export class DashboardService {
       : 'pending' as const;
 
     // Derive Router step from regime output — map regime to strategy name
-    const regimeValue = regime ? str((regime.output as Rec)?.regime as string) : null;
+    const regimeOutput = extractOutput(regime);
+    const regimeValue = regimeOutput ? str(regimeOutput.regime as string) : null;
     const REGIME_TO_STRATEGY: Record<string, string> = {
       trending_up: 'Momentum',
       trending_down: 'Momentum',
