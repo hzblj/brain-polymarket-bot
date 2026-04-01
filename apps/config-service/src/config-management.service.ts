@@ -284,7 +284,7 @@ export class ConfigManagementService implements OnModuleInit {
           supervisorAgentProfile: 'supervisor-momentum-v1',
         },
         decisionPolicy: { allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'], minConfidence: 0.6 },
-        filters: { maxSpreadBps: 150, minDepthScore: 0.4, minTimeToCloseSec: 30, maxTimeToCloseSec: 120, allowedRegimes: ['trending_up', 'trending_down'] },
+        filters: { maxSpreadBps: 150, minDepthScore: 0.4, minTimeToCloseSec: 30, maxTimeToCloseSec: 120, allowedRegimes: ['trending_up', 'trending_down', 'volatile'] },
         riskProfile: { maxSizeUsd: 0.5, dailyLossLimitUsd: 10, maxTradesPerWindow: 1 },
         executionPolicy: { entryWindowStartSec: 120, entryWindowEndSec: 15, mode: 'paper' },
       };
