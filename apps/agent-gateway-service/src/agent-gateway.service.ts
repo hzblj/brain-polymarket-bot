@@ -148,6 +148,7 @@ export interface AgentTrace {
   id: string;
   windowId: string;
   agentType: AgentType;
+  agentProfile?: string;
   model: string;
   provider: string;
   systemPrompt: string;
@@ -260,7 +261,8 @@ export class AgentGatewayService implements OnModuleInit {
       if (trace) return { ...trace, cached: true };
     }
 
-    const systemPrompt = await this.getPatchedPrompt('edge');
+    const basePrompt = resolvePrompt(EDGE_PROMPT_REGISTRY, agentProfile, EDGE_SYSTEM_PROMPT);
+    const systemPrompt = await this.getPatchedPromptWithBase('edge', basePrompt);
     const userPrompt = this.buildEdgeUserPrompt(features);
     const result = await this.callAgent<EdgeOutput>(
       'edge',
@@ -268,6 +270,9 @@ export class AgentGatewayService implements OnModuleInit {
       systemPrompt,
       userPrompt,
       EdgeOutputSchema,
+      undefined,
+      undefined,
+      agentProfile,
     );
 
     this.setCache(cacheKey, result.parsedOutput);
@@ -287,7 +292,8 @@ export class AgentGatewayService implements OnModuleInit {
       if (trace) return { ...trace, cached: true };
     }
 
-    const systemPrompt = await this.getPatchedPrompt('supervisor');
+    const basePrompt = resolvePrompt(SUPERVISOR_PROMPT_REGISTRY, agentProfile, SUPERVISOR_SYSTEM_PROMPT);
+    const systemPrompt = await this.getPatchedPromptWithBase('supervisor', basePrompt);
     const userPrompt = this.buildSupervisorUserPrompt(
       features,
       regime,
@@ -301,6 +307,9 @@ export class AgentGatewayService implements OnModuleInit {
       systemPrompt,
       userPrompt,
       SupervisorOutputSchema,
+      undefined,
+      undefined,
+      agentProfile,
     );
 
     this.setCache(cacheKey, result.parsedOutput);
@@ -537,6 +546,29 @@ export class AgentGatewayService implements OnModuleInit {
    * Resolves the effective prompt for a patchable agent by applying all 'applied' patches
    * in chronological order on top of the base prompt from the .ts file.
    */
+  async getPatchedPromptWithBase(agent: PatchableAgent, base: string): Promise<string> {
+    if (!base) return '';
+
+    const patches = await this.db
+      .select()
+      .from(promptPatches)
+      .where(and(
+        eq(promptPatches.targetAgent, agent),
+        eq(promptPatches.status, 'applied'),
+      ))
+      .orderBy(promptPatches.createdAt);
+
+    let prompt = base;
+    for (const patch of patches) {
+      if (patch.patchType === 'insert_after') {
+        prompt = prompt.replace(patch.oldText, patch.oldText + '\n' + patch.newText);
+      } else {
+        prompt = prompt.replace(patch.oldText, patch.newText);
+      }
+    }
+    return prompt;
+  }
+
   async getPatchedPrompt(agent: PatchableAgent): Promise<string> {
     const base = BASE_PROMPTS[agent];
     if (!base) return '';
@@ -818,6 +850,7 @@ export class AgentGatewayService implements OnModuleInit {
     schema: z.ZodSchema<T>,
     modelOverrideParam?: string,
     reasoningEffortOverride?: ReasoningEffort,
+    agentProfileName?: string,
   ): Promise<AgentTrace> {
     const startMs = Date.now();
 
@@ -842,6 +875,7 @@ export class AgentGatewayService implements OnModuleInit {
         id: `trace-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
         windowId,
         agentType,
+        agentProfile: agentProfileName,
         model: response.model,
         provider: response.provider,
         systemPrompt,

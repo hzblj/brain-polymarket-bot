@@ -190,6 +190,7 @@ function TraceRow({
           {trace.windowId}
         </span>
         <span className="ml-auto flex items-center gap-3 text-xs text-text-muted">
+          {trace.agentProfile && <span className="text-accent font-mono">{trace.agentProfile}</span>}
           <span>{trace.model}</span>
           <span>{trace.latencyMs}ms</span>
           <span>{formatTimeAgo(trace.createdAt)}</span>
@@ -228,7 +229,18 @@ function TraceRow({
               </pre>
             </div>
           </div>
-          <div className="flex gap-4 text-xs text-text-muted">
+          {trace.systemPrompt && (
+            <div>
+              <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">
+                System Prompt
+              </p>
+              <pre className="text-xs text-text-muted font-mono overflow-x-auto max-h-48 overflow-y-auto rounded bg-surface-2 p-2 whitespace-pre-wrap">
+                {trace.systemPrompt}
+              </pre>
+            </div>
+          )}
+          <div className="flex flex-wrap gap-4 text-xs text-text-muted">
+            {trace.agentProfile && <span>Profile: <b className="text-accent">{trace.agentProfile}</b></span>}
             <span>Provider: {trace.provider}</span>
             <span>Model: {trace.model}</span>
             <span>Latency: {trace.latencyMs}ms</span>

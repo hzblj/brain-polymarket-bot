@@ -384,7 +384,7 @@ export interface SupervisorOutput {
 
 export interface GatekeeperOutput {
   validated: boolean;
-  adjustedSizeUsd?: number;
+  adjustedSizeUsd: number | null;
   reasoning: string;
 }
 

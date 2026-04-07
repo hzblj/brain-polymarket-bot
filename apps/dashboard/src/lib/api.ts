@@ -375,8 +375,10 @@ export interface AgentTrace {
   traceId: string;
   windowId: string;
   agentType: 'regime' | 'edge' | 'supervisor' | 'gatekeeper' | 'eval';
+  agentProfile?: string;
   input: Record<string, unknown>;
   output: Record<string, unknown>;
+  systemPrompt?: string;
   model: string;
   provider: string;
   latencyMs: number;
