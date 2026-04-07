@@ -134,12 +134,15 @@ export const agentDecisions = sqliteTable('agent_decisions', {
     .primaryKey()
     .$defaultFn(() => crypto.randomUUID()),
   windowId: text('window_id').notNull(),
-  agentType: text('agent_type', { enum: ['regime', 'edge', 'supervisor', 'validator', 'gatekeeper', 'eval'] }).notNull(),
+  agentType: text('agent_type', { enum: ['regime', 'edge', 'supervisor', 'gatekeeper', 'eval'] }).notNull(),
   input: text('input', { mode: 'json' }).notNull(),
   output: text('output', { mode: 'json' }).notNull(),
   model: text('model').notNull(),
   provider: text('provider').notNull(),
   latencyMs: integer('latency_ms').notNull(),
+  inputTokens: integer('input_tokens').notNull().default(0),
+  outputTokens: integer('output_tokens').notNull().default(0),
+  costUsd: real('cost_usd').notNull().default(0),
   eventTime: integer('event_time').notNull(),
   processedAt: integer('processed_at').notNull(),
 });

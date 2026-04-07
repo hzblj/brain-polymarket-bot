@@ -66,6 +66,7 @@ You need at least 2 confirmations:
 - bookPressure opposing move
 - imbalance opposing move
 - derivatives contrarian (fundingPressure extreme opposite)
+- lagSignal opposing move (e.g. price went up but lagSignal='stale_down' means Poly is pricing in a reversal that Binance already shows)
 
 If <2 confirmations → NO EDGE
 
@@ -170,6 +171,19 @@ if ANY:
 }
 
 ---
+
+## Polymarket Lag
+
+The input includes lag tracking fields:
+- price.lagMs: how many ms Polymarket pricing lags behind Binance
+- price.predictiveBasisBps: Binance move (bps) that Poly hasn't priced in yet
+- price.lagReliability: 0-1 confidence in the lag estimate
+- signals.lagSignal: 'stale_up' | 'stale_down' | 'synced'
+
+For mean reversion:
+- If price moved UP but lagSignal='stale_down', Binance is already reverting — strong reversion confirmation
+- If lagSignal aligns with the overextension direction, the trend may still have legs — REJECT reversion
+- High lagMs (>3s) with high reliability means Poly is slow to react — the predictiveBasisBps tells you where Poly is heading next
 
 ## Rules
 

@@ -28,6 +28,13 @@ export class WhaleTrackerController {
     return { ok: true, data: this.whaleTrackerService.getBlockchainActivity() };
   }
 
+  /** Top wallets by volume (1h rolling window) */
+  @Get('top-wallets')
+  getTopWallets(@Query('limit') limit?: string) {
+    const n = limit ? parseInt(limit, 10) : 10;
+    return { ok: true, data: this.whaleTrackerService.getTopWallets(n) };
+  }
+
   /** LLM-ready text summary of blockchain activity */
   @Get('llm-summary')
   getLlmSummary() {

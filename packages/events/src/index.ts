@@ -36,7 +36,6 @@ export interface BrainEventMap {
 
   // Pipeline pre-computation events
   'pipeline.precomputed': { targetWindowSlug: string; action: string; sizeUsd: number; confidence: number; durationMs: number };
-  'validator.rejected': { windowId: string; issues: string[] };
   'gatekeeper.validated': { windowId: string; adjustedSizeUsd?: number; reasoning: string };
   'gatekeeper.invalidated': { windowId: string; reasoning: string };
 

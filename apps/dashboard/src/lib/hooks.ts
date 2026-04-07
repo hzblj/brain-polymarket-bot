@@ -21,6 +21,7 @@ import {
   getWhaleTransactions,
   getWhaleHistory,
   getBlockchainActivity,
+  getTopWallets,
   getDerivativesFeatures,
   getDerivativesLiquidations,
   getDerivativesHistory,
@@ -29,6 +30,7 @@ import {
   getOptimizerStatus,
   getAgentTraces,
   getAgentContext,
+  getLlmCosts,
   getReplaySummary,
   getRiskState,
 } from './api';
@@ -72,6 +74,14 @@ export function useServiceHealth() {
     queryKey: ['serviceHealth'],
     queryFn: getServiceHealth,
     refetchInterval: 5_000,
+  });
+}
+
+export function useLlmCosts() {
+  return useQuery({
+    queryKey: ['llmCosts'],
+    queryFn: getLlmCosts,
+    refetchInterval: 10_000,
   });
 }
 
@@ -166,6 +176,14 @@ export function useBlockchainActivity() {
     queryKey: ['blockchainActivity'],
     queryFn: getBlockchainActivity,
     refetchInterval: 15_000,
+  });
+}
+
+export function useTopWallets() {
+  return useQuery({
+    queryKey: ['topWallets'],
+    queryFn: getTopWallets,
+    refetchInterval: 5_000,
   });
 }
 

@@ -2,7 +2,7 @@ import { agentDecisions, featureSnapshots, orders, promptPatches, DATABASE_CLIEN
 import { type BrainEventName, type BrainEventMap, EventBus } from '@brain/events';
 import { type LlmClient, type ReasoningEffort, OpenAIClient } from '@brain/llm-clients';
 import { BrainLoggerService } from '@brain/logger';
-import { EdgeOutputSchema, EvalOutputSchema, GatekeeperOutputSchema, RegimeOutputSchema, SupervisorOutputSchema, ValidatorOutputSchema } from '@brain/schemas';
+import { EdgeOutputSchema, EvalOutputSchema, GatekeeperOutputSchema, RegimeOutputSchema, SupervisorOutputSchema } from '@brain/schemas';
 import type {
   AgentType,
   EdgeOutput,
@@ -14,19 +14,18 @@ import type {
   RiskConfig,
   RiskState,
   SupervisorOutput,
-  ValidatorOutput,
   UnixMs,
 } from '@brain/types';
 import { HttpException, HttpStatus, Inject, Injectable, type OnModuleInit } from '@nestjs/common';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, gte, sql, sum } from 'drizzle-orm';
 import type { z } from 'zod';
 import {
   REGIME_SYSTEM_PROMPT,
   EDGE_SYSTEM_PROMPT,
   SUPERVISOR_SYSTEM_PROMPT,
   EDGE_MEAN_REVERSION_PROMPT,
+  EDGE_SWEEP_PROMPT,
   SUPERVISOR_MEAN_REVERSION_PROMPT,
-  VALIDATOR_SYSTEM_PROMPT,
   GATEKEEPER_SYSTEM_PROMPT,
   EVAL_SYSTEM_PROMPT,
 } from './prompts';
@@ -40,6 +39,7 @@ export const REGIME_PROMPT_REGISTRY: Record<string, string> = {
 export const EDGE_PROMPT_REGISTRY: Record<string, string> = {
   'edge-momentum-v1': EDGE_SYSTEM_PROMPT,
   'edge-mean-reversion-v1': EDGE_MEAN_REVERSION_PROMPT,
+  'edge-sweep-v1': EDGE_SWEEP_PROMPT,
 };
 
 export const SUPERVISOR_PROMPT_REGISTRY: Record<string, string> = {
@@ -54,6 +54,30 @@ export function resolvePrompt(
 ): string {
   if (!profile) return fallback;
   return registry[profile] ?? fallback;
+}
+
+// ─── LLM Cost Calculator ────────────────────────────────────────────────────
+
+/** Per-token pricing in USD (input / output per 1M tokens) */
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  // OpenAI
+  'gpt-5.4':        { input: 2.00, output: 8.00 },
+  'gpt-5.4-mini':   { input: 0.30, output: 1.20 },
+  'gpt-5.4-nano':   { input: 0.10, output: 0.40 },
+  'gpt-4o':         { input: 2.50, output: 10.00 },
+  'gpt-4o-mini':    { input: 0.15, output: 0.60 },
+  // Anthropic
+  'claude-sonnet-4-20250514':  { input: 3.00, output: 15.00 },
+  'claude-opus-4-20250514':    { input: 15.00, output: 75.00 },
+  'claude-haiku-3-20240307':   { input: 0.25, output: 1.25 },
+};
+
+/** Default fallback pricing if model is not in the map */
+const DEFAULT_PRICING = { input: 2.00, output: 8.00 };
+
+export function calculateLlmCostUsd(model: string, inputTokens: number, outputTokens: number): number {
+  const pricing = MODEL_PRICING[model] ?? DEFAULT_PRICING;
+  return (inputTokens * pricing.input + outputTokens * pricing.output) / 1_000_000;
 }
 
 /** Map from PatchableAgent to base prompt constant */
@@ -85,11 +109,6 @@ export interface SupervisorEvaluationRequest {
   riskState: RiskState;
   riskConfig: RiskConfig;
   agentProfile?: string;
-}
-
-export interface ValidatorEvaluationRequest {
-  windowId: string;
-  features: FeaturePayload;
 }
 
 export interface GatekeeperEvaluationRequest {
@@ -126,7 +145,7 @@ export interface AgentTrace {
   systemPrompt: string;
   userPrompt: string;
   rawResponse: string;
-  parsedOutput: RegimeOutput | EdgeOutput | SupervisorOutput | ValidatorOutput | GatekeeperOutput | EvalOutput;
+  parsedOutput: RegimeOutput | EdgeOutput | SupervisorOutput | GatekeeperOutput | EvalOutput;
   latencyMs: number;
   tokenUsage: { input: number; output: number };
   cached: boolean;
@@ -137,7 +156,7 @@ export interface AgentTrace {
 
 interface CacheEntry {
   key: string;
-  result: RegimeOutput | EdgeOutput | SupervisorOutput | ValidatorOutput | GatekeeperOutput | EvalOutput;
+  result: RegimeOutput | EdgeOutput | SupervisorOutput | GatekeeperOutput | EvalOutput;
   createdAt: number;
 }
 
@@ -154,11 +173,9 @@ export class AgentGatewayService implements OnModuleInit {
   private provider: 'anthropic' | 'openai' = 'openai';
   private model = 'gpt-5.4';
   private supervisorModel: string | undefined;
-  private validatorModel = 'gpt-5.4-nano';
   private gatekeeperModel = 'gpt-5.4-mini';
   private temperature = 0;
   private timeoutMs = 30_000;
-  private validatorTimeoutMs = 2_000;
   private gatekeeperTimeoutMs = 5_000;
   private maxRetries = 2;
 
@@ -177,11 +194,7 @@ export class AgentGatewayService implements OnModuleInit {
     this.provider = (process.env.AGENT_PROVIDER as 'anthropic' | 'openai') ?? this.provider;
     this.model = process.env.AGENT_MODEL ?? this.model;
     this.supervisorModel = process.env.SUPERVISOR_MODEL;
-    this.validatorModel = process.env.VALIDATOR_MODEL ?? this.validatorModel;
     this.gatekeeperModel = process.env.GATEKEEPER_MODEL ?? this.gatekeeperModel;
-    this.validatorTimeoutMs = process.env.VALIDATOR_TIMEOUT_MS
-      ? parseInt(process.env.VALIDATOR_TIMEOUT_MS, 10)
-      : this.validatorTimeoutMs;
     this.gatekeeperTimeoutMs = process.env.GATEKEEPER_TIMEOUT_MS
       ? parseInt(process.env.GATEKEEPER_TIMEOUT_MS, 10)
       : this.gatekeeperTimeoutMs;
@@ -284,47 +297,6 @@ export class AgentGatewayService implements OnModuleInit {
 
     this.setCache(cacheKey, result.parsedOutput);
     return result;
-  }
-
-  /**
-   * Ultra-fast input validation using GPT-5.4 nano.
-   * Checks feature data sanity before gatekeeper evaluation.
-   */
-  async evaluateValidator(request: ValidatorEvaluationRequest): Promise<AgentTrace> {
-    const { windowId, features } = request;
-
-    const userPrompt = JSON.stringify(
-      {
-        windowId: features.windowId,
-        eventTime: features.eventTime,
-        remainingMs: features.market?.remainingMs,
-        price: {
-          currentPrice: features.price?.currentPrice,
-          returnBps: features.price?.returnBps,
-          volatility: features.price?.volatility,
-        },
-        book: {
-          spreadBps: features.book?.spreadBps,
-          depthScore: features.book?.depthScore,
-        },
-        signals: features.signals ? { tradeable: features.signals.tradeable } : null,
-        hasWhales: !!features.whales,
-        hasDerivatives: !!features.derivatives,
-        ...(features.whales ? { whaleFlowPressure: features.whales.exchangeFlowPressure } : {}),
-        ...(features.derivatives ? { fundingPressure: features.derivatives.fundingPressure } : {}),
-      },
-      null,
-      2,
-    );
-
-    return this.callAgent<ValidatorOutput>(
-      'validator',
-      windowId,
-      VALIDATOR_SYSTEM_PROMPT,
-      userPrompt,
-      ValidatorOutputSchema,
-      this.validatorModel,
-    );
   }
 
   /**
@@ -711,7 +683,7 @@ export class AgentGatewayService implements OnModuleInit {
         rawResponse: JSON.stringify(r.output),
         parsedOutput: r.output as RegimeOutput | EdgeOutput | SupervisorOutput | ValidatorOutput | GatekeeperOutput,
         latencyMs: r.latencyMs,
-        tokenUsage: { input: 0, output: 0 },
+        tokenUsage: { input: r.inputTokens ?? 0, output: r.outputTokens ?? 0 },
         cached: false,
         createdAt: new Date(r.processedAt).toISOString(),
       }));
@@ -747,13 +719,76 @@ export class AgentGatewayService implements OnModuleInit {
         rawResponse: JSON.stringify(r.output),
         parsedOutput: r.output as RegimeOutput | EdgeOutput | SupervisorOutput | ValidatorOutput | GatekeeperOutput,
         latencyMs: r.latencyMs,
-        tokenUsage: { input: 0, output: 0 },
+        tokenUsage: { input: r.inputTokens ?? 0, output: r.outputTokens ?? 0 },
         cached: false,
         createdAt: new Date(r.processedAt).toISOString(),
       };
     }
 
     throw new HttpException(`Trace ${traceId} not found`, HttpStatus.NOT_FOUND);
+  }
+
+  // ─── Cost Stats ──────────────────────────────────────────────────────────
+
+  async getCostStats() {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayMs = todayStart.getTime();
+
+    // Aggregate from DB
+    const [todayRows, allTimeRows] = await Promise.all([
+      this.db
+        .select({
+          agentType: agentDecisions.agentType,
+          totalInputTokens: sum(agentDecisions.inputTokens).mapWith(Number),
+          totalOutputTokens: sum(agentDecisions.outputTokens).mapWith(Number),
+          totalCostUsd: sum(agentDecisions.costUsd).mapWith(Number),
+          callCount: sql<number>`count(*)`.mapWith(Number),
+        })
+        .from(agentDecisions)
+        .where(gte(agentDecisions.processedAt, todayMs))
+        .groupBy(agentDecisions.agentType),
+      this.db
+        .select({
+          agentType: agentDecisions.agentType,
+          totalInputTokens: sum(agentDecisions.inputTokens).mapWith(Number),
+          totalOutputTokens: sum(agentDecisions.outputTokens).mapWith(Number),
+          totalCostUsd: sum(agentDecisions.costUsd).mapWith(Number),
+          callCount: sql<number>`count(*)`.mapWith(Number),
+        })
+        .from(agentDecisions)
+        .groupBy(agentDecisions.agentType),
+    ]);
+
+    const todayCostUsd = todayRows.reduce((s, r) => s + (r.totalCostUsd ?? 0), 0);
+    const allTimeCostUsd = allTimeRows.reduce((s, r) => s + (r.totalCostUsd ?? 0), 0);
+    const todayCalls = todayRows.reduce((s, r) => s + (r.callCount ?? 0), 0);
+    const allTimeCalls = allTimeRows.reduce((s, r) => s + (r.callCount ?? 0), 0);
+
+    return {
+      today: {
+        totalCostUsd: todayCostUsd,
+        totalCalls: todayCalls,
+        byAgent: todayRows.map((r) => ({
+          agentType: r.agentType,
+          calls: r.callCount ?? 0,
+          inputTokens: r.totalInputTokens ?? 0,
+          outputTokens: r.totalOutputTokens ?? 0,
+          costUsd: r.totalCostUsd ?? 0,
+        })),
+      },
+      allTime: {
+        totalCostUsd: allTimeCostUsd,
+        totalCalls: allTimeCalls,
+        byAgent: allTimeRows.map((r) => ({
+          agentType: r.agentType,
+          calls: r.callCount ?? 0,
+          inputTokens: r.totalInputTokens ?? 0,
+          outputTokens: r.totalOutputTokens ?? 0,
+          costUsd: r.totalCostUsd ?? 0,
+        })),
+      },
+    };
   }
 
   // ─── Core Agent Call ───────────────────────────────────────────────────────
@@ -763,12 +798,11 @@ export class AgentGatewayService implements OnModuleInit {
     regime: 'medium',
     edge: 'medium',
     supervisor: 'high',
-    validator: 'low',
     gatekeeper: 'low',
     eval: 'high',
   };
 
-  private async callAgent<T extends RegimeOutput | EdgeOutput | SupervisorOutput | ValidatorOutput | GatekeeperOutput | EvalOutput>(
+  private async callAgent<T extends RegimeOutput | EdgeOutput | SupervisorOutput | GatekeeperOutput | EvalOutput>(
     agentType: AgentType,
     windowId: string,
     systemPrompt: string,
@@ -824,6 +858,9 @@ export class AgentGatewayService implements OnModuleInit {
           model: response.model,
           provider: response.provider,
           latencyMs,
+          inputTokens: tokenUsage.input,
+          outputTokens: tokenUsage.output,
+          costUsd: calculateLlmCostUsd(response.model, tokenUsage.input, tokenUsage.output),
           eventTime: Date.now(),
           processedAt: Date.now(),
         });
@@ -888,6 +925,7 @@ export class AgentGatewayService implements OnModuleInit {
             whaleVolumeBtc: features.whales.whaleVolumeBtc,
           },
         } : {}),
+        ...this.buildTopWalletsPromptData(features),
         ...(features.derivatives ? {
           derivatives: {
             fundingPressure: features.derivatives.fundingPressure,
@@ -898,6 +936,7 @@ export class AgentGatewayService implements OnModuleInit {
           },
         } : {}),
         ...this.buildBlockchainPromptData(features),
+        ...(features.whaleLlmSummary ? { whaleSummary: features.whaleLlmSummary } : {}),
       },
       null,
       2,
@@ -921,6 +960,9 @@ export class AgentGatewayService implements OnModuleInit {
           exchangeMidPrice: features.price.exchangeMidPrice,
           polymarketMidPrice: features.price.polymarketMidPrice,
           basisBps: features.price.basisBps,
+          lagMs: features.price.lagMs,
+          predictiveBasisBps: features.price.predictiveBasisBps,
+          lagReliability: features.price.lagReliability,
         },
         book: {
           upBid: features.book.upBid,
@@ -942,6 +984,7 @@ export class AgentGatewayService implements OnModuleInit {
             whaleVolumeBtc: features.whales.whaleVolumeBtc,
           },
         } : {}),
+        ...this.buildTopWalletsPromptData(features),
         ...(features.derivatives ? {
           derivatives: {
             fundingRate: features.derivatives.fundingRate,
@@ -958,6 +1001,8 @@ export class AgentGatewayService implements OnModuleInit {
           },
         } : {}),
         ...this.buildBlockchainPromptData(features),
+        ...(features.whaleLlmSummary ? { whaleSummary: features.whaleLlmSummary } : {}),
+        ...(features.sweep ? { sweep: features.sweep } : {}),
       },
       null,
       2,
@@ -983,6 +1028,9 @@ export class AgentGatewayService implements OnModuleInit {
             volatility: features.price.volatility,
             momentum: features.price.momentum,
             basisBps: features.price.basisBps,
+            lagMs: features.price.lagMs,
+            predictiveBasisBps: features.price.predictiveBasisBps,
+            lagReliability: features.price.lagReliability,
           },
           book: {
             upBid: features.book.upBid,
@@ -1002,6 +1050,7 @@ export class AgentGatewayService implements OnModuleInit {
             abnormalActivityScore: features.whales.abnormalActivityScore,
           },
         } : {}),
+        ...this.buildTopWalletsPromptData(features),
         ...(features.derivatives ? {
           derivatives: {
             fundingPressure: features.derivatives.fundingPressure,
@@ -1011,6 +1060,8 @@ export class AgentGatewayService implements OnModuleInit {
           },
         } : {}),
         ...this.buildBlockchainPromptData(features),
+        ...(features.whaleLlmSummary ? { whaleSummary: features.whaleLlmSummary } : {}),
+        ...(features.sweep ? { sweep: features.sweep } : {}),
         regime: {
           regime: regime.regime,
           confidence: regime.confidence,
@@ -1028,11 +1079,28 @@ export class AgentGatewayService implements OnModuleInit {
           tradesInWindow: riskState.tradesInWindow,
           maxSizeUsd: riskConfig.maxSizeUsd,
           dailyLossLimitUsd: riskConfig.dailyLossLimitUsd,
+          winStreak: (riskState as Record<string, unknown>).winStreak ?? 0,
+          streakMultiplier: (riskState as Record<string, unknown>).streakMultiplier ?? 1.0,
         },
       },
       null,
       2,
     );
+  }
+
+  private buildTopWalletsPromptData(features: FeaturePayload): Record<string, unknown> {
+    if (!features.topWallets || features.topWallets.length === 0) return {};
+    return {
+      topExchangeWallets1h: features.topWallets.map((w) => ({
+        exchange: w.exchange,
+        address: `${w.address.slice(0, 8)}...${w.address.slice(-4)}`,
+        volumeBtc: w.volumeBtc,
+        volumeUsd: w.volumeUsd,
+        txCount: w.txCount,
+        netFlowBtc: w.netFlowBtc,
+        lastSeenAgoSec: Math.round((Date.now() - w.lastSeenTime) / 1000),
+      })),
+    };
   }
 
   private buildBlockchainPromptData(features: FeaturePayload): Record<string, unknown> {
@@ -1087,7 +1155,7 @@ export class AgentGatewayService implements OnModuleInit {
     return entry;
   }
 
-  private setCache(key: string, result: RegimeOutput | EdgeOutput | SupervisorOutput | ValidatorOutput | GatekeeperOutput | EvalOutput): void {
+  private setCache(key: string, result: RegimeOutput | EdgeOutput | SupervisorOutput | GatekeeperOutput | EvalOutput): void {
     this.cache.set(key, { key, result, createdAt: Date.now() });
 
     // Evict old entries periodically

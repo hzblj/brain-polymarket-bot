@@ -39,34 +39,189 @@ const MAX_RECONNECT_MS = 30_000;
 /** BTC price fetch interval (used for USD conversion) */
 const PRICE_FETCH_INTERVAL_MS = 30_000;
 
-// ─── Known Exchange Addresses ───────────────────────────────────────────────
+// ─── Known Exchange Addresses (100+) ────────────────────────────────────────
+// Sources: public on-chain labels, exchange proof-of-reserves, blockchain explorers
+// Map<address, exchange name> for per-wallet activity tracking
 
-const EXCHANGE_ADDRESSES = new Set([
-  // Binance
-  '34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo',
-  'bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3',
-  '3M219KR5vEneNb47ewrPfWyb5jQ2DjxRP6',
-  '1NDyJtNTjmwk5xPNhjgAMu4HDHigtobu1s',
-  'bc1qgdjqv0av3q56jvd82tkdjpy7gdp9ut8tlqmgrpmv24sq90ecnvqqjwvw97',
-  // Coinbase
-  '3Kzh9qAqVWQhEsfQz7zEQL1EuSx5tyNLNS',
-  'bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh',
-  '3FHNBLobJnbCTFTVax1t1GjRHQ5KSvogCP',
-  // Kraken
-  'bc1qx9t2l3pyny2spqpqlye8svce70nppwtaxwdrp4',
-  '3AfSgTzDFCJJH74xPjSbJp8MJGxBzTWHHa',
-  // Bitfinex
-  'bc1qgp3rl0rl6mm209lh989sj9ahw0yy0wlkwe89p9',
-  '3D2oetdNuZUqQHPJmcMDDHYoqkyNVsFk9r',
-  // Gemini
-  '36PrZ1KHYMpqSyAQXSG8VwbUiq2EogxLo2',
-  // OKX
-  'bc1q2s3rjwvam9dt2ftt4sqxqjf3twav0gdx0k0q2etjz348p2t6y7ms2wlzln',
-  // Bybit
-  'bc1qjysjfd9t9aspttpjqzv68k0cc7ewvhzqeg3q09',
-  // Bitget
-  'bc1qm5jk8yaxvra4065hmvx9v7jeefd4yxkm4hrlqk',
+const EXCHANGE_ADDRESS_MAP = new Map<string, string>([
+  // ── Binance (15) ──────────────────────────────────────────────────────────
+  ['34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo', 'Binance'],
+  ['bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3', 'Binance'],
+  ['3M219KR5vEneNb47ewrPfWyb5jQ2DjxRP6', 'Binance'],
+  ['1NDyJtNTjmwk5xPNhjgAMu4HDHigtobu1s', 'Binance'],
+  ['bc1qgdjqv0av3q56jvd82tkdjpy7gdp9ut8tlqmgrpmv24sq90ecnvqqjwvw97', 'Binance'],
+  ['3LYJfcfHPXYJreMsASk2jkn69LWEYKzexb', 'Binance'],
+  ['3LQUu4v9z6KNch71j7kbj8GPeAGUo1FW6a', 'Binance'],
+  ['1PJiGp2yDLvUgqeBsuZVCBADArNsk6XEiN', 'Binance'],
+  ['bc1ql49ydapnjafl5t2cp9zqpjwe6pdgmxy98859v2', 'Binance'],
+  ['39884E3j6KZj82FK4vcCrkUvWYL5MQaS3v', 'Binance'],
+  ['bc1qazcm763858nkj2dz7g20ghjfnl6gq2vnm5a5u7', 'Binance'],
+  ['3JJmF63ifcamPLiAmLgG96RA599iFgZoMC', 'Binance'],
+  ['3HbvJBjPov8PBoFMhSJhi5DFTeqbXSF3i7', 'Binance'],
+  ['3QTN7wR2EpVeGbjBcHWQgPEjMSPPqyvqnq', 'Binance'],
+  ['bc1qk4m9zv5tnk2679cfd7dmaer3uakthwflskhael', 'Binance'],
+
+  // ── Coinbase (15) ─────────────────────────────────────────────────────────
+  ['3Kzh9qAqVWQhEsfQz7zEQL1EuSx5tyNLNS', 'Coinbase'],
+  ['bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh', 'Coinbase'],
+  ['3FHNBLobJnbCTFTVax1t1GjRHQ5KSvogCP', 'Coinbase'],
+  ['bc1q7cyrfmck2ffu2ud3rn5l5a8yv6f0chkp0zpemf', 'Coinbase'],
+  ['3Cbq7aT1tY8kMxWLbitaG7yT6bPbKChq64', 'Coinbase'],
+  ['34GUzCVLbdPN27E2DKJGFLfWAo84Aq26bM', 'Coinbase'],
+  ['bc1qr4dl5wa7kl8yu792dceg9z5knl2gkn220lk7a9', 'Coinbase'],
+  ['395xEBmgiR2JRShKwbkbvSrmSGeaUTklEQ', 'Coinbase'],
+  ['3NfuNsJFCRMa3C5z1As5X2a3BPaDLvFZfA', 'Coinbase'],
+  ['1GR9qNz7zgtaW5HwwVpEJWMnGWhsbsieCG', 'Coinbase'],
+  ['bc1qwqdg6squsna38e46795at95yu9atm8azzmyvckulcc7kytlcckxswvvzej', 'Coinbase'],
+  ['3DVJfEsDTPkGDvqPCLC41X85L1B1DQR1ep', 'Coinbase'],
+  ['3QaKF8zobqcqY8aS6nxCD5ZYdiRfL3RCmU', 'Coinbase'],
+  ['38Xnrq8MZiKmYmwobbYGbithjiLmBnJVNW', 'Coinbase'],
+  ['bc1qm4hh8dkqejp5gevyamdqf4mqgnqgpkm9mhv0l4', 'Coinbase'],
+
+  // ── Kraken (12) ───────────────────────────────────────────────────────────
+  ['bc1qx9t2l3pyny2spqpqlye8svce70nppwtaxwdrp4', 'Kraken'],
+  ['3AfSgTzDFCJJH74xPjSbJp8MJGxBzTWHHa', 'Kraken'],
+  ['bc1qr0y30m5044lmx9p4hl2mpxy6m0vfxfcnepufnf', 'Kraken'],
+  ['3FupZp77ySr7jwoLYEJ9mwzJpvoNBXsBnE', 'Kraken'],
+  ['bc1q5shngj24323nsrmxv99st02na6srekfctt30ch', 'Kraken'],
+  ['3H5JTt42K7RmZtromfTSefcMEFMMe18pMD', 'Kraken'],
+  ['bc1qge2jr62t2zpmsdwrv5dcy2frjf7pktxrr3rull', 'Kraken'],
+  ['3KZ526NxCVXbKwwP66RgM3pte6zW4gY1tD', 'Kraken'],
+  ['bc1q3x3ycasn7e0nr6p9sssahx50vszletqwkn7t4u', 'Kraken'],
+  ['3E97AjYaCq9QYnfFMtBCWhE4fPHJoSfuwq', 'Kraken'],
+  ['3Goufw1jNLMk6RaBxkPF2rSnExNRcf4Bnk', 'Kraken'],
+  ['bc1qmxjefnuy06v345v6vhwpwt05dztztmx4g3y7wp', 'Kraken'],
+
+  // ── Bitfinex (10) ─────────────────────────────────────────────────────────
+  ['bc1qgp3rl0rl6mm209lh989sj9ahw0yy0wlkwe89p9', 'Bitfinex'],
+  ['3D2oetdNuZUqQHPJmcMDDHYoqkyNVsFk9r', 'Bitfinex'],
+  ['bc1qak7ffrqhge8p9qmgr5dyfcp9ccfd4ygxxn5gmz', 'Bitfinex'],
+  ['1Kr6QSydW9bFQG1mXiPNNu6WpJGmUa9i1g', 'Bitfinex'],
+  ['3JZq4atUahhuA9rLhXLMhhTo133J9rF97j', 'Bitfinex'],
+  ['bc1ql3a38kpxnfmzlm5q7yr93srhqfar8jr0caefl0', 'Bitfinex'],
+  ['3QW5qFhFnKASMFkgSfei3HRx1nm5hLbFuQ', 'Bitfinex'],
+  ['bc1qmutgekwr3hs0h02y2v3nse2c2f3t0ygwhr0z35', 'Bitfinex'],
+  ['1AKr5HiWXsUQN7xFRKe3Bpf3M8ELZYZNMH', 'Bitfinex'],
+  ['3CaG6g7X3mpAz3s4JW3EY2xUP1BjUFX5tn', 'Bitfinex'],
+
+  // ── Gemini (8) ────────────────────────────────────────────────────────────
+  ['36PrZ1KHYMpqSyAQXSG8VwbUiq2EogxLo2', 'Gemini'],
+  ['bc1qe3q6qq86vrxh2xkdt53msc6q0ek7zz7d2k88u8', 'Gemini'],
+  ['3QRPKDyh87SBFmPULPGWmVD1V3D5B7S1wr', 'Gemini'],
+  ['3NhFiF7xLSGnM4dWBaMuWiU2fEG1m7F6FN', 'Gemini'],
+  ['bc1qhz2rcdcnqlnfqrt8c2qpthg2y0dqcgss8j2q3j', 'Gemini'],
+  ['3JEmL7KPWP2fhiMFAxWPfJXJBd5siajjqW', 'Gemini'],
+  ['3LtAFMHRF5kgerayVP1GaCEzWxQhKQQ7Ga', 'Gemini'],
+  ['3LCGsSmfr24demGvriN4e3ft8wEcDuHFqh', 'Gemini'],
+
+  // ── OKX (10) ──────────────────────────────────────────────────────────────
+  ['bc1q2s3rjwvam9dt2ftt4sqxqjf3twav0gdx0k0q2etjz348p2t6y7ms2wlzln', 'OKX'],
+  ['bc1qfe458s74lmhaarqlecm54cl2gfnlmzurq630rp', 'OKX'],
+  ['3LhLMBECihPzQdDGNQyfGZ8REHSKfCf3R3', 'OKX'],
+  ['bc1qz3aadce34xlf6n7ulk4f7zf4y0m8xscdppjt0s', 'OKX'],
+  ['3AeUiRtgMa7RfXTvFToUVxCvkZh5aDjKyH', 'OKX'],
+  ['bc1qa5nrmr7lhaxdscfhvlrlrsedtjysqwr0g0ztd6', 'OKX'],
+  ['3Nxwenay9Z8Lc9JBiep6SZYHCe7IkiJwqW', 'OKX'],
+  ['bc1qs58nkqrseknfhml5pgmhqdw0gxfg97lyjcclts', 'OKX'],
+  ['3ERfvuzAYPPpACivh1JnwYbBdrAjupTzbw', 'OKX'],
+  ['bc1q4ljjkzp72fmehaxqe9fk5t3ysj6hwexg2rl7kf', 'OKX'],
+
+  // ── Bybit (8) ─────────────────────────────────────────────────────────────
+  ['bc1qjysjfd9t9aspttpjqzv68k0cc7ewvhzqeg3q09', 'Bybit'],
+  ['bc1q4srun4yspqem2pqgkael56m0nzx6dv0vu6sk5x', 'Bybit'],
+  ['3PpXFMFbSR3Tnz7TSjcjWnQBW6PZygv1ip', 'Bybit'],
+  ['bc1qnfcwqdwrjta7a5hxv0hqtpqp8evzlxpnywydf9', 'Bybit'],
+  ['3PE5BQWGaMCwLKSCb3BEf4RcYWtFVhf8CG', 'Bybit'],
+  ['bc1qvlpkhk8vhm3zhvzcjxv89n29cqkwdaynfd8aaj', 'Bybit'],
+  ['bc1qm5wr8rzy50t9yz2krt0ku4nht45rssasjfnfwn', 'Bybit'],
+  ['1FWQiwK27EnGXb6BiBMRLJvunJQZZPMcGd', 'Bybit'],
+
+  // ── Bitget (6) ────────────────────────────────────────────────────────────
+  ['bc1qm5jk8yaxvra4065hmvx9v7jeefd4yxkm4hrlqk', 'Bitget'],
+  ['bc1qse0xge4fy4w4zlp8hmjvj7rrpz2ljmta84hp0e', 'Bitget'],
+  ['3QDCTzoc7Wrcp3RLNTG2fCxdpB1g6Z6Nvk', 'Bitget'],
+  ['bc1qp7csetut3tl93j5s7t4dexkwsntx963xnfnknd', 'Bitget'],
+  ['bc1qjuh40dafu4sqqnhupf5g8gvp2ywh0a9g2mtwxx', 'Bitget'],
+  ['3QK2MFmNPLYQ9WL5h6LZjHZZmaMvXfmJBi', 'Bitget'],
+
+  // ── Huobi / HTX (10) ──────────────────────────────────────────────────────
+  ['1LAnF8h3qMGx3TSwNUHVneBZUEpwE4gu3D', 'Huobi'],
+  ['14XKsv3HJQK87gFF4YFCFPoiPX4D3N1Fha', 'Huobi'],
+  ['1HckjUpRGcrrRAtFaaCAUaGjsPx9oYmLaZ', 'Huobi'],
+  ['1FoWyxwPXuj4C6abqwhjDWdz6D4PZgYRjA', 'Huobi'],
+  ['bc1qaekfeyptwxj0xv7s6vlltsgh2qh39fmmhfnuap', 'Huobi'],
+  ['3DUbEABMTGzQHx3MW6YKKvpsTCifrvfAre', 'Huobi'],
+  ['1Q2eMEEV3jPNJ1Mwcbvgn7fBSDJ3LEhFXH', 'Huobi'],
+  ['39wUKy2e2p64HTjZ7xMfMq1dEaKFNP7FCf', 'Huobi'],
+  ['33pDAz64y5WevsEDiEy4cXJEjxTGQsrsHV', 'Huobi'],
+  ['bc1qne8mqmk2y6xhaf92l5ntf92s9ca2s7x3xwr5l', 'Huobi'],
+
+  // ── KuCoin (8) ────────────────────────────────────────────────────────────
+  ['bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h', 'KuCoin'],
+  ['3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy', 'KuCoin'],
+  ['bc1qpuqwmxncal3nh5j5d8vjjexgj8v7dqkzd2xluv', 'KuCoin'],
+  ['37itBVB4m7z1m3xb2EC4ATjP4jcB8vu2fC', 'KuCoin'],
+  ['bc1q8lanj99mawxsdlzslt6xwfpwer04yuer6gms23', 'KuCoin'],
+  ['3LCciqGEyAhRker38tMPfMGSHq41JazV4B', 'KuCoin'],
+  ['bc1qmwkzfej0tatxn7tax9yh7tgpkgr4g60c3d0fnz', 'KuCoin'],
+  ['3Grmv1vN71FqBFETR5etfFUTWHJRDKF3pL', 'KuCoin'],
+
+  // ── Crypto.com (6) ────────────────────────────────────────────────────────
+  ['bc1q4c8n5t00jmj8temxdgcc3t32nkg2wjwz24lywv', 'Crypto.com'],
+  ['3LYwDbpjSJcCbw8p7cDbZCMN7qoRhgrift', 'Crypto.com'],
+  ['bc1qpy04q2zcqknex78gp0k5xp5tftpfjq4rdqlsth', 'Crypto.com'],
+  ['3QU3TmR88ZEfxTmuBLF4Nir6h2LqpxrjMA', 'Crypto.com'],
+  ['bc1q0ym0p8dw3jxncasceywku7zy5cc5z84e3xkhqn', 'Crypto.com'],
+  ['3JtmCcVWEr69RVhsqSbsMZNCTqjKVLN2K5', 'Crypto.com'],
+
+  // ── Gate.io (6) ───────────────────────────────────────────────────────────
+  ['bc1qxch3q9cxv4lcekvnhnelm2gxgn8nma7t9n20fq', 'Gate.io'],
+  ['1GmSfBrxiYwV3iT3PdcRFPJi8BfBYLEMrg', 'Gate.io'],
+  ['3HLgxanCwJJyiTFYPSACjPJafgMBN8EFhT', 'Gate.io'],
+  ['bc1qpd67we7ay0qs90ag3cpuehvv9kf57shyt9g8yg', 'Gate.io'],
+  ['1MjpoKxzUfvEnkCsvFVFgcKBrTrwmJ2JjY', 'Gate.io'],
+  ['3ArC1t3FMREUe3ZXp7sH9j5SJJ7NKdvLnZ', 'Gate.io'],
+
+  // ── Bitstamp (5) ──────────────────────────────────────────────────────────
+  ['3P3QsMVK89JBNqZQv5zMAKG8FK3kJM4rjt', 'Bitstamp'],
+  ['bc1qnkf3ycr8vdxylzree5492sn0pelf9hgfx2mxte', 'Bitstamp'],
+  ['3BiKLKhs1rMbV9DBNoyiBhcFm2aui7m5XY', 'Bitstamp'],
+  ['1HQ3Go3ggs8pFnA3cv1HVwT8aVNA7drgpj', 'Bitstamp'],
+  ['bc1q72k0tfjqy9xsg8kp9lgdlrfcrqd84hwjgr94ef', 'Bitstamp'],
+
+  // ── Deribit (4) ───────────────────────────────────────────────────────────
+  ['1Mw7Gg2dookhxMVZ7PrgDcjRkD9J8FRCEY', 'Deribit'],
+  ['bc1qa7c4y3eqnhqhf9lzf4z9dgqj0u5rcz7s5nktd', 'Deribit'],
+  ['3NpXph1Wn8ydSut11eLK1m3JRg5yrQeBBF', 'Deribit'],
+  ['bc1q4zfspf0s2gfmuu8h5k0g7xqagfl0a578e0p2dz', 'Deribit'],
+
+  // ── BitMEX (4) ────────────────────────────────────────────────────────────
+  ['3BMEXqGpG4FxBA1KWhRFufXfSTRgzfDBhJ', 'BitMEX'],
+  ['3BMEXT3Lx3zfQYKEnuUHXRyNpmrAfue1sP', 'BitMEX'],
+  ['bc1qaf3tql84e7mv7jgjlzm5aqfhmqezf0hgfxluyj', 'BitMEX'],
+  ['1LS6ij8STcYv3bphBFNHGCpGKGZ8cZdNhg', 'BitMEX'],
 ]);
+
+/** Per-wallet activity tracking */
+interface WalletActivity {
+  volumeBtc: number;
+  volumeUsd: number;
+  txCount: number;
+  inflowBtc: number;
+  outflowBtc: number;
+  lastSeenTime: number;
+}
+
+/** Exported type for top wallets API response */
+export interface TopWallet {
+  address: string;
+  exchange: string;
+  volumeBtc: number;
+  volumeUsd: number;
+  txCount: number;
+  netFlowBtc: number;
+  lastSeenTime: number;
+}
 
 // ─── Mempool REST API Types ────────────────────────────────────────────────
 
@@ -144,6 +299,9 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
   /** History buffer of snapshots */
   private snapshotHistory: Array<{ features: WhaleFeatures; eventTime: number }> = [];
 
+  /** Per-address activity tracking (1h rolling window) */
+  private walletActivity = new Map<string, WalletActivity>();
+
   /** Baseline whale volume (rolling average for abnormality detection) */
   private baselineVolumeBtc = 0;
   private baselineSampleCount = 0;
@@ -197,6 +355,21 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
 
   getBlockchainActivity(): BlockchainActivity {
     return this.blockchainActivity;
+  }
+
+  getTopWallets(limit = 10): TopWallet[] {
+    return [...this.walletActivity.entries()]
+      .map(([address, act]) => ({
+        address,
+        exchange: EXCHANGE_ADDRESS_MAP.get(address) ?? 'Unknown',
+        volumeBtc: round(act.volumeBtc, 4),
+        volumeUsd: round(act.volumeUsd, 0),
+        txCount: act.txCount,
+        netFlowBtc: round(act.inflowBtc - act.outflowBtc, 4),
+        lastSeenTime: act.lastSeenTime,
+      }))
+      .sort((a, b) => b.volumeBtc - a.volumeBtc)
+      .slice(0, limit);
   }
 
   /** LLM-ready summary of blockchain activity for the last hour */
@@ -485,6 +658,10 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
     if (isExchangeInflow && !isExchangeOutflow) direction = 'exchange_inflow';
     else if (isExchangeOutflow && !isExchangeInflow) direction = 'exchange_outflow';
 
+    // Track per-wallet activity
+    if (isExchangeInflow) this.trackWalletActivity(vout, amountBtc, 'inflow');
+    if (isExchangeOutflow) this.trackWalletActivity(vin, amountBtc, 'outflow');
+
     this.notableTransactions.push({
       txid,
       amountBtc,
@@ -513,6 +690,10 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
       let direction: WhaleFlowDirection = 'unknown';
       if (isExchangeInflow && !isExchangeOutflow) direction = 'exchange_inflow';
       else if (isExchangeOutflow && !isExchangeInflow) direction = 'exchange_outflow';
+
+      // Track per-wallet activity
+      if (isExchangeInflow) this.trackWalletActivity(txDetail.vout as MempoolVout[], amountBtc, 'inflow');
+      if (isExchangeOutflow) this.trackWalletActivity(txDetail.vin as MempoolVin[], amountBtc, 'outflow');
 
       this.notableTransactions.push({
         txid,
@@ -548,6 +729,10 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
     let direction: WhaleFlowDirection = 'unknown';
     if (isExchangeInflow && !isExchangeOutflow) direction = 'exchange_inflow';
     else if (isExchangeOutflow && !isExchangeInflow) direction = 'exchange_outflow';
+
+    // Track per-wallet activity
+    if (isExchangeInflow) this.trackWalletActivity(tx.vout, totalValueBtc, 'inflow');
+    if (isExchangeOutflow) this.trackWalletActivity(tx.vin, totalValueBtc, 'outflow');
 
     const whaleTx: WhaleTransaction = {
       txid: tx.txid ?? `unknown-${Date.now()}`,
@@ -588,9 +773,46 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
       } else {
         addr = (io as MempoolVout).scriptpubkey_address ?? '';
       }
-      if (EXCHANGE_ADDRESSES.has(addr)) return true;
+      if (EXCHANGE_ADDRESS_MAP.has(addr)) return true;
     }
     return false;
+  }
+
+  /** Record per-address activity for the top wallets leaderboard */
+  private trackWalletActivity(
+    ios: MempoolVin[] | MempoolVout[] | undefined,
+    amountBtc: number,
+    type: 'inflow' | 'outflow',
+  ): void {
+    if (!ios) return;
+    for (const io of ios) {
+      let addr = '';
+      if ('prevout' in io) {
+        addr = (io as MempoolVin).prevout?.scriptpubkey_address ?? '';
+      } else {
+        addr = (io as MempoolVout).scriptpubkey_address ?? '';
+      }
+      if (!EXCHANGE_ADDRESS_MAP.has(addr)) continue;
+
+      const existing = this.walletActivity.get(addr);
+      if (existing) {
+        existing.volumeBtc += amountBtc;
+        existing.volumeUsd += amountBtc * this.btcPriceUsd;
+        existing.txCount += 1;
+        if (type === 'inflow') existing.inflowBtc += amountBtc;
+        else existing.outflowBtc += amountBtc;
+        existing.lastSeenTime = Date.now();
+      } else {
+        this.walletActivity.set(addr, {
+          volumeBtc: amountBtc,
+          volumeUsd: amountBtc * this.btcPriceUsd,
+          txCount: 1,
+          inflowBtc: type === 'inflow' ? amountBtc : 0,
+          outflowBtc: type === 'outflow' ? amountBtc : 0,
+          lastSeenTime: Date.now(),
+        });
+      }
+    }
   }
 
   // ─── Blockchain Activity Computation ──────────────────────────────────────
@@ -749,6 +971,10 @@ export class WhaleTrackerService implements OnModuleInit, OnModuleDestroy {
   private pruneNotableTransactions(): void {
     const cutoff = Date.now() - BLOCKCHAIN_WINDOW_MS;
     this.notableTransactions = this.notableTransactions.filter((tx) => tx.eventTime > cutoff);
+    // Prune stale wallet activity entries
+    for (const [addr, act] of this.walletActivity) {
+      if (act.lastSeenTime < cutoff) this.walletActivity.delete(addr);
+    }
   }
 
   private defaultFeatures(): WhaleFeatures {

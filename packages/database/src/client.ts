@@ -18,10 +18,26 @@ export function createDb(dbPath: string) {
     schema: { ...schema, ...relations },
   });
 
-  // Auto-create tables
+  // Auto-create tables + run migrations
   ensureTables(sqlite);
+  runMigrations(sqlite);
 
   return db;
+}
+
+/** Safe column additions for existing databases */
+function runMigrations(sqlite: Database.Database): void {
+  const addColumnIfMissing = (table: string, column: string, type: string) => {
+    try {
+      sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+    } catch {
+      // Column already exists — ignore
+    }
+  };
+
+  addColumnIfMissing('agent_decisions', 'input_tokens', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing('agent_decisions', 'output_tokens', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing('agent_decisions', 'cost_usd', 'REAL NOT NULL DEFAULT 0');
 }
 
 function ensureTables(sqlite: Database.Database): void {
@@ -99,6 +115,9 @@ function ensureTables(sqlite: Database.Database): void {
       model TEXT NOT NULL,
       provider TEXT NOT NULL,
       latency_ms INTEGER NOT NULL,
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      cost_usd REAL NOT NULL DEFAULT 0,
       event_time INTEGER NOT NULL,
       processed_at INTEGER NOT NULL
     );

@@ -47,6 +47,8 @@ export interface FullRiskState {
   remainingDailyBudgetUsd: number;
   killSwitchActive: boolean;
   tradingEnabled: boolean;
+  winStreak: number;
+  streakMultiplier: number;
   updatedAt: string;
 }
 
@@ -54,8 +56,8 @@ export interface FullRiskState {
 
 const STALE_DATA_THRESHOLD_MS = 30_000;
 const DEFAULT_CONFIG: RiskConfig = {
-  maxSizeUsd: 0.5,
-  dailyLossLimitUsd: 10,
+  maxSizeUsd: 5,
+  dailyLossLimitUsd: 25,
   maxSpreadBps: 300,
   minDepthScore: 0.1,
   maxTradesPerWindow: 1,
@@ -72,6 +74,7 @@ export class RiskService implements OnModuleInit {
   private tradesInCurrentWindow = 0;
   private currentWindowId: string | null = null;
   private lastTradeTime: UnixMs | null = null;
+  private currentWinStreak = 0;
 
   constructor(
     @Inject(DATABASE_CLIENT) private readonly db: DbClient,
@@ -103,6 +106,8 @@ export class RiskService implements OnModuleInit {
       remainingDailyBudgetUsd: this.remainingDailyBudgetUsd,
       killSwitchActive: this.killSwitchActive,
       tradingEnabled: this.tradingEnabled,
+      winStreak: this.currentWinStreak,
+      streakMultiplier: this.currentWinStreak >= 5 ? 2.0 : this.currentWinStreak >= 3 ? 1.5 : 1.0,
       updatedAt: new Date().toISOString(),
     };
   }
@@ -179,9 +184,12 @@ export class RiskService implements OnModuleInit {
     if (!balanceCheck.passed && balanceCheck.reason) rejectionReasons.push(balanceCheck.reason);
 
     const approved = rejectionReasons.length === 0 && proposal.action !== 'hold';
-    // Cap approved size at the smallest of: proposed, max per trade, remaining daily budget
+    // Win streak bonus: 3+ wins → 1.5x, 5+ wins → 2x max size
+    const streakMultiplier = this.currentWinStreak >= 5 ? 2.0 : this.currentWinStreak >= 3 ? 1.5 : 1.0;
+    const effectiveMaxSize = this.config.maxSizeUsd * streakMultiplier;
+    // Cap approved size at the smallest of: proposed, effective max per trade, remaining daily budget
     const approvedSizeUsd = approved
-      ? Math.min(proposal.sizeUsd, this.config.maxSizeUsd, this.remainingDailyBudgetUsd)
+      ? Math.min(proposal.sizeUsd, effectiveMaxSize, this.remainingDailyBudgetUsd)
       : 0;
 
     // Track trade if approved
@@ -307,13 +315,15 @@ export class RiskService implements OnModuleInit {
   }
 
   private checkMaxSize(proposedSizeUsd: number): RiskCheckResult {
-    const passed = proposedSizeUsd <= this.config.maxSizeUsd;
+    const streakMultiplier = this.currentWinStreak >= 5 ? 2.0 : this.currentWinStreak >= 3 ? 1.5 : 1.0;
+    const effectiveMax = this.config.maxSizeUsd * streakMultiplier;
+    const passed = proposedSizeUsd <= effectiveMax;
     return {
       check: 'max_size',
       passed,
       reason: passed
         ? null
-        : `Proposed size $${proposedSizeUsd} exceeds max $${this.config.maxSizeUsd}`,
+        : `Proposed size $${proposedSizeUsd} exceeds max $${effectiveMax}${streakMultiplier > 1 ? ` (base $${this.config.maxSizeUsd} × ${streakMultiplier} streak bonus)` : ''}`,
     };
   }
 
@@ -419,6 +429,14 @@ export class RiskService implements OnModuleInit {
         (t) => new Date(t.resolvedAt).getTime() >= todayStart.getTime(),
       );
       this.dailyPnlUsd = todayTrades.reduce((sum, t) => sum + (t.pnlUsd ?? 0), 0);
+
+      // Compute current win streak from most recent trades (across all days)
+      let streak = 0;
+      for (const t of json.data) {
+        if ((t.pnlUsd ?? 0) > 0) streak++;
+        else break;
+      }
+      this.currentWinStreak = streak;
     } catch {
       // Keep in-memory value
     }

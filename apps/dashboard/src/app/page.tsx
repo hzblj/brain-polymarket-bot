@@ -10,6 +10,7 @@ import {
   Shield,
   TrendingUp,
   Zap,
+  DollarSign,
 } from "lucide-react";
 
 import { KpiCard } from "@/components/cards/kpi-card";
@@ -33,6 +34,7 @@ import {
   useBlockchainActivity,
   useDerivativesFeatures,
   usePriceHistory,
+  useLlmCosts,
 } from "@/lib/hooks";
 
 import {
@@ -210,6 +212,7 @@ export default function OverviewPage() {
   const services = health.data;
   const today = metrics.data;
   const sim = simulation.data;
+  const llmCosts = useLlmCosts().data;
   const bc = useBlockchainActivity().data;
   const deriv = useDerivativesFeatures().data;
   const ttc = useCountdown(m?.timeToCloseMs);
@@ -222,7 +225,7 @@ export default function OverviewPage() {
   return (
     <div className="flex flex-col gap-4 p-4">
       {/* ── KPI Strip ──────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-9">
         <KpiCard
           label="Current Mode"
           value={s?.mode ?? "—"}
@@ -308,6 +311,12 @@ export default function OverviewPage() {
           icon={TrendingUp}
           variant={today?.lossCount ? "negative" : "default"}
         />
+        <KpiCard
+          label="LLM Cost"
+          value={llmCosts ? `$${llmCosts.today.totalCostUsd.toFixed(4)}` : "—"}
+          icon={DollarSign}
+          subtitle={llmCosts ? `${llmCosts.today.totalCalls} calls` : undefined}
+        />
       </div>
 
       {/* ── Row 1: Pipeline + Chart + Market Snapshot ─────────────── */}
@@ -392,6 +401,76 @@ export default function OverviewPage() {
                   <span className="font-medium tabular-nums text-text-primary">{formatPct(m.imbalance)}</span>
                 </div>
               </div>
+
+              {/* Poly Lag Tracker */}
+              <div className="rounded-md border border-accent/10 bg-surface-0/30 px-3 py-2">
+                <span className="block text-[10px] uppercase tracking-wider text-text-muted mb-1">Poly Lag Tracker</span>
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div>
+                    <span className="block text-text-muted">Lag</span>
+                    <span className="font-medium tabular-nums text-text-primary">{m.lagMs > 0 ? `${(m.lagMs / 1000).toFixed(0)}s` : '—'}</span>
+                  </div>
+                  <div>
+                    <span className="block text-text-muted">Pred. Basis</span>
+                    <span className={`font-medium tabular-nums ${Math.abs(m.predictiveBasisBps) > 20 ? (m.predictiveBasisBps > 0 ? 'text-positive' : 'text-negative') : 'text-text-primary'}`}>
+                      {m.predictiveBasisBps > 0 ? '+' : ''}{formatPrice(m.predictiveBasisBps, 1)} bps
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-text-muted">Signal</span>
+                    <span className={`font-medium text-xs ${m.lagSignal === 'stale_up' ? 'text-positive' : m.lagSignal === 'stale_down' ? 'text-negative' : 'text-text-muted'}`}>
+                      {m.lagSignal === 'stale_up' ? 'STALE ▲' : m.lagSignal === 'stale_down' ? 'STALE ▼' : 'synced'}
+                    </span>
+                  </div>
+                </div>
+                {m.lagReliability > 0 && (
+                  <div className="mt-1">
+                    <div className="h-1 rounded-full bg-surface-0/60 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-accent transition-all"
+                        style={{ width: `${Math.round(m.lagReliability * 100)}%` }}
+                      />
+                    </div>
+                    <span className="text-[9px] text-text-muted">{Math.round(m.lagReliability * 100)}% reliability</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Sweep Detector */}
+              {m.sweep?.sweepDetected && (
+                <div className={`rounded-md border px-3 py-2 ${m.sweep.sweepDirection === 'up' ? 'border-positive/30 bg-positive/5' : m.sweep.sweepDirection === 'down' ? 'border-negative/30 bg-negative/5' : 'border-border bg-surface-0/30'}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] uppercase tracking-wider text-text-muted">Sweep Detected</span>
+                    <span className={`text-xs font-bold ${m.sweep.sweepDirection === 'up' ? 'text-positive' : 'text-negative'}`}>
+                      {m.sweep.sweepDirection === 'up' ? 'BULLISH ▲' : 'BEARISH ▼'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2 text-xs">
+                    <div>
+                      <span className="block text-text-muted">Pierce</span>
+                      <span className="font-medium tabular-nums">{formatPrice(m.sweep.pierceBps, 1)} bps</span>
+                    </div>
+                    <div>
+                      <span className="block text-text-muted">Revert</span>
+                      <span className="font-medium tabular-nums">{formatPrice(m.sweep.revertBps, 1)} bps</span>
+                    </div>
+                    <div>
+                      <span className="block text-text-muted">Vol Z</span>
+                      <span className={`font-medium tabular-nums ${m.sweep.volumeZScore >= 1.5 ? 'text-warning' : ''}`}>{formatPrice(m.sweep.volumeZScore, 1)}</span>
+                    </div>
+                    <div>
+                      <span className="block text-text-muted">Conf.</span>
+                      <span className="font-medium tabular-nums">{Math.round(m.sweep.sweepConfidence * 100)}%</span>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 mt-1 text-[9px]">
+                    <span className={m.sweep.volumeZScore >= 1.5 ? 'text-positive' : 'text-text-muted'}>VOL {m.sweep.volumeZScore >= 1.5 ? '✓' : '✗'}</span>
+                    <span className={m.sweep.bookConfirmed ? 'text-positive' : 'text-text-muted'}>BOOK {m.sweep.bookConfirmed ? '✓' : '✗'}</span>
+                    <span className={m.sweep.lagConfirmed ? 'text-positive' : 'text-text-muted'}>LAG {m.sweep.lagConfirmed ? '✓' : '✗'}</span>
+                    <span className="text-text-muted ml-auto">{Math.round(m.sweep.sweepAgeMs / 1000)}s ago @ ${formatPrice(m.sweep.sweptLevel, 0)}</span>
+                  </div>
+                </div>
+              )}
 
               {/* Bid/Ask levels */}
               <div className="grid grid-cols-2 gap-2 text-xs">

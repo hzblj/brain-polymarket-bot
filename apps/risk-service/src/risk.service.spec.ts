@@ -26,6 +26,9 @@ function makeFeatures(overrides: Record<string, unknown> = {}) {
       exchangeMidPrice: 100_005,
       polymarketMidPrice: 0.52,
       basisBps: 10,
+      lagMs: 0,
+      predictiveBasisBps: 0,
+      lagReliability: 0,
     },
     book: {
       upBid: 0.51,
@@ -42,6 +45,7 @@ function makeFeatures(overrides: Record<string, unknown> = {}) {
       volatilityRegime: 'medium' as const,
       bookPressure: 'bid' as const,
       basisSignal: 'long' as const,
+      lagSignal: 'synced' as const,
     },
     ...(overrides.eventTime === undefined ? {} : { eventTime: overrides.eventTime as number }),
   };
@@ -50,7 +54,7 @@ function makeFeatures(overrides: Record<string, unknown> = {}) {
 function makeProposal(overrides: Record<string, unknown> = {}) {
   return {
     action: 'buy_up' as const,
-    sizeUsd: 0.4,
+    sizeUsd: 4,
     confidence: 0.8,
     reasoning: 'test',
     regimeSummary: 'trending',
@@ -176,15 +180,15 @@ describe('RiskService', () => {
     });
 
     it('passes when size equals limit', async () => {
-      // default maxSizeUsd is 0.5
-      const req = makeRequest({ proposal: makeProposal({ sizeUsd: 0.5 }) });
+      // default maxSizeUsd is 5
+      const req = makeRequest({ proposal: makeProposal({ sizeUsd: 5 }) });
       const result = await service.evaluate(req);
       const check = result.checksRun.find((c) => c.check === 'max_size');
       expect(check.passed).toBe(true);
     });
 
     it('fails when size exceeds limit', async () => {
-      const req = makeRequest({ proposal: makeProposal({ sizeUsd: 0.6 }) });
+      const req = makeRequest({ proposal: makeProposal({ sizeUsd: 6 }) });
       const result = await service.evaluate(req);
       const check = result.checksRun.find((c) => c.check === 'max_size');
       expect(check.passed).toBe(false);
@@ -210,8 +214,8 @@ describe('RiskService', () => {
     });
 
     it('fails when daily loss limit is reached exactly', async () => {
-      // dailyPnlUsd = -10, dailyLossLimitUsd = 10 => remaining = 10 + (-10) = 0 => not > 0 => fail
-      (service as unknown as Record<string, number>).dailyPnlUsd = -10;
+      // dailyPnlUsd = -25, dailyLossLimitUsd = 25 => remaining = 25 + (-25) = 0 => not > 0 => fail
+      (service as unknown as Record<string, number>).dailyPnlUsd = -25;
       const result = await service.evaluate(makeRequest());
       const check = result.checksRun.find((c) => c.check === 'daily_loss_limit');
       expect(check.passed).toBe(false);
@@ -219,23 +223,23 @@ describe('RiskService', () => {
     });
 
     it('fails when daily loss exceeds limit', async () => {
-      (service as unknown as Record<string, number>).dailyPnlUsd = -15;
+      (service as unknown as Record<string, number>).dailyPnlUsd = -30;
       const result = await service.evaluate(makeRequest());
       const check = result.checksRun.find((c) => c.check === 'daily_loss_limit');
       expect(check.passed).toBe(false);
     });
 
     it('allows trading when winnings offset losses (reinvestment)', async () => {
-      // Started with $10 budget, lost $5, won $3 => dailyPnlUsd = -2 => remaining = 10 + (-2) = 8 > 0 => pass
-      (service as unknown as Record<string, number>).dailyPnlUsd = -2;
+      // Started with $25 budget, lost $10, won $5 => dailyPnlUsd = -5 => remaining = 25 + (-5) = 20 > 0 => pass
+      (service as unknown as Record<string, number>).dailyPnlUsd = -5;
       const result = await service.evaluate(makeRequest({ windowId: 'win-reinvest' }));
       const check = result.checksRun.find((c) => c.check === 'daily_loss_limit');
       expect(check.passed).toBe(true);
     });
 
     it('stops trading when net losses hit budget even after earlier wins', async () => {
-      // Won $5 earlier, then lost $15 total => dailyPnlUsd = -10 => remaining = 0 => fail
-      (service as unknown as Record<string, number>).dailyPnlUsd = -10;
+      // Won $5 earlier, then lost $30 total => dailyPnlUsd = -25 => remaining = 0 => fail
+      (service as unknown as Record<string, number>).dailyPnlUsd = -25;
       const result = await service.evaluate(makeRequest({ windowId: 'win-busted' }));
       const check = result.checksRun.find((c) => c.check === 'daily_loss_limit');
       expect(check.passed).toBe(false);
@@ -251,8 +255,8 @@ describe('RiskService', () => {
       expect(check.passed).toBe(true);
     });
 
-    it('fails when data is older than 15 seconds', async () => {
-      const staleTime = Date.now() - 20_000;
+    it('fails when data is older than 30 seconds', async () => {
+      const staleTime = Date.now() - 35_000;
       const features = makeFeatures();
       features.eventTime = staleTime;
       const req: RiskEvaluationRequest = {
@@ -270,8 +274,8 @@ describe('RiskService', () => {
       expect(check.reason).toContain('threshold');
     });
 
-    it('passes when data is exactly at the threshold edge (just under 15s)', async () => {
-      const justFresh = Date.now() - 14_900;
+    it('passes when data is exactly at the threshold edge (just under 30s)', async () => {
+      const justFresh = Date.now() - 29_900;
       const features = makeFeatures();
       features.eventTime = justFresh;
       const req: RiskEvaluationRequest = {
@@ -452,47 +456,47 @@ describe('RiskService', () => {
 
   describe('approvedSizeUsd capping', () => {
     it('caps approved size at maxSizeUsd', async () => {
-      // Size is 0.5 (at limit), should be approved at 0.5
+      // Size is 5 (at limit), should be approved at 5
       const req = makeRequest({
-        proposal: makeProposal({ sizeUsd: 0.5 }),
+        proposal: makeProposal({ sizeUsd: 5 }),
       });
       const result = await service.evaluate(req);
       expect(result.approved).toBe(true);
-      expect(result.approvedSizeUsd).toBe(0.5);
+      expect(result.approvedSizeUsd).toBe(5);
     });
 
     it('returns proposed size when under max', async () => {
       const req = makeRequest({
-        proposal: makeProposal({ sizeUsd: 0.3 }),
+        proposal: makeProposal({ sizeUsd: 3 }),
       });
       const result = await service.evaluate(req);
       expect(result.approved).toBe(true);
-      expect(result.approvedSizeUsd).toBe(0.3);
+      expect(result.approvedSizeUsd).toBe(3);
     });
 
     it('caps at maxSizeUsd when custom config is lower', async () => {
-      await service.updateConfig({ maxSizeUsd: 0.25 });
+      await service.updateConfig({ maxSizeUsd: 2.5 });
       const req = makeRequest({
-        proposal: makeProposal({ sizeUsd: 0.25 }),
+        proposal: makeProposal({ sizeUsd: 2.5 }),
       });
       // Need a new window since we already used win-1 above
       req.windowId = 'win-cap';
       const result = await service.evaluate(req);
       expect(result.approved).toBe(true);
-      expect(result.approvedSizeUsd).toBe(0.25);
+      expect(result.approvedSizeUsd).toBe(2.5);
     });
 
     it('caps approved size at remaining daily budget', async () => {
-      // Budget is $10, lost $9.70 so far => remaining = $0.30
-      (service as unknown as Record<string, number>).dailyPnlUsd = -9.7;
+      // Budget is $25, lost $22 so far => remaining = $3
+      (service as unknown as Record<string, number>).dailyPnlUsd = -22;
       const req = makeRequest({
         windowId: 'win-budget-cap',
-        proposal: makeProposal({ sizeUsd: 0.5 }),
+        proposal: makeProposal({ sizeUsd: 5 }),
       });
       const result = await service.evaluate(req);
       expect(result.approved).toBe(true);
-      // Should be capped at remaining budget ($0.30), not maxSizeUsd ($0.50)
-      expect(result.approvedSizeUsd).toBeCloseTo(0.3, 1);
+      // Should be capped at remaining budget ($3), not maxSizeUsd ($5)
+      expect(result.approvedSizeUsd).toBeCloseTo(3, 1);
     });
   });
 
@@ -528,7 +532,7 @@ describe('RiskService', () => {
       const updated = await service.updateConfig({ maxSizeUsd: 1 });
       expect(updated.maxSizeUsd).toBe(1);
       // Other defaults should remain
-      expect(updated.dailyLossLimitUsd).toBe(10);
+      expect(updated.dailyLossLimitUsd).toBe(25);
     });
 
     it('applies full config updates', async () => {
@@ -559,9 +563,9 @@ describe('RiskService', () => {
   describe('getState', () => {
     it('returns current state with defaults', async () => {
       const state = await service.getState();
-      expect(state.config.maxSizeUsd).toBe(0.5);
-      expect(state.config.dailyLossLimitUsd).toBe(10);
-      expect(state.remainingDailyBudgetUsd).toBe(10);
+      expect(state.config.maxSizeUsd).toBe(5);
+      expect(state.config.dailyLossLimitUsd).toBe(25);
+      expect(state.remainingDailyBudgetUsd).toBe(25);
       expect(state.killSwitchActive).toBe(false);
       expect(state.tradingEnabled).toBe(true);
       expect(state.state.dailyPnlUsd).toBe(0);

@@ -106,7 +106,9 @@ Reductions:
 - poor liquidity → reduce
 - wide spread → reduce
 
-Never exceed maxSizeUsd.
+Never exceed maxSizeUsd * streakMultiplier.
+
+When risk.winStreak >= 3 and risk.streakMultiplier > 1, you may scale up sizeUsd — but only when edge confidence >= 0.6 and the mean reversion signal is clear. Do not blindly increase size on a streak.
 
 ---
 

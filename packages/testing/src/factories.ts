@@ -112,6 +112,9 @@ export function createTestFeaturePayload(overrides: Partial<FeaturePayload> = {}
       exchangeMidPrice: 67550,
       polymarketMidPrice: 0.53,
       basisBps: 50,
+      lagMs: 0,
+      predictiveBasisBps: 0,
+      lagReliability: 0,
       ...overrides.price,
     },
     book: {
@@ -129,6 +132,7 @@ export function createTestFeaturePayload(overrides: Partial<FeaturePayload> = {}
       volatilityRegime: 'medium',
       bookPressure: 'bid',
       basisSignal: 'neutral',
+      lagSignal: 'synced',
       ...overrides.signals,
     },
     ...overrides,

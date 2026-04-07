@@ -153,7 +153,7 @@ const DEFAULT_TRADING: TradingConfig = {
   edgeThresholdStrong: 0.15,
   maxSpreadBps: 300,
   minDepthScore: 0.1,
-  maxSizeUsd: 0.5,
+  maxSizeUsd: 5,
   mode: 'disabled',
   tradingHoursUtc: {
     enabled: false,
@@ -163,9 +163,9 @@ const DEFAULT_TRADING: TradingConfig = {
 };
 
 const DEFAULT_RISK: RiskConfig = {
-  dailyLossLimitUsd: 10,
+  dailyLossLimitUsd: 25,
   maxTradesPerWindow: 1,
-  maxSizeUsd: 0.5,
+  maxSizeUsd: 5,
   maxSpreadBps: 300,
   minDepthScore: 0.1,
 };

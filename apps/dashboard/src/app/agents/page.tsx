@@ -1,21 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { Bot, Brain, Crosshair, Eye, Clock, Zap, ShieldCheck, ShieldAlert, Wrench } from "lucide-react";
+import { Bot, Brain, Crosshair, Eye, Clock, Zap, ShieldAlert, Wrench } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { KpiCard } from "@/components/cards/kpi-card";
 import { useAgentTraces, useAgentContext, usePipeline } from "@/lib/hooks";
 import { formatTimeAgo } from "@/lib/formatters";
 import type { AgentTrace } from "@/lib/api";
 
-type AgentFilter = "all" | "regime" | "edge" | "supervisor" | "validator" | "gatekeeper" | "eval";
+type AgentFilter = "all" | "regime" | "edge" | "supervisor" | "gatekeeper" | "eval";
 
 const FILTER_LABELS: Record<AgentFilter, string> = {
   all: "All",
   regime: "Regime",
   edge: "Edge",
   supervisor: "Supervisor",
-  validator: "Validator",
   gatekeeper: "Gatekeeper",
   eval: "Eval",
 };
@@ -24,7 +23,6 @@ const AGENT_ICONS: Record<string, typeof Brain> = {
   regime: Brain,
   edge: Crosshair,
   supervisor: Eye,
-  validator: ShieldCheck,
   gatekeeper: ShieldAlert,
   eval: Wrench,
 };
@@ -33,7 +31,6 @@ const AGENT_COLORS: Record<string, string> = {
   regime: "text-accent",
   edge: "text-warning",
   supervisor: "text-positive",
-  validator: "text-text-secondary",
   gatekeeper: "text-negative",
   eval: "text-accent",
 };
@@ -56,7 +53,6 @@ export default function AgentsPage() {
   const regimeCount = filteredTraces.filter((t) => t.agentType === "regime").length;
   const edgeCount = filteredTraces.filter((t) => t.agentType === "edge").length;
   const supervisorCount = filteredTraces.filter((t) => t.agentType === "supervisor").length;
-  const validatorCount = filteredTraces.filter((t) => t.agentType === "validator").length;
   const gatekeeperCount = filteredTraces.filter((t) => t.agentType === "gatekeeper").length;
   const evalCount = filteredTraces.filter((t) => t.agentType === "eval").length;
   const lastTrace = filteredTraces[0];
@@ -69,13 +65,12 @@ export default function AgentsPage() {
       />
 
       {/* KPI Strip */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
         <KpiCard label="Total Traces" value={totalTraces} icon={Bot} />
         <KpiCard label="Avg Latency" value={`${avgLatency}ms`} icon={Zap} />
         <KpiCard label="Regime" value={regimeCount} icon={Brain} variant="default" />
         <KpiCard label="Edge" value={edgeCount} icon={Crosshair} variant="warning" />
         <KpiCard label="Supervisor" value={supervisorCount} icon={Eye} variant="positive" />
-        <KpiCard label="Validator" value={validatorCount} icon={ShieldCheck} variant="default" />
         <KpiCard label="Gatekeeper" value={gatekeeperCount} icon={ShieldAlert} variant="negative" />
         <KpiCard label="Eval" value={evalCount} icon={Wrench} variant="default" />
         <KpiCard

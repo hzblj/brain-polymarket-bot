@@ -79,6 +79,12 @@ export class DashboardController {
     return { ok: true, data };
   }
 
+  @Get('llm-costs')
+  async getLlmCosts() {
+    const data = await this.dashboardService.getLlmCosts();
+    return { ok: true, data };
+  }
+
   @Sse('stream')
   stream(): Observable<MessageEvent> {
     return interval(2000).pipe(

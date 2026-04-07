@@ -32,7 +32,6 @@ interface PipelineCycleResult {
     | 'precomputed'
     | 'gatekeeper_validated'
     | 'gatekeeper_invalidated'
-    | 'validator_rejected'
     | 'strategy_filtered';
   details: Record<string, unknown>;
   durationMs: number;
@@ -497,28 +496,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       return this.finishCycle(cycle, startMs, 'no_features', { reason: 'Feature engine returned no data (gatekeeper)' });
     }
 
-    // Step 1: Nano validator (~100-200ms) — check fresh features sanity
-    this.logger.log(`[Branch B] Step 1: Validator for ${windowId}`);
-    const validatorResult: ServiceResponse = await this.postJson(
-      `${AGENT_GATEWAY_URL}/api/v1/agent/validator/evaluate`,
-      { windowId, features: freshFeatures },
-    );
-
-    if (validatorResult?.parsedOutput && !validatorResult.parsedOutput.valid) {
-      const issues: string[] = validatorResult.parsedOutput.issues ?? [];
-      this.logger.warn(`[Branch B] Validator REJECTED: ${issues.join(', ')}`);
-
-      this.eventBus.emit('validator.rejected', { windowId, issues });
-
-      return this.finishCycle(cycle, startMs, 'validator_rejected', {
-        windowId,
-        issues,
-        source: 'validator',
-      });
-    }
-    this.logger.log(`[Branch B] Validator PASSED`);
-
-    // Step 2: Gatekeeper (~1-2s) — compare pre-computed decision vs fresh data
+    // Gatekeeper (~1-2s) — compare pre-computed decision vs fresh data
     const preComputeFeaturesSummary = {
       returnBps: preComputed.features?.price?.returnBps ?? 0,
       spreadBps: preComputed.features?.book?.spreadBps ?? 0,
@@ -926,8 +904,6 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(`Cycle #${cycle}: GATEKEEPER VALIDATED in ${result.durationMs}ms`);
     } else if (stage === 'gatekeeper_invalidated') {
       this.logger.warn(`Cycle #${cycle}: GATEKEEPER INVALIDATED`, JSON.stringify(details));
-    } else if (stage === 'validator_rejected') {
-      this.logger.warn(`Cycle #${cycle}: VALIDATOR REJECTED`, JSON.stringify(details));
     }
 
     return result;

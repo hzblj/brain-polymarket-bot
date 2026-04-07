@@ -138,6 +138,16 @@ export interface WhaleFeatures {
   lastWhaleEventTime: UnixMs | null;
 }
 
+export interface TopWallet {
+  address: string;
+  exchange: string;
+  volumeBtc: number;
+  volumeUsd: number;
+  txCount: number;
+  netFlowBtc: number;
+  lastSeenTime: UnixMs;
+}
+
 export interface WhaleSnapshot {
   id: string;
   windowId: string;
@@ -243,6 +253,33 @@ export interface DerivativesFeatures {
   derivativesSentiment: number;
 }
 
+// ─── Sweep Types ────────────────────────────────────────────────────────────
+
+export interface SweepFeatures {
+  /** Whether a sweep was detected in the current window */
+  sweepDetected: boolean;
+  /** Direction of the expected reversal: 'up' = swept low, expect bounce up */
+  sweepDirection: 'up' | 'down' | 'none';
+  /** How far price pierced beyond the swing level in bps */
+  pierceBps: number;
+  /** How far price has reverted back from the pierce in bps */
+  revertBps: number;
+  /** Composite confidence in the sweep signal 0-1 */
+  sweepConfidence: number;
+  /** Time since sweep was detected in ms */
+  sweepAgeMs: number;
+  /** Volume spike z-score during sweep (0 if no volume data) */
+  volumeZScore: number;
+  /** Whether the sweep is confirmed by orderbook imbalance flip */
+  bookConfirmed: boolean;
+  /** Whether lag tracker confirms Poly hasn't priced in the reversal */
+  lagConfirmed: boolean;
+  /** The BTC price level that was swept */
+  sweptLevel: number;
+  /** Number of active swing levels being tracked */
+  swingLevelCount: number;
+}
+
 // ─── Feature Types ───────────────────────────────────────────────────────────
 
 export interface MarketFeatures {
@@ -264,6 +301,12 @@ export interface PriceFeatures {
   exchangeMidPrice: number;
   polymarketMidPrice: number;
   basisBps: number;
+  /** Estimated Polymarket delay behind Binance in milliseconds */
+  lagMs: number;
+  /** Binance move (in bps) not yet reflected in Polymarket pricing */
+  predictiveBasisBps: number;
+  /** 0-1 confidence in the lag estimate (based on cross-correlation strength) */
+  lagReliability: number;
 }
 
 export interface BookFeatures {
@@ -285,6 +328,8 @@ export interface SignalFeatures {
   volatilityRegime: 'low' | 'medium' | 'high';
   bookPressure: 'bid' | 'ask' | 'neutral';
   basisSignal: 'long' | 'short' | 'neutral';
+  /** Polymarket is stale relative to Binance — indicates direction of unpriced move */
+  lagSignal: 'stale_up' | 'stale_down' | 'synced';
   tradeable: boolean;
 }
 
@@ -295,14 +340,17 @@ export interface FeaturePayload {
   price: PriceFeatures;
   book: BookFeatures;
   signals: SignalFeatures;
+  sweep?: SweepFeatures;
   whales?: WhaleFeatures;
+  topWallets?: TopWallet[];
+  whaleLlmSummary?: string;
   derivatives?: DerivativesFeatures;
   blockchain?: BlockchainActivity;
 }
 
 // ─── Agent Types ─────────────────────────────────────────────────────────────
 
-export type AgentType = 'regime' | 'edge' | 'supervisor' | 'validator' | 'gatekeeper' | 'eval';
+export type AgentType = 'regime' | 'edge' | 'supervisor' | 'gatekeeper' | 'eval';
 
 export type PatchableAgent = 'regime' | 'edge' | 'supervisor';
 
@@ -332,11 +380,6 @@ export interface SupervisorOutput {
   reasoning: string;
   regimeSummary: string;
   edgeSummary: string;
-}
-
-export interface ValidatorOutput {
-  valid: boolean;
-  issues: string[];
 }
 
 export interface GatekeeperOutput {

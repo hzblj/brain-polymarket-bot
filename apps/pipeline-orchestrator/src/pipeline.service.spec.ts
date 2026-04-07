@@ -25,6 +25,9 @@ const mockFeatures = {
     exchangeMidPrice: 84300,
     polymarketMidPrice: 0.565,
     basisBps: 0,
+    lagMs: 0,
+    predictiveBasisBps: 0,
+    lagReliability: 0,
   },
   book: {
     upBid: 0.55,
@@ -40,6 +43,7 @@ const mockFeatures = {
     volatilityRegime: 'medium',
     bookPressure: 'neutral',
     basisSignal: 'neutral',
+    lagSignal: 'synced',
     tradeable: true,
   },
 };

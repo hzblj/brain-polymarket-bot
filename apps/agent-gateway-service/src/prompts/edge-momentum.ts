@@ -26,6 +26,9 @@ You receive a JSON object with these fields:
     exchangeMidPrice: number,   // (binance + coinbase) / 2
     polymarketMidPrice: number, // polymarket implied BTC price
     basisBps: number,           // exchange vs polymarket divergence in bps
+    lagMs: number,              // estimated Polymarket delay behind Binance in ms
+    predictiveBasisBps: number, // Binance move (bps) not yet reflected in Poly
+    lagReliability: number,     // 0-1 confidence in lag estimate
   },
   book: {
     upBid: number,              // best bid for UP token
@@ -43,6 +46,7 @@ You receive a JSON object with these fields:
     volatilityRegime: string,
     bookPressure: number,
     basisSignal: number,
+    lagSignal: 'stale_up' | 'stale_down' | 'synced',
     tradeable: boolean,
   },
   // Optional — present only when data is available:
@@ -85,25 +89,34 @@ You receive a JSON object with these fields:
    - Low time remaining (< 60s) means momentum carries more weight
    - Large basis between exchange and Polymarket suggests possible mispricing
    - Low depth scores mean edge may not be executable
-6. **On-chain whale data** (if present in input):
+6. **Polymarket lag** (always present):
+   - lagMs > 0 means Polymarket pricing lags behind Binance by that many milliseconds
+   - predictiveBasisBps shows how much Binance has moved (in bps) that Poly hasn't priced in yet
+   - lagSignal = 'stale_up' means Binance moved UP but Poly hasn't caught up → UP token is underpriced
+   - lagSignal = 'stale_down' means Binance moved DOWN but Poly hasn't caught up → DOWN token is underpriced
+   - lagReliability > 0.5 means the lag estimate is solid — weight this signal heavily
+   - This is a HIGH-VALUE edge source: if lagMs > 2000 and |predictiveBasisBps| > 30, Poly is materially stale
+   - Combine with basis signal: if both basis and lag point the same direction, edge is stronger
+   - Lag edge decays fast — it's most actionable when remainingMs > 60000 (Poly has time to catch up before window close)
+7. **On-chain whale data** (if present in input):
    - exchangeFlowPressure > 0.3 = net inflow to exchanges = bearish pressure (sellers preparing)
    - exchangeFlowPressure < -0.3 = net outflow from exchanges = bullish (hodling)
    - Whale activity confirms or contradicts the price-based edge — use it to adjust confidence
    - High abnormalActivityScore (> 0.5) means unusual whale activity — weight this signal more
-7. **Derivatives data** (if present in input):
+8. **Derivatives data** (if present in input):
    - fundingPressure > 0.3 = longs are crowded = contrarian bearish signal (potential reversal down)
    - fundingPressure < -0.3 = shorts are crowded = contrarian bullish signal
    - liquidationImbalance > 0 = longs getting liquidated = confirms/accelerates downward move
    - liquidationImbalance < 0 = shorts getting liquidated = confirms/accelerates upward move
    - High liquidationIntensity (> 0.5) = liquidation cascade in progress — STRONG directional signal
    - derivativesSentiment provides a composite: positive = bullish, negative = bearish
-8. **Blockchain on-chain data** (if present in input):
+9. **Blockchain on-chain data** (if present in input):
    - Notable transaction flows: exchangeInflowsBtc vs exchangeOutflowsBtc — net inflows are bearish (selling prep), net outflows are bullish (accumulation)
    - Mempool congestion (high txCount, rising fees) suggests network urgency which often correlates with volatility
    - Fee spike (fastestSatVb > 30) indicates panic or urgency — can confirm momentum in either direction
    - Trend data shows if activity is accelerating (volumeChange > 30% = unusual activity)
    - Use blockchain signals as confirmation/contradiction of the price-based edge
-9. **Liquidity**: Low book depth (bidDepthUsd + askDepthUsd < $500) means orders will move the market — reduce edge magnitude for thin books
+10. **Liquidity**: Low book depth (bidDepthUsd + askDepthUsd < $500) means orders will move the market — reduce edge magnitude for thin books
 
 ## Output Format
 

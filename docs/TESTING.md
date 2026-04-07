@@ -1,51 +1,51 @@
-# Testovani brain-polymarket-bot v paper mode
+# Testing brain-polymarket-bot in paper mode
 
-Prakticky navod jak rozjet system, napojit na realna data a nechat ho cele dny bezet v paper mode — bez realnch obchodu, ale se vsemi rozhodnutimi ulozenymi pro vyhodnoceni.
+Practical guide on how to start the system, connect to real data, and let it run for days in paper mode — without real trades, but with all decisions saved for evaluation.
 
-## Co je potreba
+## What you need
 
 - Docker + Docker Compose
-- OpenClaw (basic setup — pro resolver proxy a Polymarket pristup)
-- Volitelne: Anthropic API klic (pro LLM agenty)
+- OpenClaw (basic setup — for resolver proxy and Polymarket access)
+- Optional: Anthropic API key (for LLM agents)
 
-## 1. Priprava
+## 1. Setup
 
 ```bash
 cd brain-polymarket-bot
 cp .env.example .env
 ```
 
-Uprav `.env`:
+Edit `.env`:
 
 ```env
-# Paper mode — simuluje ordery, nic realne neposila
+# Paper mode — simulates orders, sends nothing real
 EXECUTION_MODE=paper
 
-# Anthropic klic pro agent reasoning (volitelne)
-# Bez nej system sbira data a pocita features, ale agenti nerozhoduji
+# Anthropic key for agent reasoning (optional)
+# Without it the system collects data and computes features, but agents don't make decisions
 ANTHROPIC_API_KEY=sk-ant-...
 
-# Nebo OpenAI
+# Or OpenAI
 # AGENT_PROVIDER=openai
 # OPENAI_API_KEY=sk-...
 
-# Polymarket API (read-only staci pro paper)
+# Polymarket API (read-only is enough for paper)
 # POLYMARKET_API_KEY=...
 # POLYMARKET_API_SECRET=...
 # POLYMARKET_API_PASSPHRASE=...
 ```
 
-## 2. Spusteni
+## 2. Starting up
 
 ```bash
-# Start vsech 10 services
+# Start all 10 services
 docker compose up -d
 
-# Over ze vsechno bezi
+# Verify everything is running
 docker compose ps
 ```
 
-Melo by byt 10 kontejneru ve stavu "Up":
+You should see 10 containers in "Up" state:
 
 ```
 brain-api-gateway        Up   0.0.0.0:3000->3000
@@ -60,55 +60,55 @@ brain-agent-gateway      Up   0.0.0.0:3008->3008
 brain-replay             Up   0.0.0.0:3009->3009
 ```
 
-## 3. Overeni ze system funguje
+## 3. Verifying the system works
 
-### Rychly health check
+### Quick health check
 
 ```bash
-# Cely system
+# Full system
 curl -s http://localhost:3000/health | python3 -m json.tool
 
-# Aktivni market
+# Active market
 curl -s http://localhost:3001/api/v1/market/active | python3 -m json.tool
 
-# Aktualni cena BTC
+# Current BTC price
 curl -s http://localhost:3002/api/v1/price/current | python3 -m json.tool
 
-# Feature payload (tohle jde do agentu)
+# Feature payload (this goes to agents)
 curl -s http://localhost:3004/api/v1/features/current | python3 -m json.tool
 
-# Risk stav
+# Risk state
 curl -s http://localhost:3005/api/v1/risk/state | python3 -m json.tool
 ```
 
-### Co hledat
+### What to look for
 
-- `market-discovery` vraci `status: "open"` — naslo aktivni 5m market
-- `price-feed` vraci `resolver.price` a `external.price` — BTC cena z fedu
-- `feature-engine` vraci `signals.tradeable: true/false` — jestli jsou podminky pro trade
-- `risk-service` vraci `tradingEnabled: true`, `killSwitchActive: false`
+- `market-discovery` returns `status: "open"` — found an active 5m market
+- `price-feed` returns `resolver.price` and `external.price` — BTC price from feeds
+- `feature-engine` returns `signals.tradeable: true/false` — whether conditions are right for trading
+- `risk-service` returns `tradingEnabled: true`, `killSwitchActive: false`
 
-## 4. Jak to bezi
+## 4. How it runs
 
-System se chova nasledovne:
+The system behaves as follows:
 
 ```
-Kazdych 5 minut se otevre novy market window
+Every 5 minutes a new market window opens
   │
-  ├── market-discovery detekuje novy window
-  ├── price-feed sleduje BTC cenu (1 tick/s)
-  ├── orderbook sleduje Polymarket book (1 snapshot/s)
+  ├── market-discovery detects the new window
+  ├── price-feed tracks BTC price (1 tick/s)
+  ├── orderbook tracks Polymarket book (1 snapshot/s)
   │
-  ├── feature-engine prepocita features (1x/s)
-  │     momentum, volatilita, book pressure, tradeability
+  ├── feature-engine recomputes features (1x/s)
+  │     momentum, volatility, book pressure, tradeability
   │
-  ├── Kdyz timeToClose < 90s a tradeable = true:
-  │     agent-gateway posle features agentum
+  ├── When timeToClose < 90s and tradeable = true:
+  │     agent-gateway sends features to agents
   │       ├── regime-agent: "trend_up" (confidence 0.72)
   │       ├── edge-agent: "fairUpProb: 0.64, edge: 0.11"
   │       └── supervisor-agent: "TRADE_UP, size: $18, confidence: 0.74"
   │
-  ├── risk-service overi navrh:
+  ├── risk-service validates the proposal:
   │     ✓ kill switch off
   │     ✓ trading enabled
   │     ✓ size $18 <= max $50
@@ -120,58 +120,58 @@ Kazdych 5 minut se otevre novy market window
   │     → APPROVED, size: $18
   │
   └── execution-service (paper mode):
-        → Simuluje fill za aktualni cenu
-        → Ulozi order + fill do DB
-        → Zadny realny obchod na Polymarket
+        → Simulates fill at current price
+        → Saves order + fill to DB
+        → No real trade on Polymarket
 ```
 
-## 5. Sledovani v realnem case
+## 5. Real-time monitoring
 
 ```bash
-# Logy vsech services (hodne verbose)
+# Logs for all services (very verbose)
 docker compose logs -f
 
-# Jen dulezite services
+# Just the important services
 docker compose logs -f feature-engine agent-gateway risk execution
 
-# Jen execution — vidis paper ordery
+# Just execution — see paper orders
 docker compose logs -f execution
 
-# Pozice (co system "drzi")
+# Positions (what the system "holds")
 curl -s http://localhost:3006/api/v1/execution/positions | python3 -m json.tool
 
-# Posledni filly
+# Latest fills
 curl -s http://localhost:3006/api/v1/execution/fills | python3 -m json.tool
 
-# Agent traces (co agenti rozhodli)
+# Agent traces (what agents decided)
 curl -s http://localhost:3008/api/v1/agent/traces | python3 -m json.tool
 ```
 
-## 6. Vyhodnoceni na konci dne
+## 6. End-of-day evaluation
 
-Data jsou v SQLite (`./data/brain.sqlite`). Docker volume je namapovany, takze pristup mas primo z hostu.
+Data is in SQLite (`./data/brain.sqlite`). The Docker volume is mapped, so you can access it directly from the host.
 
 ```bash
 sqlite3 ./data/brain.sqlite
 ```
 
-### Zakladni metriky
+### Basic metrics
 
 ```sql
--- Kolik paper obchodu dnes
+-- How many paper trades today
 SELECT COUNT(*) as trades,
        SUM(size_usd) as total_volume
 FROM orders
 WHERE mode = 'paper'
   AND date(created_at) = date('now');
 
--- Obchody po strane (UP vs DOWN)
+-- Trades by side (UP vs DOWN)
 SELECT side, COUNT(*) as count, ROUND(AVG(entry_price), 4) as avg_price
 FROM orders
 WHERE mode = 'paper' AND date(created_at) = date('now')
 GROUP BY side;
 
--- Vsechny filly dnes
+-- All fills today
 SELECT o.side, o.size_usd, f.fill_price, o.created_at
 FROM orders o
 JOIN fills f ON f.order_id = o.id
@@ -179,10 +179,10 @@ WHERE o.mode = 'paper' AND date(o.created_at) = date('now')
 ORDER BY o.created_at;
 ```
 
-### Agent rozhodnuti
+### Agent decisions
 
 ```sql
--- Co agenti navrhovali
+-- What agents proposed
 SELECT
   agent_type,
   json_extract(output, '$.action') as action,
@@ -194,7 +194,7 @@ WHERE date(datetime(event_time/1000, 'unixepoch')) = date('now')
 ORDER BY event_time DESC
 LIMIT 20;
 
--- Distribuece rezimu (jak casto byl trh v jakem stavu)
+-- Regime distribution (how often the market was in each state)
 SELECT
   json_extract(output, '$.regime') as regime,
   COUNT(*) as count,
@@ -205,7 +205,7 @@ WHERE agent_type = 'regime'
 GROUP BY regime
 ORDER BY count DESC;
 
--- Prumerna latence LLM volani
+-- Average LLM call latency
 SELECT agent_type,
        COUNT(*) as calls,
        ROUND(AVG(latency_ms)) as avg_ms,
@@ -215,18 +215,18 @@ WHERE date(datetime(event_time/1000, 'unixepoch')) = date('now')
 GROUP BY agent_type;
 ```
 
-### Risk vyhodnoceni
+### Risk evaluation
 
 ```sql
--- Kolikrat risk schvalil vs zamitnul
+-- How many times risk approved vs rejected
 SELECT
-  CASE WHEN approved THEN 'schvaleno' ELSE 'zamitnuto' END as vysledek,
+  CASE WHEN approved THEN 'approved' ELSE 'rejected' END as result,
   COUNT(*) as count
 FROM risk_decisions
 WHERE date(datetime(event_time/1000, 'unixepoch')) = date('now')
 GROUP BY approved;
 
--- Nejcastejsi duvody zamitnutí
+-- Most common rejection reasons
 SELECT rejection_reasons, COUNT(*) as count
 FROM risk_decisions
 WHERE NOT approved
@@ -238,7 +238,7 @@ ORDER BY count DESC;
 ### Feature quality
 
 ```sql
--- Prumerne features za dnesek
+-- Average features for today
 SELECT
   ROUND(AVG(json_extract(payload, '$.signals.momentum5s')), 4) as avg_momentum,
   ROUND(AVG(json_extract(payload, '$.signals.volatility30s')), 6) as avg_volatility,
@@ -248,12 +248,12 @@ FROM feature_snapshots
 WHERE date(datetime(event_time/1000, 'unixepoch')) = date('now');
 ```
 
-## 7. Replay (hromadne vyhodnoceni)
+## 7. Replay (bulk evaluation)
 
-Replay service muze prehrat historicka data a znovu vyhodnotit agent rozhodnuti:
+The replay service can replay historical data and re-evaluate agent decisions:
 
 ```bash
-# Replay poslednich 24h
+# Replay the last 24h
 curl -X POST http://localhost:3009/api/v1/replay/run \
   -H 'Content-Type: application/json' \
   -d '{
@@ -262,70 +262,70 @@ curl -X POST http://localhost:3009/api/v1/replay/run \
     "reEvaluateAgents": true
   }'
 
-# Vysledek
+# Results
 curl -s http://localhost:3009/api/v1/replay/summary | python3 -m json.tool
 ```
 
-## 8. Ladeni parametru
+## 8. Tuning parameters
 
-Zmena risk parametru za behu (bez restartu):
+Change risk parameters at runtime (no restart needed):
 
 ```bash
-# Zvysit max velikost pozice
+# Increase max position size
 curl -X POST http://localhost:3005/api/v1/risk/config \
   -H 'Content-Type: application/json' \
   -d '{"maxSizeUsd": 30, "maxSpreadBps": 400}'
 
-# Zmena na jiny model
+# Switch to a different model
 curl -X POST http://localhost:3007/api/v1/config \
   -H 'Content-Type: application/json' \
   -d '{"provider": {"model": "claude-sonnet-4-20250514", "temperature": 0.1}}'
 
-# Vypnout agenty a nechat jen data collection
+# Disable agents and keep only data collection
 curl -X POST http://localhost:3007/api/v1/config \
   -H 'Content-Type: application/json' \
   -d '{"featureFlags": {"agentRegimeEnabled": false, "agentEdgeEnabled": false, "agentSupervisorEnabled": false}}'
 ```
 
-## 9. Nouzove zastaveni
+## 9. Emergency stop
 
 ```bash
-# Kill switch — okamzite zastaveni vsech obchodu (data se dal sbiraji)
+# Kill switch — immediately stops all trading (data collection continues)
 curl -X POST http://localhost:3005/api/v1/risk/kill-switch/on
 
-# Zruseni kill switche
+# Disable kill switch
 curl -X POST http://localhost:3005/api/v1/risk/kill-switch/off
 
-# Uplne zastaveni vsech services
+# Completely stop all services
 docker compose down
 ```
 
-## 10. Typicky den testovani
+## 10. Typical testing day
 
-| Cas | Co udelat |
-|-----|-----------|
-| Rano | `docker compose up -d`, over health check |
-| Pres den | `docker compose logs -f execution` — sleduj paper ordery |
-| Vecer | SQL dotazy na `brain.sqlite` — P&L, agent accuracy, risk stats |
-| Po tydnu | Replay service — hromadne vyhodnoceni, srovnani modelu |
+| Time | What to do |
+|------|-----------|
+| Morning | `docker compose up -d`, verify health check |
+| During the day | `docker compose logs -f execution` — watch paper orders |
+| Evening | SQL queries on `brain.sqlite` — P&L, agent accuracy, risk stats |
+| After a week | Replay service — bulk evaluation, model comparison |
 
 ## Troubleshooting
 
 ```bash
-# Service nereaguje
+# Service not responding
 docker compose restart risk
 
-# Vsechny services znovu
+# Restart all services
 docker compose down && docker compose up -d
 
-# Smazat data a zacit od nuly
+# Delete data and start fresh
 docker compose down
 docker volume rm brain-polymarket-bot_brain-data
 docker compose up -d
 
-# Overit co je v DB
+# Check what's in the DB
 sqlite3 ./data/brain.sqlite "SELECT COUNT(*) FROM orders;"
 
-# Overit env promenne v kontejneru
+# Check env variables in a container
 docker compose exec risk env | grep EXECUTION
 ```

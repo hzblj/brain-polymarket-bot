@@ -2,7 +2,7 @@
 
 import { PageHeader } from '@/components/layout/page-header';
 import { KpiCard } from '@/components/cards/kpi-card';
-import { useWhaleFeatures, useWhaleTransactions, useWhaleHistory, useBlockchainActivity } from '@/lib/hooks';
+import { useWhaleFeatures, useWhaleTransactions, useWhaleHistory, useBlockchainActivity, useTopWallets } from '@/lib/hooks';
 import { formatPrice, formatTimeAgo } from '@/lib/formatters';
 import {
   AreaChart,
@@ -28,6 +28,7 @@ import {
   Fuel,
   HardDrive,
   Hash,
+  Wallet,
 } from 'lucide-react';
 
 // ─── Chart theme ────────────────────────────────────────────────────────────
@@ -537,6 +538,77 @@ function TrendStat({ label, change }: { label: string; change: number }) {
   );
 }
 
+// ─── Top Wallets Panel ─────────────────────────────────────────────────────
+
+function TopWalletsPanel() {
+  const { data: wallets, isLoading } = useTopWallets();
+
+  if (isLoading) return <SectionSkeleton />;
+
+  const items = wallets ?? [];
+
+  return (
+    <Section title="Top 10 Active Wallets (1h)" icon={Wallet}>
+      {items.length === 0 ? (
+        <p className="text-xs text-text-muted py-8 text-center">
+          No exchange wallet activity detected yet
+        </p>
+      ) : (
+        <div className="space-y-1">
+          {/* Header */}
+          <div className="grid grid-cols-[2rem_5rem_1fr_5rem_5rem_5rem_4.5rem] gap-2 px-3 py-1 text-[10px] uppercase tracking-wider text-text-muted">
+            <span>#</span>
+            <span>Exchange</span>
+            <span>Address</span>
+            <span className="text-right">Volume</span>
+            <span className="text-right">USD</span>
+            <span className="text-right">Net Flow</span>
+            <span className="text-right">Txs</span>
+          </div>
+          {items.map((w, idx) => {
+            const flowColor =
+              w.netFlowBtc > 0.01
+                ? 'text-negative'
+                : w.netFlowBtc < -0.01
+                  ? 'text-positive'
+                  : 'text-text-muted';
+            const isRecent = Date.now() - w.lastSeenTime < 60_000;
+            return (
+              <div
+                key={w.address}
+                className={`grid grid-cols-[2rem_5rem_1fr_5rem_5rem_5rem_4.5rem] gap-2 items-center rounded px-3 py-2 ${
+                  isRecent ? 'bg-accent/5 border border-accent/20' : 'bg-surface-0'
+                }`}
+              >
+                <span className="text-xs text-text-muted font-mono">{idx + 1}</span>
+                <span className="text-xs font-medium text-text-primary truncate">{w.exchange}</span>
+                <a
+                  href={`https://mempool.space/address/${w.address}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-accent hover:underline font-mono truncate"
+                >
+                  {shortenAddress(w.address)}
+                </a>
+                <span className="text-xs text-text-primary tabular-nums text-right">
+                  {formatPrice(w.volumeBtc, 2)}
+                </span>
+                <span className="text-xs text-text-muted tabular-nums text-right">
+                  ${formatPrice(w.volumeUsd, 0)}
+                </span>
+                <span className={`text-xs tabular-nums text-right ${flowColor}`}>
+                  {w.netFlowBtc >= 0 ? '+' : ''}{formatPrice(w.netFlowBtc, 2)}
+                </span>
+                <span className="text-xs text-text-secondary tabular-nums text-right">{w.txCount}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Section>
+  );
+}
+
 // ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function WhalesPage() {
@@ -548,6 +620,8 @@ export default function WhalesPage() {
       />
 
       <WhaleKpis />
+
+      <TopWalletsPanel />
 
       <div className="grid grid-cols-2 gap-6">
         <FlowPressurePanel />

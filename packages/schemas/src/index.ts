@@ -5,7 +5,7 @@ import { z } from 'zod';
 export const MarketStatusSchema = z.enum(['active', 'paused', 'resolved', 'expired']);
 export const WindowOutcomeSchema = z.enum(['up', 'down', 'flat', 'unknown']);
 export const PriceSourceSchema = z.enum(['binance', 'coinbase', 'polymarket']);
-export const AgentTypeSchema = z.enum(['regime', 'edge', 'supervisor', 'validator', 'gatekeeper', 'eval']);
+export const AgentTypeSchema = z.enum(['regime', 'edge', 'supervisor', 'gatekeeper', 'eval']);
 export const PatchableAgentSchema = z.enum(['regime', 'edge', 'supervisor']);
 export const RegimeSchema = z.enum([
   'trending_up',
@@ -29,6 +29,7 @@ export const OrderStatusSchema = z.enum([
 export const VolatilityRegimeSchema = z.enum(['low', 'medium', 'high']);
 export const BookPressureSchema = z.enum(['bid', 'ask', 'neutral']);
 export const BasisSignalSchema = z.enum(['long', 'short', 'neutral']);
+export const LagSignalSchema = z.enum(['stale_up', 'stale_down', 'synced']);
 
 // ─── Feature Payload Schema ─────────────────────────────────────────────────
 
@@ -51,6 +52,9 @@ export const PriceFeaturesSchema = z.object({
   exchangeMidPrice: z.number().positive(),
   polymarketMidPrice: z.number().min(0).max(1),
   basisBps: z.number(),
+  lagMs: z.number().nonnegative(),
+  predictiveBasisBps: z.number(),
+  lagReliability: z.number().min(0).max(1),
 });
 
 export const BookFeaturesSchema = z.object({
@@ -68,6 +72,23 @@ export const SignalFeaturesSchema = z.object({
   volatilityRegime: VolatilityRegimeSchema,
   bookPressure: BookPressureSchema,
   basisSignal: BasisSignalSchema,
+  lagSignal: LagSignalSchema,
+});
+
+export const SweepDirectionSchema = z.enum(['up', 'down', 'none']);
+
+export const SweepFeaturesSchema = z.object({
+  sweepDetected: z.boolean(),
+  sweepDirection: SweepDirectionSchema,
+  pierceBps: z.number().nonnegative(),
+  revertBps: z.number().nonnegative(),
+  sweepConfidence: z.number().min(0).max(1),
+  sweepAgeMs: z.number().nonnegative(),
+  volumeZScore: z.number().nonnegative(),
+  bookConfirmed: z.boolean(),
+  lagConfirmed: z.boolean(),
+  sweptLevel: z.number().nonnegative(),
+  swingLevelCount: z.number().nonnegative(),
 });
 
 export const FeaturePayloadSchema = z.object({
@@ -77,6 +98,7 @@ export const FeaturePayloadSchema = z.object({
   price: PriceFeaturesSchema,
   book: BookFeaturesSchema,
   signals: SignalFeaturesSchema,
+  sweep: SweepFeaturesSchema.optional(),
 });
 
 // ─── Agent Output Schemas ───────────────────────────────────────────────────
@@ -101,11 +123,6 @@ export const SupervisorOutputSchema = z.object({
   reasoning: z.string().min(1).max(2000),
   regimeSummary: z.string().min(1).max(500),
   edgeSummary: z.string().min(1).max(500),
-});
-
-export const ValidatorOutputSchema = z.object({
-  valid: z.boolean(),
-  issues: z.array(z.string().max(500)),
 });
 
 export const GatekeeperOutputSchema = z.object({
@@ -349,7 +366,6 @@ export type FeaturePayloadParsed = z.infer<typeof FeaturePayloadSchema>;
 export type RegimeOutputParsed = z.infer<typeof RegimeOutputSchema>;
 export type EdgeOutputParsed = z.infer<typeof EdgeOutputSchema>;
 export type SupervisorOutputParsed = z.infer<typeof SupervisorOutputSchema>;
-export type ValidatorOutputParsed = z.infer<typeof ValidatorOutputSchema>;
 export type GatekeeperOutputParsed = z.infer<typeof GatekeeperOutputSchema>;
 export type RiskEvaluationParsed = z.infer<typeof RiskEvaluationSchema>;
 export type ExecutionRequestParsed = z.infer<typeof ExecutionRequestSchema>;

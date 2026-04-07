@@ -125,11 +125,12 @@ export class DashboardService {
   // ─── Market Snapshot ──────────────────────────────────────────────────────
 
   async getMarketSnapshot() {
-    const [priceCurrent, window, bookMetrics, market] = await Promise.all([
+    const [priceCurrent, window, bookMetrics, market, features] = await Promise.all([
       this.fetch('price-feed', '/api/v1/price/current'),
       this.fetch('market-discovery', '/api/v1/market/window/current'),
       this.fetch('orderbook', '/api/v1/book/metrics'),
       this.fetch('market-discovery', '/api/v1/market/active'),
+      this.fetch('feature-engine', '/api/v1/features/current'),
     ]);
 
     const resolver = (priceCurrent as Rec | null)?.resolver as Rec | undefined;
@@ -139,6 +140,9 @@ export class DashboardService {
     const up = (bookMetrics as Rec | null)?.up as Rec | undefined;
     const down = (bookMetrics as Rec | null)?.down as Rec | undefined;
     const mkt = market as Rec | null;
+    const feat = features as Rec | null;
+    const priceFeat = (feat?.price as Rec | undefined) ?? null;
+    const sigFeat = (feat?.signals as Rec | undefined) ?? null;
 
     return {
       startPrice: num(win?.startPrice),
@@ -168,18 +172,24 @@ export class DashboardService {
       volumeTotalUsd: num(mkt?.volumeTotalUsd),
       microprice: num((bookMetrics as Rec | null)?.microprice),
       spreadBps: num((bookMetrics as Rec | null)?.spreadBps),
+      // Poly lag tracker
+      lagMs: num(priceFeat?.lagMs),
+      predictiveBasisBps: num(priceFeat?.predictiveBasisBps),
+      lagReliability: num(priceFeat?.lagReliability),
+      lagSignal: str(sigFeat?.lagSignal as string, 'synced'),
+      // Sweep detection
+      sweep: (feat?.sweep as Rec | undefined) ?? null,
     };
   }
 
   // ─── Pipeline ─────────────────────────────────────────────────────────────
 
   async getPipeline() {
-    const [regimeTraces, edgeTraces, supervisorTraces, validatorTraces, gatekeeperTraces, evalTraces, riskState, latestPositions, currentWindow, pipelineStatus] =
+    const [regimeTraces, edgeTraces, supervisorTraces, gatekeeperTraces, evalTraces, riskState, latestPositions, currentWindow, pipelineStatus] =
       await Promise.all([
         this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=regime&limit=1'),
         this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=edge&limit=1'),
         this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=supervisor&limit=1'),
-        this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=validator&limit=1'),
         this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=gatekeeper&limit=1'),
         this.fetch('agent-gateway', '/api/v1/agent/traces?agentType=eval&limit=1'),
         this.fetch('risk', '/api/v1/risk/state'),
@@ -196,7 +206,6 @@ export class DashboardService {
     const rawSupervisor = Array.isArray(supervisorTraces)
       ? ((supervisorTraces[0] as Rec) ?? null)
       : null;
-    const rawValidator = Array.isArray(validatorTraces) ? ((validatorTraces[0] as Rec) ?? null) : null;
     const rawGatekeeper = Array.isArray(gatekeeperTraces) ? ((gatekeeperTraces[0] as Rec) ?? null) : null;
     const rawEval = Array.isArray(evalTraces) ? ((evalTraces[0] as Rec) ?? null) : null;
 
@@ -210,13 +219,11 @@ export class DashboardService {
     const regimeWindowMatch = matchesWindow(str(rawRegime?.windowId as string));
     const edgeWindowMatch = matchesWindow(str(rawEdge?.windowId as string));
     const supervisorWindowMatch = matchesWindow(str(rawSupervisor?.windowId as string));
-    const validatorWindowMatch = matchesWindow(str(rawValidator?.windowId as string));
     const gatekeeperWindowMatch = matchesWindow(str(rawGatekeeper?.windowId as string));
 
     const regime = regimeWindowMatch ? rawRegime : null;
     const edge = edgeWindowMatch ? rawEdge : null;
     const supervisor = supervisorWindowMatch ? rawSupervisor : null;
-    const validator = validatorWindowMatch ? rawValidator : null;
     const gatekeeper = gatekeeperWindowMatch ? rawGatekeeper : null;
 
     // Pipeline orchestrator status for context
@@ -260,7 +267,7 @@ export class DashboardService {
       : pipeCycles > 0 ? 'Waiting...'
       : null;
 
-    // Post-agent steps (validator/gatekeeper/risk/execution/eval): show hold or waiting
+    // Post-agent steps (gatekeeper/risk/execution/eval): show hold or waiting
     const postAgentPendingValue = preComputedHold ? 'skipped'
       : isPreComputed ? 'Waiting...'
       : pendingValue;
@@ -291,7 +298,6 @@ export class DashboardService {
     const edgeProfile = edge ? str(edge.agentProfile as string) || str(edge.model as string) : null;
     const edgeLabel = routedStrategy === 'Mean Reversion' ? 'Edge (MR)' : 'Edge';
 
-    const validatorOutput = extractOutput(validator);
     const gatekeeperOutput = extractOutput(gatekeeper);
 
     return [
@@ -305,14 +311,6 @@ export class DashboardService {
       },
       edge ? { ...traceToStep(edgeLabel, edge, 'direction'), detail: edgeProfile ? { profile: edgeProfile } : null } : { label: edgeLabel, status: pendingStatus, value: pendingValue, confidence: null, timestamp: null },
       supervisor ? traceToStep('Supervisor', supervisor, 'action') : { label: 'Supervisor', status: pendingStatus, value: pendingValue, confidence: null, timestamp: null },
-      {
-        label: 'Validator',
-        status: validator ? (validatorOutput?.valid ? 'success' as const : 'failed' as const) : pendingStatus,
-        value: validator ? (validatorOutput?.valid ? 'valid' : 'invalid') : postAgentPendingValue,
-        confidence: null,
-        timestamp: validator ? str(validator.createdAt as string) : null,
-        detail: validatorOutput?.issues ? { issues: validatorOutput.issues } : null,
-      },
       {
         label: 'Gatekeeper',
         status: gatekeeper ? (gatekeeperOutput?.validated ? 'success' as const : 'failed' as const) : pendingStatus,
@@ -513,6 +511,12 @@ export class DashboardService {
       currentLossStreak,
       greenDayStreak: 0,
     };
+  }
+
+  // ─── LLM Costs ──────────────────────────────────────────────────────────
+
+  async getLlmCosts() {
+    return this.fetch('agent-gateway', '/api/v1/agent/costs');
   }
 
   // ─── Price & Book History ─────────────────────────────────────────────────

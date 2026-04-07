@@ -18,6 +18,23 @@ export interface BinanceBookTickerMessage {
   A: string; // best ask qty
 }
 
+export interface BinanceAggTradeMessage {
+  e: string; // "aggTrade"
+  E: number; // event time
+  s: string; // symbol
+  p: string; // price
+  q: string; // quantity
+  T: number; // trade time
+  m: boolean; // is buyer the maker (true = sell, false = buy)
+}
+
+interface VolumeBucket {
+  ts: number; // bucket start (floored to second)
+  volume: number; // total BTC volume
+  buyVolume: number; // taker buy volume
+  trades: number; // trade count
+}
+
 interface PriceTick {
   price: number;
   timestamp: string;
@@ -53,11 +70,20 @@ interface MicroSignals {
   volatility: number;
 }
 
+interface VolumeStats {
+  volume1s: number;
+  volumeMean: number;
+  volumeStd: number;
+  volumeZScore: number;
+  buyRatio: number;
+}
+
 interface CurrentPricePayload {
   resolver: ResolverPrice;
   external: ExternalPrice;
   window: WindowData;
   micro: MicroSignals;
+  volume: VolumeStats;
 }
 
 interface HistoryQuery {
@@ -100,12 +126,21 @@ export class PriceFeedService implements OnModuleInit, OnModuleDestroy {
 
   private pollTimer: ReturnType<typeof setInterval> | null = null;
 
-  /** Binance WebSocket state. */
+  /** Binance WebSocket state — bookTicker. */
   private ws: WebSocket | null = null;
   private lastTickTime = 0;
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private shouldReconnect = true;
+
+  /** Binance WebSocket state — aggTrade (volume). */
+  private wsAggTrade: WebSocket | null = null;
+  private aggTradeReconnectAttempts = 0;
+  private aggTradeReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Rolling 1-second volume buckets (last 120s). */
+  private volumeBuffer: VolumeBucket[] = [];
+  private static readonly VOLUME_BUFFER_SIZE = 120;
 
   private readonly wsBaseUrl: string;
   private readonly symbol: string;
@@ -121,12 +156,14 @@ export class PriceFeedService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit(): Promise<void> {
     await this.resetWindow();
     this.connectBinanceWs();
+    this.connectAggTradeWs();
     this.startTickPolling();
   }
 
   onModuleDestroy(): void {
     this.stopTickPolling();
     this.disconnectBinanceWs();
+    this.disconnectAggTradeWs();
   }
 
   // ---------------------------------------------------------------------------
@@ -143,8 +180,9 @@ export class PriceFeedService implements OnModuleInit, OnModuleDestroy {
     };
     const window = this.computeWindowData(resolver.price);
     const micro = this.computeMicroSignals();
+    const volume = this.getVolumeStats(30);
 
-    return { resolver, external, window, micro };
+    return { resolver, external, window, micro, volume };
   }
 
   getWindowData(): WindowData {
@@ -311,6 +349,123 @@ export class PriceFeedService implements OnModuleInit, OnModuleDestroy {
       this.reconnectTimer = null;
       this.connectBinanceWs();
     }, delay);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Binance aggTrade WebSocket — volume tracking
+  // ---------------------------------------------------------------------------
+
+  private connectAggTradeWs(): void {
+    const streamUrl = `${this.wsBaseUrl}/${this.symbol}@aggTrade`;
+    this.logger.log(`Connecting to Binance aggTrade WS: ${streamUrl}`);
+
+    try {
+      this.wsAggTrade = new WebSocket(streamUrl);
+    } catch (err) {
+      this.logger.error(`Failed to create aggTrade WebSocket: ${(err as Error).message}`);
+      this.scheduleAggTradeReconnect();
+      return;
+    }
+
+    this.wsAggTrade.on('open', () => {
+      this.aggTradeReconnectAttempts = 0;
+      this.logger.log('Binance aggTrade WebSocket connected');
+    });
+
+    this.wsAggTrade.on('message', (data: WebSocket.Data) => {
+      try {
+        const msg = JSON.parse(data.toString()) as BinanceAggTradeMessage;
+        this.handleAggTrade(msg);
+      } catch {
+        /* ignore parse errors on volume stream */
+      }
+    });
+
+    this.wsAggTrade.on('close', () => {
+      this.wsAggTrade = null;
+      this.scheduleAggTradeReconnect();
+    });
+
+    this.wsAggTrade.on('error', () => {
+      /* close will fire after error */
+    });
+  }
+
+  private disconnectAggTradeWs(): void {
+    if (this.aggTradeReconnectTimer) {
+      clearTimeout(this.aggTradeReconnectTimer);
+      this.aggTradeReconnectTimer = null;
+    }
+    if (this.wsAggTrade) {
+      this.wsAggTrade.removeAllListeners();
+      this.wsAggTrade.close(1000, 'Service shutting down');
+      this.wsAggTrade = null;
+    }
+  }
+
+  private scheduleAggTradeReconnect(): void {
+    if (!this.shouldReconnect) return;
+    if (this.aggTradeReconnectAttempts >= MAX_RECONNECT_ATTEMPTS) return;
+
+    this.aggTradeReconnectAttempts++;
+    const delay = Math.min(BASE_RECONNECT_MS * Math.pow(2, this.aggTradeReconnectAttempts - 1), 30_000);
+
+    this.aggTradeReconnectTimer = setTimeout(() => {
+      this.aggTradeReconnectTimer = null;
+      this.connectAggTradeWs();
+    }, delay);
+  }
+
+  /** Process an aggTrade message into 1-second volume buckets. */
+  handleAggTrade(msg: BinanceAggTradeMessage): void {
+    const qty = parseFloat(msg.q);
+    const bucketTs = Math.floor(Date.now() / 1000) * 1000;
+    const last = this.volumeBuffer[this.volumeBuffer.length - 1];
+
+    if (last && last.ts === bucketTs) {
+      last.volume += qty;
+      if (!msg.m) last.buyVolume += qty; // m=false means taker is buyer
+      last.trades++;
+    } else {
+      this.volumeBuffer.push({
+        ts: bucketTs,
+        volume: qty,
+        buyVolume: msg.m ? 0 : qty,
+        trades: 1,
+      });
+      if (this.volumeBuffer.length > PriceFeedService.VOLUME_BUFFER_SIZE) {
+        this.volumeBuffer = this.volumeBuffer.slice(-PriceFeedService.VOLUME_BUFFER_SIZE);
+      }
+    }
+  }
+
+  /** Get rolling volume stats for the last N seconds. */
+  getVolumeStats(seconds = 30): { volume1s: number; volumeMean: number; volumeStd: number; volumeZScore: number; buyRatio: number } {
+    const now = Math.floor(Date.now() / 1000) * 1000;
+    const cutoff = now - seconds * 1000;
+    const recent = this.volumeBuffer.filter(b => b.ts >= cutoff);
+
+    if (recent.length < 3) {
+      return { volume1s: 0, volumeMean: 0, volumeStd: 0, volumeZScore: 0, buyRatio: 0.5 };
+    }
+
+    const volumes = recent.map(b => b.volume);
+    const mean = volumes.reduce((s, v) => s + v, 0) / volumes.length;
+    const variance = volumes.reduce((s, v) => s + (v - mean) ** 2, 0) / (volumes.length - 1);
+    const std = Math.sqrt(variance);
+
+    const latest = recent[recent.length - 1]!;
+    const zScore = std > 0 ? (latest.volume - mean) / std : 0;
+    const totalVol = recent.reduce((s, b) => s + b.volume, 0);
+    const totalBuy = recent.reduce((s, b) => s + b.buyVolume, 0);
+
+    return {
+      volume1s: latest.volume,
+      volumeMean: round(mean, 4),
+      volumeStd: round(std, 4),
+      volumeZScore: round(Math.max(0, zScore), 2),
+      buyRatio: totalVol > 0 ? round(totalBuy / totalVol, 3) : 0.5,
+    };
   }
 
   // ---------------------------------------------------------------------------

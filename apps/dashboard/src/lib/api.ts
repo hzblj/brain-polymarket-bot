@@ -65,6 +65,23 @@ export async function getMarketSnapshot() {
     upAsk: number;
     downBid: number;
     downAsk: number;
+    lagMs: number;
+    predictiveBasisBps: number;
+    lagReliability: number;
+    lagSignal: 'stale_up' | 'stale_down' | 'synced';
+    sweep: {
+      sweepDetected: boolean;
+      sweepDirection: 'up' | 'down' | 'none';
+      pierceBps: number;
+      revertBps: number;
+      sweepConfidence: number;
+      sweepAgeMs: number;
+      volumeZScore: number;
+      bookConfirmed: boolean;
+      lagConfirmed: boolean;
+      sweptLevel: number;
+      swingLevelCount: number;
+    } | null;
   }>('/api/v1/dashboard/snapshot');
 }
 
@@ -99,6 +116,23 @@ export async function getTodayMetrics() {
     winStreak: number;
     lossStreak: number;
   }>('/api/v1/dashboard/metrics');
+}
+
+export interface LlmCostAgentBreakdown {
+  agentType: string;
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+}
+
+export interface LlmCostStats {
+  today: { totalCostUsd: number; totalCalls: number; byAgent: LlmCostAgentBreakdown[] };
+  allTime: { totalCostUsd: number; totalCalls: number; byAgent: LlmCostAgentBreakdown[] };
+}
+
+export async function getLlmCosts() {
+  return await fetchApi<LlmCostStats>('/api/v1/dashboard/llm-costs');
 }
 
 export async function getSimulationSummary() {
@@ -195,6 +229,18 @@ export async function getBlockchainActivity() {
     trend: { txCountChange: number; volumeChange: number; feeChange: number };
     lastUpdated: number;
   }>('/api/v1/whales/blockchain');
+}
+
+export async function getTopWallets() {
+  return await fetchApi<{
+    address: string;
+    exchange: string;
+    volumeBtc: number;
+    volumeUsd: number;
+    txCount: number;
+    netFlowBtc: number;
+    lastSeenTime: number;
+  }[]>('/api/v1/whales/top-wallets?limit=10');
 }
 
 // ─── Derivatives Feed API Functions ──────────────────────────────────────
@@ -314,7 +360,7 @@ export async function getOptimizerStatus() {
 export interface AgentTrace {
   traceId: string;
   windowId: string;
-  agentType: 'regime' | 'edge' | 'supervisor' | 'validator' | 'gatekeeper' | 'eval';
+  agentType: 'regime' | 'edge' | 'supervisor' | 'gatekeeper' | 'eval';
   input: Record<string, unknown>;
   output: Record<string, unknown>;
   model: string;

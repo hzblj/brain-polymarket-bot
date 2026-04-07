@@ -91,6 +91,9 @@ function makeFeaturePayload(overrides: Partial<FeaturePayload> = {}): FeaturePay
       exchangeMidPrice: 67_495,
       polymarketMidPrice: 0.52,
       basisBps: 10,
+      lagMs: 0,
+      predictiveBasisBps: 0,
+      lagReliability: 0,
     },
     book: {
       upBid: 0.48,
@@ -106,6 +109,7 @@ function makeFeaturePayload(overrides: Partial<FeaturePayload> = {}): FeaturePay
       volatilityRegime: 'medium',
       bookPressure: 'neutral',
       basisSignal: 'neutral',
+      lagSignal: 'synced',
       tradeable: true,
     },
     ...overrides,

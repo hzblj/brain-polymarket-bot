@@ -42,8 +42,8 @@ export const AgentConfigSchema = z.object({
 });
 
 export const RiskConfigSchema = z.object({
-  RISK_MAX_SIZE_USD: z.coerce.number().positive().default(50),
-  RISK_DAILY_LOSS_LIMIT_USD: z.coerce.number().positive().default(200),
+  RISK_MAX_SIZE_USD: z.coerce.number().positive().default(5),
+  RISK_DAILY_LOSS_LIMIT_USD: z.coerce.number().positive().default(25),
   RISK_MAX_SPREAD_BPS: z.coerce.number().positive().default(300),
   RISK_MIN_DEPTH_SCORE: z.coerce.number().nonnegative().default(0.1),
   RISK_MAX_TRADES_PER_WINDOW: z.coerce.number().int().positive().default(1),

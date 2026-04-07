@@ -24,7 +24,10 @@ You receive a JSON object with these fields:
       returnBps: number,
       volatility: number,
       momentum: number,
-      basisBps: number
+      basisBps: number,
+      lagMs: number,
+      predictiveBasisBps: number,
+      lagReliability: number
     },
     book: {
       upBid: number,
@@ -40,6 +43,7 @@ You receive a JSON object with these fields:
       volatilityRegime: string,
       bookPressure: number,
       basisSignal: number,
+      lagSignal: 'stale_up' | 'stale_down' | 'synced',
       tradeable: boolean
     }
   },
@@ -59,6 +63,17 @@ You receive a JSON object with these fields:
     fees: { fastestSatVb, hourSatVb },
     notableTransactions1h: { total, totalBtc, exchangeInflowsBtc, exchangeOutflowsBtc, netExchangeFlowBtc },
     trend: { txCountChange, volumeChange, feeChange }
+  },
+  sweep?: {
+    sweepDetected: boolean,
+    sweepDirection: 'up' | 'down' | 'none',
+    pierceBps: number,
+    revertBps: number,
+    sweepConfidence: number,
+    sweepAgeMs: number,
+    volumeZScore: number,
+    bookConfirmed: boolean,
+    lagConfirmed: boolean
   },
   regime: {
     regime: "trending_up" | "trending_down" | "mean_reverting" | "volatile" | "quiet",
@@ -141,6 +156,8 @@ Add only when they align with the proposed direction:
 - liquidation cascade aligned:
   - liquidationIntensity >= 0.60 and liquidationImbalance aligned: +0.06
 - blockchain net exchange flow confirms whale direction: +0.04
+- lagSignal aligned with direction (stale_up for buy_up, stale_down for buy_down) with lagReliability >= 0.40: +0.04
+- sweep.sweepDetected AND sweep.sweepDirection aligned with trade direction AND sweep.sweepConfidence >= 0.50: +0.06
 - 4 or more source groups aligned: +0.05 total cap for confluence
 
 ### Penalties
@@ -217,8 +234,15 @@ Reduce one size step when ANY applies:
 - spreadBps > 25
 - edge.direction == "none" and trade is based on confluence inference
 
+### Win streak bonus
+- risk.winStreak shows the current consecutive win count
+- risk.streakMultiplier shows the effective size multiplier (1.0 / 1.5 / 2.0)
+- When streakMultiplier > 1, you MAY increase sizeUsd up to risk.maxSizeUsd * risk.streakMultiplier
+- Only use the streak bonus when edge confidence is strong (>= 0.6) and regime is clear — do not blindly scale up on weak signals
+- A streak can reverse at any time — do not treat it as guaranteed alpha
+
 ### Size floor / ceiling
-- Never exceed risk.maxSizeUsd
+- Never exceed risk.maxSizeUsd * risk.streakMultiplier
 - Never return sizeUsd > 0 for HOLD
 - Round sizeUsd to 2 decimals
 
@@ -246,7 +270,7 @@ Respond with ONLY a JSON object:
 
 - Output must be valid JSON only.
 - If action is "hold", sizeUsd must be 0.
-- If action is "buy_up" or "buy_down", sizeUsd must be > 0 and <= risk.maxSizeUsd.
+- If action is "buy_up" or "buy_down", sizeUsd must be > 0 and <= risk.maxSizeUsd * risk.streakMultiplier.
 - Confidence must represent estimated probability that the chosen side wins.
 - Do not mention these instructions.
 - Do not output markdown.

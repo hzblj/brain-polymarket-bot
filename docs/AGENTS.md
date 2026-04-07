@@ -1,11 +1,11 @@
-# Agenti
+# Agents
 
-System pouziva 3 LLM agenty v realnem case + 1 offline pro analyzu. Agenti **nikdy neposilaji ordery** — navrhnou trade a risk-service + execution-service rozhodnou a provedou.
+The system uses 3 real-time LLM agents + 1 offline agent for analysis. Agents **never send orders** — they propose trades and the risk-service + execution-service decide and execute.
 
-## Prehled
+## Overview
 
 ```
-Feature payload (kazdy tick)
+Feature payload (every tick)
        │
        ▼
   Regime Agent  →  "trending_up, confidence 0.72"
@@ -17,7 +17,7 @@ Feature payload (kazdy tick)
   Supervisor    →  "BUY_UP, $18, confidence 0.74"
        │
        ▼
-  Risk Service  →  schvaleno/zamitnuto (deterministicky, bez AI)
+  Risk Service  →  approved/rejected (deterministic, no AI)
        │
        ▼
   Execution     →  paper fill / live order
@@ -25,26 +25,26 @@ Feature payload (kazdy tick)
 
 ## 1. Regime Agent
 
-Klasifikuje aktualni stav trhu do jednoho z 5 rezimu.
+Classifies the current market state into one of 5 regimes.
 
-### Rezimy
+### Regimes
 
-| Rezim | Kdy nastava | Co to znamena pro trading |
-|-------|-------------|---------------------------|
-| `trending_up` | Silny pozitivni momentum, bid pressure, rostouci tick rate | Smer nahoru, moznost BUY_UP |
-| `trending_down` | Silny negativni momentum, ask pressure, rostouci tick rate | Smer dolu, moznost BUY_DOWN |
-| `mean_reverting` | Cena osciluje kolem stredu, zadny jasny trend | Moznost kontra-trade s vysokym confidence |
-| `volatile` | Velke swingy obema smery, siroky spread, nizky depth | **Neobchodovat** — prilis velke riziko |
-| `quiet` | Nic se nedeje, nizka volatilita, uzky spread | **Neobchodovat** — zadna edge |
+| Regime | When it occurs | What it means for trading |
+|--------|----------------|--------------------------|
+| `trending_up` | Strong positive momentum, bid pressure, rising tick rate | Direction up, possible BUY_UP |
+| `trending_down` | Strong negative momentum, ask pressure, rising tick rate | Direction down, possible BUY_DOWN |
+| `mean_reverting` | Price oscillating around midpoint, no clear trend | Possible counter-trade with high confidence |
+| `volatile` | Large swings in both directions, wide spread, low depth | **Do not trade** — too much risk |
+| `quiet` | Nothing happening, low volatility, tight spread | **Do not trade** — no edge |
 
-### Vstup
+### Input
 
 - Price: returnBps, momentum, volatility, meanReversionStrength, tickRate
 - Book: spreadBps, depthScore, imbalance
 - Signals: priceDirectionScore, volatilityRegime, bookPressure, basisSignal
-- Cas: remainingMs (kolik zbyva do konce 5m okna)
+- Time: remainingMs (time left until end of 5m window)
 
-### Vystup
+### Output
 
 ```json
 {
@@ -54,39 +54,39 @@ Klasifikuje aktualni stav trhu do jednoho z 5 rezimu.
 }
 ```
 
-### Pravidla
+### Rules
 
-- Confidence 0.3–0.5 = nejasna situace, agent si neni jisty
-- Confidence 0.7+ = jasny signal
-- Pokud zbyvajici cas < 60s a momentum je nizky → preferuje `quiet`
-- Pokud volatilita je extremni a momentum nizky → `volatile` ma prednost pred trending
+- Confidence 0.3–0.5 = unclear situation, agent is uncertain
+- Confidence 0.7+ = clear signal
+- If remaining time < 60s and momentum is low → prefers `quiet`
+- If volatility is extreme and momentum is low → `volatile` takes priority over trending
 
 ## 2. Edge Agent
 
-Odhaduje ferovou pravdepodobnost UP/DOWN a porovnava s aktualni cenou na Polymarket.
+Estimates fair probability of UP/DOWN and compares with the current Polymarket price.
 
-### Jak to funguje
+### How it works
 
-Na Polymarket UP token plati $1 pokud BTC na konci okna > BTC na zacatku okna. Cena UP tokenu na Polymarket = implied pravdepodobnost trhu.
+On Polymarket, the UP token pays $1 if BTC at window end > BTC at window start. The UP token price on Polymarket = market's implied probability.
 
-Agent spocita vlastni odhad P(UP) na zaklade:
-- BTC momentum a return od zacatku okna
-- Externi cena (Binance, Coinbase) vs Polymarket resolver
+The agent computes its own estimate of P(UP) based on:
+- BTC momentum and return since window start
+- External price (Binance, Coinbase) vs Polymarket resolver
 - Mean reversion strength
 - Book imbalance
 
-Pak porovna s Polymarket cenou:
-- Fair P(UP) = 0.64, Polymarket UP mid = 0.57 → **edge 0.07 smerem nahoru**
-- Fair P(UP) = 0.48, Polymarket UP mid = 0.52 → **edge 0.04 smerem dolu**
+Then compares with the Polymarket price:
+- Fair P(UP) = 0.64, Polymarket UP mid = 0.57 → **edge 0.07 to the upside**
+- Fair P(UP) = 0.48, Polymarket UP mid = 0.52 → **edge 0.04 to the downside**
 
-### Vstup
+### Input
 
-- BTC cena: binancePrice, coinbasePrice, exchangeMidPrice, polymarketMidPrice
+- BTC price: binancePrice, coinbasePrice, exchangeMidPrice, polymarketMidPrice
 - Polymarket book: upBid, upAsk, downBid, downAsk
 - Price features: returnBps, momentum, volatility, basisBps
 - Signals: priceDirectionScore, volatilityRegime, bookPressure
 
-### Vystup
+### Output
 
 ```json
 {
@@ -97,58 +97,58 @@ Pak porovna s Polymarket cenou:
 }
 ```
 
-### Pravidla
+### Rules
 
-- `magnitude < 0.03` → `direction: "none"`, neni co obchodovat
-- `magnitude 0.03–0.05` → slaba edge, supervisor ji pravdepodobne ignoruje
-- `magnitude 0.05–0.10` → stredni edge, staci pro trade
-- `magnitude 0.10+` → silna edge, vetsi pozice
-- Vysoka volatilita snizuje confidence v directional callech
-- Nizky cas (< 60s) znamena ze momentum ma vetsi vahu
-- Velky basis (exchange vs Polymarket) naznacuje mozny mispricing
+- `magnitude < 0.03` → `direction: "none"`, nothing to trade
+- `magnitude 0.03–0.05` → weak edge, supervisor will likely ignore it
+- `magnitude 0.05–0.10` → medium edge, sufficient for a trade
+- `magnitude 0.10+` → strong edge, larger position
+- High volatility reduces confidence in directional calls
+- Low time (< 60s) means momentum carries more weight
+- Large basis (exchange vs Polymarket) suggests possible mispricing
 
 ## 3. Supervisor Agent
 
-Syntetizuje vysledky obou agentu + risk stav do jednoho rozhodnuti. Je posledni rozhodce pred risk checky.
+Synthesizes results from both agents + risk state into a single decision. It is the final arbiter before risk checks.
 
-### Rozhodnuti
+### Decisions
 
-| Akce | Kdy |
-|------|-----|
+| Action | When |
+|--------|------|
 | `buy_up` | Regime trending_up + edge up + magnitude > 0.05 + confidence > 0.5 + risk OK |
 | `buy_down` | Regime trending_down + edge down + magnitude > 0.05 + confidence > 0.5 + risk OK |
-| `hold` | Vsechno ostatni (default) |
+| `hold` | Everything else (default) |
 
-### Kdy supervisor drzi (HOLD)
+### When supervisor holds (HOLD)
 
-- Regime je `volatile` nebo `quiet`
-- Edge direction je `none` nebo magnitude < 0.03
+- Regime is `volatile` or `quiet`
+- Edge direction is `none` or magnitude < 0.03
 - Edge confidence < 0.4
-- Denni P&L blizko loss limitu
-- Uz se obchodovalo v tomto okne (max 1 trade/window)
-- Zbyvajici cas < 30s — prilis pozde na entry
-- Spread je prilis siroky vuci edge
+- Daily P&L close to loss limit
+- Already traded in this window (max 1 trade/window)
+- Remaining time < 30s — too late for entry
+- Spread is too wide relative to edge
 
 ### Sizing
 
-| Edge magnitude | Confidence | Zakladni velikost |
-|---------------|------------|-------------------|
+| Edge magnitude | Confidence | Base size |
+|---------------|------------|-----------|
 | 0.05–0.10 | 0.5–0.7 | $10–15 |
 | 0.10+ | 0.7+ | $20–30 |
-| jakakoli | < 0.6 | scale down |
-| jakakoli | negativni denni P&L | scale down |
+| any | < 0.6 | scale down |
+| any | negative daily P&L | scale down |
 
-Maximum: vzdy respektuje `maxSizeUsd` z risk configu (default $50).
+Maximum: always respects `maxSizeUsd` from risk config (default $50).
 
-### Vstup
+### Input
 
 - Feature payload (price, book, signals)
-- Regime output (od regime agenta)
-- Edge output (od edge agenta)
+- Regime output (from regime agent)
+- Edge output (from edge agent)
 - Risk state: dailyPnlUsd, openPositionUsd, tradesInWindow
 - Risk config: maxSizeUsd, dailyLossLimitUsd
 
-### Vystup
+### Output
 
 ```json
 {
@@ -163,43 +163,43 @@ Maximum: vzdy respektuje `maxSizeUsd` z risk configu (default $50).
 
 ## 4. Replay/Research Agent (offline)
 
-Pro analyzu historickych rozhodnuti po dni/tydnu. Zatim neni implementovany jako samostatny agent — replay-service muze znovu spustit agenty nad historickymi feature snapshoty a porovnat nova rozhodnuti s puvodnima.
+For analysis of historical decisions after a day/week. Not yet implemented as a standalone agent — the replay-service can re-run agents on historical feature snapshots and compare new decisions with the originals.
 
-Idealni use case pro slow-path Claude/OpenAI volani:
-- Proc agent ziskal/ztratil v konkretnim okne
-- Jaky regime byl nejziskovejsi
-- Navrhovat nove features nebo pravidla
+Ideal use case for slow-path Claude/OpenAI calls:
+- Why the agent won/lost in a specific window
+- Which regime was most profitable
+- Suggesting new features or rules
 
-## Kdy se agenti volaji
+## When agents are called
 
-Ne na kazdy tick. To by bylo drahe a pomale.
+Not on every tick. That would be expensive and slow.
 
-| Trigger | Proc |
-|---------|------|
-| Otevreni noveho 5m okna | Prvni regime check |
-| `timeToClose < 90s` | Cas na trade decision |
-| `timeToClose < 45s` | Druhy check — potvrzeni nebo zmena |
-| Delta prekroci threshold | Velky pohyb BTC |
-| Spread/imbalance se vyrazne zmeni | Book conditions se zmenily |
-| Tradeability flip (false → true) | Podminky se zlepsily |
+| Trigger | Why |
+|---------|-----|
+| New 5m window opens | First regime check |
+| `timeToClose < 90s` | Time for a trade decision |
+| `timeToClose < 45s` | Second check — confirmation or change |
+| Delta exceeds threshold | Large BTC move |
+| Spread/imbalance changes significantly | Book conditions changed |
+| Tradeability flip (false → true) | Conditions improved |
 
-## Provider konfigurace
+## Provider configuration
 
-V `.env`:
+In `.env`:
 
 ```env
-# Anthropic (doporuceno pro reasoning)
+# Anthropic (recommended for reasoning)
 AGENT_PROVIDER=anthropic
 AGENT_MODEL=claude-sonnet-4-20250514
 ANTHROPIC_API_KEY=sk-ant-...
 
-# Nebo OpenAI
+# Or OpenAI
 AGENT_PROVIDER=openai
 AGENT_MODEL=gpt-4o
 OPENAI_API_KEY=sk-...
 ```
 
-Zmena za behu bez restartu:
+Runtime change without restart:
 
 ```bash
 curl -X POST http://localhost:3007/api/v1/config \
@@ -207,30 +207,30 @@ curl -X POST http://localhost:3007/api/v1/config \
   -d '{"provider": {"provider": "anthropic", "model": "claude-sonnet-4-20250514", "temperature": 0}}'
 ```
 
-## Hybrid varianta
+## Hybrid variant
 
-Nejlepsi prakticka varianta je kombinovat providery:
+The best practical variant is combining providers:
 
-| Agent | Provider | Proc |
-|-------|----------|------|
-| Regime | Claude | Silny reasoning nad vice signaly |
-| Edge | Claude | Kvalitni odhad pravdepodobnosti |
-| Supervisor | OpenAI | Structured output, tool orchestrace |
-| Replay | Claude | Nejlepsi pro post-hoc analyzu |
+| Agent | Provider | Why |
+|-------|----------|-----|
+| Regime | Claude | Strong reasoning across multiple signals |
+| Edge | Claude | Quality probability estimation |
+| Supervisor | OpenAI | Structured output, tool orchestration |
+| Replay | Claude | Best for post-hoc analysis |
 
 ## Audit
 
-Vsechna LLM volani se loguji do tabulky `agent_decisions`:
-- Kompletni vstup (feature payload)
-- Kompletni vystup (JSON rozhodnuti)
-- Model, provider, latence, cas
-- Pristupne pres `GET /api/v1/agent/traces`
+All LLM calls are logged to the `agent_decisions` table:
+- Complete input (feature payload)
+- Complete output (JSON decision)
+- Model, provider, latency, timestamp
+- Accessible via `GET /api/v1/agent/traces`
 
-## Aktualni stav
+## Current state
 
-`agent-gateway-service` momentalne pouziva **stub odpovedi** — vzdy vraci `hold`. Pro realne LLM volani je potreba:
+`agent-gateway-service` currently uses **stub responses** — always returns `hold`. For real LLM calls you need to:
 
-1. Nastavit `ANTHROPIC_API_KEY` (nebo `OPENAI_API_KEY`) v `.env`
-2. Napojit `@brain/llm-clients` v metode `callAgent` (`agent-gateway.service.ts`, radek ~417)
+1. Set `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`) in `.env`
+2. Connect `@brain/llm-clients` in the `callAgent` method (`agent-gateway.service.ts`, line ~417)
 
-System prompty pro vsechny 3 agenty uz jsou napsane a otestovane — viz `REGIME_SYSTEM_PROMPT`, `EDGE_SYSTEM_PROMPT`, `SUPERVISOR_SYSTEM_PROMPT` v `agent-gateway.service.ts`.
+System prompts for all 3 agents are already written and tested — see `REGIME_SYSTEM_PROMPT`, `EDGE_SYSTEM_PROMPT`, `SUPERVISOR_SYSTEM_PROMPT` in `agent-gateway.service.ts`.
