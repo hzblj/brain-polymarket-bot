@@ -154,7 +154,7 @@ const DEFAULT_TRADING: TradingConfig = {
   maxSpreadBps: 300,
   minDepthScore: 0.1,
   maxSizeUsd: 5,
-  mode: 'disabled',
+  mode: 'paper',
   tradingHoursUtc: {
     enabled: false,
     startHour: 0,
