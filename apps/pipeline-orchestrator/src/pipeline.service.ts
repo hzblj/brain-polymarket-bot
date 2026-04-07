@@ -354,7 +354,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`[pre-compute:${windowId}] Regime: ${regime.regime} (${regime.confidence})`);
 
     // Step 2: Route to strategy based on regime
-    const selectedStrategy = this.routeToStrategy(allStrategies, regime.regime);
+    const selectedStrategy = this.routeToStrategy(allStrategies, regime.regime, features);
     if (!selectedStrategy) {
       // Don't store a hold decision — let reactive pipeline retry with fresh data when window opens
       // But keep preComputingForWindow set so pre-compute doesn't spam
@@ -634,7 +634,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`[${windowId}] Regime: ${regime.regime} (${regime.confidence})`);
 
     // 4. Route to strategy based on regime
-    const selectedStrategy = this.routeToStrategy(allStrategies, regime.regime);
+    const selectedStrategy = this.routeToStrategy(allStrategies, regime.regime, features);
     if (!selectedStrategy) {
       // Do NOT set lastTradeWindowId — regime may change within the window, allow retry after cooldown
       this.reactiveEvaluatingWindow = null;
@@ -847,7 +847,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
    * Routes to the best matching strategy based on regime classification.
    * Returns null if no strategy matches (e.g. volatile regime).
    */
-  private routeToStrategy(allStrategies: ServiceResponse[], regime: string): ServiceResponse | null {
+  private routeToStrategy(allStrategies: ServiceResponse[], regime: string, features?: ServiceResponse | null): ServiceResponse | null {
     if (!Array.isArray(allStrategies) || allStrategies.length === 0) {
       this.logger.warn(`Strategy routing: no strategies available (got ${typeof allStrategies})`);
       return null;
@@ -855,7 +855,19 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
 
     this.logger.debug(`Strategy routing: ${allStrategies.length} strategies, regime=${regime}, available regimes: ${allStrategies.map((s: ServiceResponse) => `${s.strategyKey}:[${s.filters?.allowedRegimes?.join(',') ?? 'any'}]`).join(', ')}`);
 
-    // Find strategy whose allowedRegimes includes this regime
+    // Priority 1: If a sweep is detected, route to sweep strategy regardless of regime
+    const sweepDetected = features?.sweep?.sweepDetected === true;
+    if (sweepDetected) {
+      const sweepStrategy = allStrategies.find(
+        (s: ServiceResponse) => s.strategyKey === 'btc-5m-sweep',
+      );
+      if (sweepStrategy) {
+        this.logger.log(`Strategy routing: sweep detected → overriding to ${sweepStrategy.strategyKey}`);
+        return sweepStrategy;
+      }
+    }
+
+    // Priority 2: Find strategy whose allowedRegimes includes this regime
     const matched = allStrategies.find(
       (s: ServiceResponse) => s.filters?.allowedRegimes?.includes(regime),
     );
