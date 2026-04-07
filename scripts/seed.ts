@@ -382,7 +382,7 @@ export async function seed(dbPath?: string) {
   }
 
   // 5. Seed additional strategies (mean-reversion, basis-arb, vol-fade)
-  for (const { key, identity, config } of ADDITIONAL_STRATEGIES) {
+  for (const { key, identity, config, active } of ADDITIONAL_STRATEGIES) {
     validateStrategyVersionConfig(config);
 
     // Upsert strategy identity
@@ -432,7 +432,7 @@ export async function seed(dbPath?: string) {
     }
 
     // Upsert assignment
-    const shouldBeActive = s.active ?? false;
+    const shouldBeActive = active ?? false;
     const existingAssign = await db
       .select()
       .from(strategyAssignments)
