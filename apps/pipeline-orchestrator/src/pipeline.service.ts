@@ -13,8 +13,14 @@ const MARKET_SERVICE_URL = process.env.MARKET_SERVICE_URL ?? `http://${LOCAL_HOS
 
 const PIPELINE_INTERVAL_MS = Number(process.env.PIPELINE_INTERVAL_MS) || 2_000;
 const INITIAL_BALANCE_USD = Number(process.env.INITIAL_BALANCE_USD) || 100;
-const PRE_COMPUTE_LEAD_TIME_SEC = Number(process.env.PRE_COMPUTE_LEAD_TIME_SEC) || 90;
+const INITIAL_PRE_COMPUTE_LEAD_TIME_SEC = Number(process.env.PRE_COMPUTE_LEAD_TIME_SEC) || 90;
 const WINDOW_DURATION_SEC = 300; // 5 minutes
+
+// Adaptive timing bounds
+const MIN_LEAD_TIME_SEC = 45;   // Never start pre-compute less than 45s before window
+const MAX_LEAD_TIME_SEC = 180;  // Never start more than 3 minutes before window
+const SAFETY_BUFFER_SEC = 15;   // Extra headroom on top of measured p95 latency
+const LATENCY_HISTORY_SIZE = 20; // Rolling window of pre-compute durations
 
 // ─── Pipeline state ─────────────────────────────────────────────────────────
 
@@ -76,6 +82,10 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
   // Dedup: track windows currently being evaluated in reactive pipeline
   private reactiveEvaluatingWindow: string | null = null;
 
+  // Adaptive timing: track pre-compute latencies to auto-tune lead time
+  private preComputeLatencies: number[] = [];
+  private adaptiveLeadTimeSec: number = INITIAL_PRE_COMPUTE_LEAD_TIME_SEC;
+
   constructor(@Inject(EventBus) private readonly eventBus: EventBus) {}
 
   onModuleInit(): void {
@@ -89,6 +99,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
   // ─── Public API ──────────────────────────────────────────────────────────────
 
   getStatus(): Record<string, unknown> {
+    const latencyStats = this.getLatencyStats();
     return {
       enabled: this.enabled,
       running: this.running,
@@ -104,6 +115,11 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
             computedAt: new Date(this.preComputedDecision.computedAt).toISOString(),
           }
         : null,
+      adaptiveTiming: {
+        currentLeadTimeSec: this.adaptiveLeadTimeSec,
+        initialLeadTimeSec: INITIAL_PRE_COMPUTE_LEAD_TIME_SEC,
+        ...latencyStats,
+      },
       serviceUrls: {
         featureEngine: FEATURE_ENGINE_URL,
         agentGateway: AGENT_GATEWAY_URL,
@@ -132,7 +148,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
   // ─── Pipeline Loop ────────────────────────────────────────────────────────────
 
   private startLoop(): void {
-    this.logger.log(`Starting pipeline loop (interval=${PIPELINE_INTERVAL_MS}ms, mode=dynamic, preComputeLead=${PRE_COMPUTE_LEAD_TIME_SEC}s)`);
+    this.logger.log(`Starting pipeline loop (interval=${PIPELINE_INTERVAL_MS}ms, mode=dynamic, preComputeLead=${this.adaptiveLeadTimeSec}s [adaptive])`);
     this.timer = setInterval(async () => {
       if (!this.enabled || this.running) return;
       try {
@@ -148,6 +164,53 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       clearInterval(this.timer);
       this.timer = null;
     }
+  }
+
+  // ─── Adaptive Timing ──────────────────────────────────────────────────────────
+
+  private recordPreComputeLatency(durationMs: number): void {
+    const durationSec = Math.ceil(durationMs / 1000);
+    this.preComputeLatencies.push(durationSec);
+    if (this.preComputeLatencies.length > LATENCY_HISTORY_SIZE) {
+      this.preComputeLatencies.shift();
+    }
+    this.recalculateLeadTime();
+  }
+
+  private recalculateLeadTime(): void {
+    if (this.preComputeLatencies.length < 3) return; // Need at least 3 samples
+
+    const sorted = [...this.preComputeLatencies].sort((a, b) => a - b);
+    const p95Index = Math.min(Math.floor(sorted.length * 0.95), sorted.length - 1);
+    const p95 = sorted[p95Index]!;
+
+    const newLeadTime = Math.min(
+      MAX_LEAD_TIME_SEC,
+      Math.max(MIN_LEAD_TIME_SEC, p95 + SAFETY_BUFFER_SEC),
+    );
+
+    if (newLeadTime !== this.adaptiveLeadTimeSec) {
+      this.logger.log(
+        `[Adaptive timing] Lead time adjusted: ${this.adaptiveLeadTimeSec}s → ${newLeadTime}s (p95=${p95}s, buffer=${SAFETY_BUFFER_SEC}s, samples=${this.preComputeLatencies.length})`,
+      );
+      this.adaptiveLeadTimeSec = newLeadTime;
+    }
+  }
+
+  private getLatencyStats(): Record<string, unknown> {
+    if (this.preComputeLatencies.length === 0) {
+      return { samples: 0, p50Sec: null, p95Sec: null, maxSec: null };
+    }
+    const sorted = [...this.preComputeLatencies].sort((a, b) => a - b);
+    const p50Index = Math.floor(sorted.length * 0.5);
+    const p95Index = Math.min(Math.floor(sorted.length * 0.95), sorted.length - 1);
+    return {
+      samples: sorted.length,
+      p50Sec: sorted[p50Index],
+      p95Sec: sorted[p95Index],
+      maxSec: sorted[sorted.length - 1],
+      lastSec: this.preComputeLatencies[this.preComputeLatencies.length - 1],
+    };
   }
 
   // ─── Dependency Health Check ───────────────────────────────────────────────────
@@ -272,7 +335,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
 
       // ─── BRANCH A: Pre-compute for upcoming window ─────────────────────────
       const shouldPreCompute =
-        timing.secondsToNextWindow <= PRE_COMPUTE_LEAD_TIME_SEC &&
+        timing.secondsToNextWindow <= this.adaptiveLeadTimeSec &&
         timing.secondsToNextWindow > 0 &&
         this.preComputingForWindow !== timing.nextWindowSlug &&
         this.preComputedDecision?.targetWindowSlug !== timing.nextWindowSlug;
@@ -915,6 +978,11 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
     // Only overwrite lastResult for meaningful stages — skip idle cycles
     if (stage !== 'skipped' && stage !== 'not_tradeable' && stage !== 'no_features') {
       this.lastResult = result;
+    }
+
+    // Record latency for adaptive pre-compute timing
+    if (stage === 'precomputed' || (stage === 'error' && String(details.reason ?? '').includes('pre-compute'))) {
+      this.recordPreComputeLatency(result.durationMs);
     }
 
     if (stage === 'error') {
