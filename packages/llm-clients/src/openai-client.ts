@@ -79,17 +79,31 @@ export class OpenAIClient implements LlmClient {
             item.type === 'function_call' && item.name === 'structured_output',
         );
 
-        if (!functionCall) {
-          const outputTypes = response.output.map((item) => item.type).join(', ');
-          const textContent = response.output
-            .filter((item): item is Extract<typeof item, { type: 'message' }> => item.type === 'message')
-            .map((item) => item.content?.map((c: Record<string, unknown>) => c.text).join(''))
-            .join('\n');
-          this.logger.error('OpenAI did not return function_call', { outputTypes, textContent: textContent?.slice(0, 500) });
-          throw new Error(`OpenAI did not return expected function_call output. Got: [${outputTypes}]`);
+        let rawOutput: unknown;
+        if (functionCall) {
+          rawOutput = JSON.parse(functionCall.arguments);
+        } else {
+          // Reasoning models (o1/o3/gpt-5.x) sometimes return text instead of function_call
+          // Try to extract JSON from any text/message output
+          const textParts: string[] = [];
+          for (const item of response.output) {
+            if (item.type === 'message' && 'content' in item) {
+              for (const c of (item as { content: { type: string; text?: string }[] }).content) {
+                if (c.text) textParts.push(c.text);
+              }
+            }
+          }
+          const fullText = textParts.join('\n');
+          const jsonMatch = fullText.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            this.logger.warn('Extracted JSON from text response (no function_call)', { model: useModel });
+            rawOutput = JSON.parse(jsonMatch[0]);
+          } else {
+            const outputTypes = response.output.map((item) => item.type).join(', ');
+            this.logger.error('OpenAI did not return function_call or parseable JSON', { outputTypes, text: fullText?.slice(0, 500) });
+            throw new Error(`OpenAI did not return expected function_call output. Got: [${outputTypes}]`);
+          }
         }
-
-        const rawOutput = JSON.parse(functionCall.arguments);
         const parsed = schema.parse(rawOutput);
         const latencyMs = Date.now() - startTime;
 
