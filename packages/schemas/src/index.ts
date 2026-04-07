@@ -127,7 +127,7 @@ export const SupervisorOutputSchema = z.object({
 
 export const GatekeeperOutputSchema = z.object({
   validated: z.boolean(),
-  adjustedSizeUsd: z.number().nonnegative().optional(),
+  adjustedSizeUsd: z.number().nonnegative().nullable(),
   reasoning: z.string().min(1).max(2000),
 });
 

@@ -61,6 +61,12 @@ export class DashboardController {
     return { ok: true, data };
   }
 
+  @Get('timing')
+  async getTiming() {
+    const data = await this.dashboardService.getPipelineTiming();
+    return { ok: true, data };
+  }
+
   @Get('health')
   async getHealth() {
     const data = await this.dashboardService.getServiceHealth();

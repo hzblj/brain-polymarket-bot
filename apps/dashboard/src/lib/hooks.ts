@@ -31,6 +31,7 @@ import {
   getAgentTraces,
   getAgentContext,
   getLlmCosts,
+  getPipelineTiming,
   getReplaySummary,
   getRiskState,
 } from './api';
@@ -58,6 +59,14 @@ export function usePipeline() {
     queryKey: ['pipeline'],
     queryFn: getPipeline,
     refetchInterval: 3_000,
+  });
+}
+
+export function usePipelineTiming() {
+  return useQuery({
+    queryKey: ['pipelineTiming'],
+    queryFn: getPipelineTiming,
+    refetchInterval: 5_000,
   });
 }
 

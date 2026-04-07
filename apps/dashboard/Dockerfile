@@ -1,4 +1,4 @@
-FROM node:20-slim
+FROM node:20-slim AS base
 
 RUN corepack enable && corepack prepare yarn@4.13.0 --activate
 
@@ -40,12 +40,13 @@ RUN yarn install
 COPY packages/types packages/types
 COPY apps/dashboard apps/dashboard
 
-ARG NEXT_PUBLIC_API_URL=http://localhost:3000
-ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV NODE_ENV=development
+ENV NODE_ENV=production
 ENV PORT=3100
+
+# Build Next.js for production
+RUN yarn workspace @brain/dashboard build
 
 EXPOSE 3100
 
-CMD ["yarn", "workspace", "@brain/dashboard", "dev"]
+CMD ["yarn", "workspace", "@brain/dashboard", "start"]

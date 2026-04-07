@@ -371,6 +371,25 @@ export class DashboardService {
         };
       })(),
     ];
+
+    return steps;
+  }
+
+  async getPipelineTiming() {
+    const pipelineStatus = await this.fetch('pipeline-orchestrator', '/api/v1/pipeline/status');
+    const pipeRec = pipelineStatus as Rec | null;
+    const adaptiveTiming = pipeRec?.adaptiveTiming as Rec | null;
+    const lastResult = pipeRec?.lastResult as Rec | null;
+
+    return {
+      leadTimeSec: adaptiveTiming ? num(adaptiveTiming.currentLeadTimeSec as number) : null,
+      p50Sec: adaptiveTiming ? num(adaptiveTiming.p50Sec as number) : null,
+      p95Sec: adaptiveTiming ? num(adaptiveTiming.p95Sec as number) : null,
+      maxSec: adaptiveTiming ? num(adaptiveTiming.maxSec as number) : null,
+      lastSec: adaptiveTiming ? num(adaptiveTiming.lastSec as number) : null,
+      samples: adaptiveTiming ? num(adaptiveTiming.samples as number) : null,
+      lastCycleDurationMs: lastResult ? num(lastResult.durationMs as number) : null,
+    };
   }
 
   // ─── Trades ───────────────────────────────────────────────────────────────

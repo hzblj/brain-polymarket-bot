@@ -6,8 +6,10 @@ import {
   BarChart3,
   Clock,
   Crosshair,
+  Gauge,
   Layers,
   Shield,
+  Timer,
   TrendingUp,
   Zap,
   DollarSign,
@@ -36,6 +38,7 @@ import {
   usePriceHistory,
   useLlmCosts,
   useTopWallets,
+  usePipelineTiming,
 } from "@/lib/hooks";
 
 import {
@@ -217,6 +220,7 @@ export default function OverviewPage() {
   const bc = useBlockchainActivity().data;
   const deriv = useDerivativesFeatures().data;
   const topWallets = useTopWallets().data;
+  const timing = usePipelineTiming().data;
   const ttc = useCountdown(m?.timeToCloseMs);
 
   const totalUnrealized =
@@ -227,7 +231,7 @@ export default function OverviewPage() {
   return (
     <div className="flex flex-col gap-4 p-4">
       {/* ── KPI Strip ──────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-9">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-11">
         <KpiCard
           label="Current Mode"
           value={s?.mode ?? "—"}
@@ -318,6 +322,27 @@ export default function OverviewPage() {
           value={llmCosts ? `$${llmCosts.today.totalCostUsd.toFixed(4)}` : "—"}
           icon={DollarSign}
           subtitle={llmCosts ? `${llmCosts.today.totalCalls} calls` : undefined}
+        />
+        <KpiCard
+          label="Lead Time"
+          value={timing?.leadTimeSec != null ? `${timing.leadTimeSec}s` : "—"}
+          icon={Timer}
+          subtitle={timing?.samples ? `p95: ${timing.p95Sec ?? "—"}s` : "calibrating"}
+        />
+        <KpiCard
+          label="Last Cycle"
+          value={timing?.lastCycleDurationMs != null ? `${(timing.lastCycleDurationMs / 1000).toFixed(1)}s` : "—"}
+          icon={Gauge}
+          subtitle={timing?.p50Sec != null ? `p50: ${timing.p50Sec}s` : undefined}
+          variant={
+            timing?.lastCycleDurationMs != null
+              ? timing.lastCycleDurationMs > 60000
+                ? "negative"
+                : timing.lastCycleDurationMs > 30000
+                  ? "warning"
+                  : "positive"
+              : "default"
+          }
         />
       </div>
 

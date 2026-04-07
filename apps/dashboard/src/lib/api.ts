@@ -135,6 +135,20 @@ export async function getLlmCosts() {
   return await fetchApi<LlmCostStats>('/api/v1/dashboard/llm-costs');
 }
 
+export interface PipelineTiming {
+  leadTimeSec: number | null;
+  p50Sec: number | null;
+  p95Sec: number | null;
+  maxSec: number | null;
+  lastSec: number | null;
+  samples: number | null;
+  lastCycleDurationMs: number | null;
+}
+
+export async function getPipelineTiming() {
+  return await fetchApi<PipelineTiming>('/api/v1/dashboard/timing');
+}
+
 export async function getSimulationSummary() {
   return await fetchApi<{
     realizedPnl: number;

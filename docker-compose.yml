@@ -235,12 +235,7 @@ services:
     build:
       context: .
       dockerfile: apps/dashboard/Dockerfile
-      args:
-        NEXT_PUBLIC_API_URL: http://${LOCAL_IP:-localhost}:3000
     container_name: brain-dashboard
-    volumes:
-      - ./apps/dashboard/src:/app/apps/dashboard/src
-      - ./packages/types/src:/app/packages/types/src
     ports:
       - '3100:3100'
     environment:
