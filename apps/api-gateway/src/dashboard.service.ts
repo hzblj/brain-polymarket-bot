@@ -282,9 +282,9 @@ export class DashboardService {
     const REGIME_TO_STRATEGY: Record<string, string> = {
       trending_up: 'Momentum',
       trending_down: 'Momentum',
-      volatile: 'Momentum',
-      mean_reverting: 'Mean Reversion',
-      quiet: 'Mean Reversion',
+      volatile: 'AMD',
+      mean_reverting: 'AMD',
+      quiet: 'Vol Fade',
     };
     const routedStrategy = regimeValue ? REGIME_TO_STRATEGY[regimeValue] ?? null : null;
     const routerStatus = !regime ? pendingStatus
@@ -296,7 +296,12 @@ export class DashboardService {
     // Derive edge profile name from the trace model or agent type
     const edgeOutput = extractOutput(edge);
     const edgeProfile = edge ? str(edge.agentProfile as string) || str(edge.model as string) : null;
-    const edgeLabel = routedStrategy === 'Mean Reversion' ? 'Edge (MR)' : 'Edge';
+    const edgeLabelMap: Record<string, string> = {
+      'AMD': 'Edge (AMD)',
+      'Vol Fade': 'Edge (VF)',
+      'Momentum': 'Edge',
+    };
+    const edgeLabel = routedStrategy ? edgeLabelMap[routedStrategy] ?? 'Edge' : 'Edge';
 
     const gatekeeperOutput = extractOutput(gatekeeper);
 

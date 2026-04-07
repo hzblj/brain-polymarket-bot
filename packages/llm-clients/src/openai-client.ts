@@ -40,33 +40,38 @@ export class OpenAIClient implements LlmClient {
     const jsonSchema = zodToJsonSchema(schema);
     const reasoningEffort = options?.reasoningEffort;
 
+    const effectiveRetries = options?.maxRetries ?? this.maxRetries;
+    const effectiveTimeout = options?.timeoutMs ?? this.timeoutMs;
     let lastError: Error | null = null;
 
-    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+    for (let attempt = 0; attempt <= effectiveRetries; attempt++) {
       try {
         if (attempt > 0) {
-          this.logger.warn('Retrying OpenAI evaluation', { attempt, maxRetries: this.maxRetries });
+          this.logger.warn('Retrying OpenAI evaluation', { attempt, maxRetries: effectiveRetries });
         }
 
-        const response = await this.client.responses.create({
-          model: useModel,
-          instructions: systemPrompt,
-          input: [{ role: 'user', content: userPrompt }],
-          ...(/^(o1|o3|o4|gpt-5)/.test(useModel) ? {} : { temperature: this.temperature }),
-          ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
-          max_output_tokens: 2048,
-          tools: [
-            {
-              type: 'function' as const,
-              name: 'structured_output',
-              description: 'Return your analysis as structured data matching the schema.',
-              parameters: jsonSchema,
-              strict: true,
-            },
-          ],
-          tool_choice: { type: 'function', name: 'structured_output' },
-          store: false,
-        });
+        const response = await this.client.responses.create(
+          {
+            model: useModel,
+            instructions: systemPrompt,
+            input: [{ role: 'user', content: userPrompt }],
+            ...(/^(o1|o3|o4|gpt-5)/.test(useModel) ? {} : { temperature: this.temperature }),
+            ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
+            max_output_tokens: 2048,
+            tools: [
+              {
+                type: 'function' as const,
+                name: 'structured_output',
+                description: 'Return your analysis as structured data matching the schema.',
+                parameters: jsonSchema,
+                strict: true,
+              },
+            ],
+            tool_choice: { type: 'function', name: 'structured_output' },
+            store: false,
+          },
+          { timeout: effectiveTimeout },
+        );
 
         // Find the function_call output item
         const functionCall = response.output.find(
@@ -103,7 +108,7 @@ export class OpenAIClient implements LlmClient {
         lastError = err as Error;
         this.logger.error('OpenAI evaluation error', lastError.message, { attempt });
 
-        if (attempt < this.maxRetries) {
+        if (attempt < effectiveRetries) {
           const backoffMs = Math.min(1000 * 2 ** attempt, 10000);
           await new Promise((resolve) => setTimeout(resolve, backoffMs));
         }
@@ -111,7 +116,7 @@ export class OpenAIClient implements LlmClient {
     }
 
     throw new Error(
-      `OpenAI evaluation failed after ${this.maxRetries + 1} attempts: ${lastError?.message}`,
+      `OpenAI evaluation failed after ${effectiveRetries + 1} attempts: ${lastError?.message}`,
     );
   }
 }

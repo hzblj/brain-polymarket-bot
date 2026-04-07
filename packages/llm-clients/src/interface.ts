@@ -22,6 +22,8 @@ export type ReasoningEffort = 'low' | 'medium' | 'high';
 export interface LlmEvaluateOptions {
   model?: string;
   reasoningEffort?: ReasoningEffort;
+  timeoutMs?: number;
+  maxRetries?: number;
 }
 
 export interface LlmClient {

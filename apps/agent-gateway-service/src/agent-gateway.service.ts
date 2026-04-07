@@ -827,9 +827,11 @@ export class AgentGatewayService implements OnModuleInit {
       // Use explicit model override, or supervisor-specific model, or default
       const modelOverride = modelOverrideParam ?? (agentType === 'supervisor' ? this.supervisorModel : undefined);
       const reasoningEffort = reasoningEffortOverride ?? AgentGatewayService.REASONING_EFFORT[agentType];
+      const isGatekeeper = agentType === 'gatekeeper';
       const response = await this.llmClient.evaluate(systemPrompt, userPrompt, schema, {
         ...(modelOverride ? { model: modelOverride } : {}),
         reasoningEffort,
+        ...(isGatekeeper ? { timeoutMs: this.gatekeeperTimeoutMs, maxRetries: 0 } : {}),
       });
       const parsedOutput = response.data as T;
       const rawResponse = JSON.stringify(parsedOutput);

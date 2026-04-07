@@ -367,11 +367,6 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
 
     this.logger.log(`[pre-compute:${windowId}] Routed to strategy: ${selectedStrategy.strategyKey}`);
 
-    // Sync risk profile for selected strategy
-    if (selectedStrategy.riskProfile) {
-      await this.postJson(`${RISK_SERVICE_URL}/api/v1/risk/config`, selectedStrategy.riskProfile).catch(() => null);
-    }
-
     const agentProfile = selectedStrategy.agentProfile;
 
     // Step 3: Call edge agent with strategy-specific profile
@@ -671,11 +666,6 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
 
     // Lock window — proceeding to edge/supervisor
     this.lastTradeWindowId = windowId;
-
-    // 6. Sync risk profile for selected strategy
-    if (selectedStrategy.riskProfile) {
-      await this.postJson(`${RISK_SERVICE_URL}/api/v1/risk/config`, selectedStrategy.riskProfile).catch(() => null);
-    }
 
     // Override execution mode from selected strategy
     if (selectedStrategy.executionPolicy?.mode) {
