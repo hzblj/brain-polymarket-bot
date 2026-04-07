@@ -50,58 +50,46 @@ export class OpenAIClient implements LlmClient {
           this.logger.warn('Retrying OpenAI evaluation', { attempt, maxRetries: effectiveRetries });
         }
 
+        const isReasoningModel = /^(o1|o3|o4|gpt-5)/.test(useModel);
+
         const response = await this.client.responses.create(
           {
             model: useModel,
             instructions: systemPrompt,
             input: [{ role: 'user', content: userPrompt }],
-            ...(/^(o1|o3|o4|gpt-5)/.test(useModel) ? {} : { temperature: this.temperature }),
+            ...(isReasoningModel ? {} : { temperature: this.temperature }),
             ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
             max_output_tokens: 2048,
-            tools: [
-              {
-                type: 'function' as const,
+            text: {
+              format: {
+                type: 'json_schema',
                 name: 'structured_output',
-                description: 'Return your analysis as structured data matching the schema.',
-                parameters: jsonSchema,
+                schema: jsonSchema,
                 strict: true,
               },
-            ],
-            tool_choice: { type: 'function', name: 'structured_output' },
+            },
             store: false,
           },
           { timeout: effectiveTimeout },
         );
 
-        // Find the function_call output item
-        const functionCall = response.output.find(
-          (item): item is Extract<typeof item, { type: 'function_call' }> =>
-            item.type === 'function_call' && item.name === 'structured_output',
-        );
-
+        // Extract text output containing JSON
         let rawOutput: unknown;
-        if (functionCall) {
-          rawOutput = JSON.parse(functionCall.arguments);
+        const outputText = response.output_text;
+        if (outputText) {
+          rawOutput = JSON.parse(outputText);
         } else {
-          // Reasoning models (o1/o3/gpt-5.x) sometimes return text instead of function_call
-          // Try to extract JSON from any text/message output
-          const textParts: string[] = [];
-          for (const item of response.output) {
-            if (item.type === 'message' && 'content' in item) {
-              for (const c of (item as { content: { type: string; text?: string }[] }).content) {
-                if (c.text) textParts.push(c.text);
-              }
-            }
-          }
-          const fullText = textParts.join('\n');
-          const jsonMatch = fullText.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            this.logger.warn('Extracted JSON from text response (no function_call)', { model: useModel });
-            rawOutput = JSON.parse(jsonMatch[0]);
+          // Fallback: look for function_call (non-reasoning models)
+          const functionCall = response.output.find(
+            (item): item is Extract<typeof item, { type: 'function_call' }> =>
+              item.type === 'function_call' && item.name === 'structured_output',
+          );
+          if (functionCall) {
+            rawOutput = JSON.parse(functionCall.arguments);
           } else {
             const outputTypes = response.output.map((item) => item.type).join(', ');
-            this.logger.error('OpenAI did not return function_call or parseable JSON', { outputTypes, text: fullText?.slice(0, 500) });
-            throw new Error(`OpenAI did not return expected function_call output. Got: [${outputTypes}]`);
+            this.logger.error('OpenAI returned no parseable output', { outputTypes });
+            throw new Error(`OpenAI did not return structured output. Got: [${outputTypes}]`);
           }
         }
         const parsed = schema.parse(rawOutput);
