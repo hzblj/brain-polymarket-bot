@@ -25,7 +25,11 @@ import {
   SUPERVISOR_SYSTEM_PROMPT,
   EDGE_MEAN_REVERSION_PROMPT,
   EDGE_SWEEP_PROMPT,
+  EDGE_AMD_PROMPT,
+  EDGE_VOL_FADE_PROMPT,
   SUPERVISOR_MEAN_REVERSION_PROMPT,
+  SUPERVISOR_AMD_PROMPT,
+  SUPERVISOR_VOL_FADE_PROMPT,
   GATEKEEPER_SYSTEM_PROMPT,
   EVAL_SYSTEM_PROMPT,
 } from './prompts';
@@ -40,11 +44,15 @@ export const EDGE_PROMPT_REGISTRY: Record<string, string> = {
   'edge-momentum-v1': EDGE_SYSTEM_PROMPT,
   'edge-mean-reversion-v1': EDGE_MEAN_REVERSION_PROMPT,
   'edge-sweep-v1': EDGE_SWEEP_PROMPT,
+  'edge-amd-v1': EDGE_AMD_PROMPT,
+  'edge-vol-fade-v1': EDGE_VOL_FADE_PROMPT,
 };
 
 export const SUPERVISOR_PROMPT_REGISTRY: Record<string, string> = {
   'supervisor-momentum-v1': SUPERVISOR_SYSTEM_PROMPT,
   'supervisor-mean-reversion-v1': SUPERVISOR_MEAN_REVERSION_PROMPT,
+  'supervisor-amd-v1': SUPERVISOR_AMD_PROMPT,
+  'supervisor-vol-fade-v1': SUPERVISOR_VOL_FADE_PROMPT,
 };
 
 export function resolvePrompt(

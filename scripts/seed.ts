@@ -58,7 +58,7 @@ const DEFAULT_STRATEGY_VERSION_CONFIG: StrategyVersionConfig = {
     minDepthScore: 0.4,
     minTimeToCloseSec: 30,
     maxTimeToCloseSec: 120,
-    allowedRegimes: ['trending_up', 'trending_down', 'volatile'],
+    allowedRegimes: ['trending_up', 'trending_down'],
   },
   riskProfile: {
     maxSizeUsd: 0.5,
@@ -192,26 +192,27 @@ const VOL_FADE_VERSION_CONFIG: StrategyVersionConfig = {
   },
   agentProfile: {
     regimeAgentProfile: 'regime-default-v1',
-    edgeAgentProfile: 'edge-momentum-v1',
-    supervisorAgentProfile: 'supervisor-momentum-v1',
+    edgeAgentProfile: 'edge-vol-fade-v1',
+    supervisorAgentProfile: 'supervisor-vol-fade-v1',
   },
   decisionPolicy: {
     allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'],
-    minConfidence: 0.75,
+    minConfidence: 0.57,
   },
   filters: {
-    maxSpreadBps: 400,
+    maxSpreadBps: 300,
     minDepthScore: 0.3,
     minTimeToCloseSec: 60,
-    maxTimeToCloseSec: 150,
+    maxTimeToCloseSec: 180,
+    allowedRegimes: ['quiet', 'mean_reverting', 'volatile'],
   },
   riskProfile: {
-    maxSizeUsd: 0.5,
+    maxSizeUsd: 0.45,
     dailyLossLimitUsd: 10,
     maxTradesPerWindow: 1,
   },
   executionPolicy: {
-    entryWindowStartSec: 150,
+    entryWindowStartSec: 180,
     entryWindowEndSec: 60,
     mode: 'paper',
   },
@@ -266,13 +267,63 @@ const SWEEP_VERSION_CONFIG: StrategyVersionConfig = {
   },
 };
 
+// ─── AMD (Accumulation-Manipulation-Distribution) Strategy ─────────────────
+
+const AMD_STRATEGY_KEY = 'btc-5m-amd';
+
+const AMD_STRATEGY_IDENTITY = {
+  key: AMD_STRATEGY_KEY,
+  name: 'BTC 5m AMD',
+  description:
+    'Identifies Accumulation-Manipulation-Distribution cycles — trades the Distribution reversal after a manipulation sweep/fake-out.',
+  status: 'active' as const,
+  isDefault: false,
+};
+
+const AMD_VERSION_CONFIG: StrategyVersionConfig = {
+  id: 'btc-5m-amd-v1',
+  label: 'BTC 5m AMD v1',
+  marketSelector: {
+    asset: 'BTC',
+    marketType: 'UP_DOWN',
+    windowSec: 300,
+  },
+  agentProfile: {
+    regimeAgentProfile: 'regime-default-v1',
+    edgeAgentProfile: 'edge-amd-v1',
+    supervisorAgentProfile: 'supervisor-amd-v1',
+  },
+  decisionPolicy: {
+    allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'],
+    minConfidence: 0.60,
+  },
+  filters: {
+    maxSpreadBps: 350,
+    minDepthScore: 0.30,
+    minTimeToCloseSec: 60,
+    maxTimeToCloseSec: 210,
+    allowedRegimes: ['trending_up', 'trending_down', 'volatile', 'mean_reverting'],
+  },
+  riskProfile: {
+    maxSizeUsd: 0.45,
+    dailyLossLimitUsd: 10,
+    maxTradesPerWindow: 1,
+  },
+  executionPolicy: {
+    entryWindowStartSec: 210,
+    entryWindowEndSec: 60,
+    mode: 'paper',
+  },
+};
+
 // ─── All Additional Strategies ──────────────────────────────────────────────
 
 const ADDITIONAL_STRATEGIES = [
   { key: MEAN_REVERSION_STRATEGY_KEY, identity: MEAN_REVERSION_STRATEGY_IDENTITY, config: MEAN_REVERSION_VERSION_CONFIG, active: true },
   { key: BASIS_ARB_STRATEGY_KEY, identity: BASIS_ARB_STRATEGY_IDENTITY, config: BASIS_ARB_VERSION_CONFIG, active: false },
-  { key: VOL_FADE_STRATEGY_KEY, identity: VOL_FADE_STRATEGY_IDENTITY, config: VOL_FADE_VERSION_CONFIG, active: false },
+  { key: VOL_FADE_STRATEGY_KEY, identity: VOL_FADE_STRATEGY_IDENTITY, config: VOL_FADE_VERSION_CONFIG, active: true },
   { key: SWEEP_STRATEGY_KEY, identity: SWEEP_STRATEGY_IDENTITY, config: SWEEP_VERSION_CONFIG, active: true },
+  { key: AMD_STRATEGY_KEY, identity: AMD_STRATEGY_IDENTITY, config: AMD_VERSION_CONFIG, active: true },
 ];
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

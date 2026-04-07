@@ -855,26 +855,49 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
 
     this.logger.debug(`Strategy routing: ${allStrategies.length} strategies, regime=${regime}, available regimes: ${allStrategies.map((s: ServiceResponse) => `${s.strategyKey}:[${s.filters?.allowedRegimes?.join(',') ?? 'any'}]`).join(', ')}`);
 
-    // Priority 1: If a sweep is detected, route to sweep strategy regardless of regime
+    // Explicit priority order: AMD → Vol Fade → Momentum → others
+    const STRATEGY_PRIORITY = [
+      'btc-5m-amd',
+      'btc-5m-vol-fade',
+      'btc-5m-momentum',
+    ];
+
+    const findStrategy = (key: string) =>
+      allStrategies.find((s: ServiceResponse) => s.strategyKey === key);
+
+    // Priority 1: If a sweep is detected, AMD gets first shot (full cycle analysis)
     const sweepDetected = features?.sweep?.sweepDetected === true;
     if (sweepDetected) {
-      const sweepStrategy = allStrategies.find(
-        (s: ServiceResponse) => s.strategyKey === 'btc-5m-sweep',
-      );
-      if (sweepStrategy) {
-        this.logger.log(`Strategy routing: sweep detected → overriding to ${sweepStrategy.strategyKey}`);
-        return sweepStrategy;
+      const amdStrategy = findStrategy('btc-5m-amd');
+      if (amdStrategy) {
+        this.logger.log(`Strategy routing: sweep detected → AMD strategy`);
+        return amdStrategy;
       }
     }
 
-    // Priority 2: Find strategy whose allowedRegimes includes this regime
+    // Priority 2: Walk the priority list, pick the first whose allowedRegimes matches
+    for (const key of STRATEGY_PRIORITY) {
+      const strat = findStrategy(key);
+      if (!strat) continue;
+      const regimes = strat.filters?.allowedRegimes;
+      if (!regimes || regimes.includes(regime)) {
+        this.logger.log(`Strategy routing: regime=${regime} → ${key}`);
+        return strat;
+      }
+    }
+
+    // Priority 3: Any remaining strategy that matches this regime
     const matched = allStrategies.find(
-      (s: ServiceResponse) => s.filters?.allowedRegimes?.includes(regime),
+      (s: ServiceResponse) =>
+        !STRATEGY_PRIORITY.includes(s.strategyKey) &&
+        s.filters?.allowedRegimes?.includes(regime),
     );
+    if (matched) {
+      this.logger.log(`Strategy routing: regime=${regime} → fallback ${matched.strategyKey}`);
+      return matched;
+    }
 
-    if (matched) return matched;
-
-    // Fallback: if no strategy has allowedRegimes defined, use the first one (backward compat)
+    // Fallback: any strategy without regime restrictions
     const fallback = allStrategies.find(
       (s: ServiceResponse) => !s.filters?.allowedRegimes,
     );
