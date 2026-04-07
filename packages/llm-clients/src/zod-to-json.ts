@@ -84,7 +84,7 @@ function convertZodType(def: z.ZodTypeDef & Record<string, unknown>): Record<str
     case 'ZodNullable': {
       const innerType = (def as { innerType: z.ZodSchema }).innerType;
       const inner = zodToJsonSchema(innerType);
-      return { ...inner, nullable: true };
+      return { anyOf: [inner, { type: 'null' }] };
     }
 
     case 'ZodUnion': {
