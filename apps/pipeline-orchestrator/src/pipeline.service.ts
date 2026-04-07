@@ -908,23 +908,22 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
 
     this.logger.debug(`Strategy routing: ${allStrategies.length} strategies, regime=${regime}, available regimes: ${allStrategies.map((s: ServiceResponse) => `${s.strategyKey}:[${s.filters?.allowedRegimes?.join(',') ?? 'any'}]`).join(', ')}`);
 
-    // Priority order: AMD → Vol Fade → Momentum → others
+    // Priority order: Sweep (on signal) → Momentum → Vol Fade → others
     const REGIME_PRIORITY = [
-      'btc-5m-amd',
-      'btc-5m-vol-fade',
       'btc-5m-momentum',
+      'btc-5m-vol-fade',
     ];
 
     const findStrategy = (key: string) =>
       allStrategies.find((s: ServiceResponse) => s.strategyKey === key);
 
-    // Priority 1: If a sweep is detected, AMD gets first shot (full cycle analysis)
+    // Priority 1: If a sweep is detected, route to sweep strategy
     const sweepDetected = features?.sweep?.sweepDetected === true;
     if (sweepDetected) {
-      const amdStrategy = findStrategy('btc-5m-amd');
-      if (amdStrategy) {
-        this.logger.log(`Strategy routing: sweep detected → AMD strategy`);
-        return amdStrategy;
+      const sweepStrategy = findStrategy('btc-5m-sweep');
+      if (sweepStrategy) {
+        this.logger.log(`Strategy routing: sweep detected → Sweep strategy`);
+        return sweepStrategy;
       }
     }
 

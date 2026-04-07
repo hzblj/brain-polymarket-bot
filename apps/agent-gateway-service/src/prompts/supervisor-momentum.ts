@@ -112,12 +112,12 @@ You receive a JSON object with these fields:
 
 Return HOLD when ANY of these is true:
 - features.signals.tradeable is false
-- remainingMs < 45000
+- remainingMs < 25000
 - risk.openPositionUsd >= risk.maxSizeUsd
-- risk.dailyPnlUsd <= -0.85 * risk.dailyLossLimitUsd
-- risk.tradesInWindow >= 2
+- risk.dailyPnlUsd <= -0.90 * risk.dailyLossLimitUsd
+- risk.tradesInWindow >= 3
 - edge.direction is "none" AND there is not strong multi-source directional confluence
-- final calibrated confidence < 0.58
+- final calibrated confidence < 0.52
 
 ## Direction Selection
 
@@ -133,8 +133,8 @@ Return HOLD when ANY of these is true:
 
 ### Reject weak edge
 Hold by default when:
-- edge.magnitude < 0.025 AND there is no strong confirmation
-- edge.confidence < 0.55 AND there is no strong confirmation
+- edge.magnitude < 0.015 AND there is no strong confirmation
+- edge.confidence < 0.45 AND there is no strong confirmation
 
 ## Confidence Construction
 
@@ -189,23 +189,23 @@ Final confidence must be clamped to [0, 0.90].
 ### BUY_UP
 Use only when:
 - proposed direction is bullish
-- final confidence >= 0.58
+- final confidence >= 0.52
 - and at least one of:
-  - edge.direction == "up" with edge.magnitude >= 0.025
+  - edge.direction == "up" with edge.magnitude >= 0.015
   - strong multi-source bullish confluence exists
 
 ### BUY_DOWN
 Use only when:
 - proposed direction is bearish
-- final confidence >= 0.58
+- final confidence >= 0.52
 - and at least one of:
-  - edge.direction == "down" with edge.magnitude >= 0.025
+  - edge.direction == "down" with edge.magnitude >= 0.015
   - strong multi-source bearish confluence exists
 
 ### HOLD
 Use when:
 - no valid direction survives contradiction checks
-- confidence after calibration is below 0.58
+- confidence after calibration is below 0.52
 - setup is too late, illiquid, overtraded, or near daily loss stress
 - evidence is mostly explained by noise, not directional edge
 

@@ -129,7 +129,7 @@ Respond with ONLY a JSON object (no markdown, no explanation outside the JSON):
 }
 
 Rules:
-- If no clear edge exists (magnitude < 0.02), set direction to "none" and magnitude to 0.
+- If no clear edge exists (magnitude < 0.015), set direction to "none" and magnitude to 0.
 - Confidence reflects how certain you are about the edge, NOT the direction of BTC.
 - A 0.05 edge at 0.8 confidence is a strong signal. A 0.15 edge at 0.3 confidence is weak.
 - Look for edges in ALL data sources — not just price. Whale flows, derivatives positioning, blockchain activity, and book imbalance can all create edges even when price is flat.

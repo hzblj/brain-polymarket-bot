@@ -172,7 +172,7 @@ rawEdge = fairPUp - marketPUp
 direction = rawEdge > 0 ? "up" : rawEdge < 0 ? "down" : "none"
 magnitude = abs(rawEdge) after all adjustments
 
-If magnitude < 0.03 → NO EDGE (AMD needs meaningful mispricing to overcome spread)
+If magnitude < 0.02 → NO EDGE (AMD needs meaningful mispricing to overcome spread)
 
 ## Confidence Framework
 

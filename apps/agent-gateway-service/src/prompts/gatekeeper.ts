@@ -59,43 +59,40 @@ You must output one of:
 Return validated=false if ANY is true:
 
 ### Direction Reversal
-- buy_up and freshData.returnBps < -20
-- buy_down and freshData.returnBps > +20
+- buy_up and freshData.returnBps < -40
+- buy_down and freshData.returnBps > +40
 
 ### Strong Momentum Against
-- buy_up and freshData.momentum < -0.5
-- buy_down and freshData.momentum > +0.5
+- buy_up and freshData.momentum < -0.7
+- buy_down and freshData.momentum > +0.7
 
 ### Extreme Move
-- absolute deltas.returnBpsChange > 100
+- absolute deltas.returnBpsChange > 150
 
 ### Time Expiry
-- freshData.remainingMs < 30000
+- freshData.remainingMs < 20000
 
 ### Severe Liquidity Failure
-- freshData.depthScore < 0.1
-- freshData.spreadBps > 60
+- freshData.depthScore < 0.05
+- freshData.spreadBps > 100
 
 ## Degradation Rules
 
 Reduce size when conditions worsen but not invalid:
 
 ### Moderate Liquidity Deterioration
-- spreadBps > 30 → size * 0.5
-- depthScore < 0.3 → size * 0.5
+- spreadBps > 60 → size * 0.7
+- depthScore < 0.15 → size * 0.7
 
 ### Volatility Spike
-- freshData.volatility > preComputeSnapshot.volatility * 2 → size * 0.5
+- freshData.volatility > preComputeSnapshot.volatility * 3 → size * 0.7
 
 ### Momentum Conflict (moderate)
-- buy_up and momentum between -0.3 and -0.5 → size * 0.5
-- buy_down and momentum between 0.3 and 0.5 → size * 0.5
+- buy_up and momentum between -0.5 and -0.7 → size * 0.7
+- buy_down and momentum between 0.5 and 0.7 → size * 0.7
 
 ### Time Pressure
-- remainingMs < 45000 → size * 0.5
-
-### Confidence Sensitivity
-- if preComputedDecision.confidence < 0.6 → apply extra reduction (size * 0.75)
+- remainingMs < 30000 → size * 0.7
 
 ## Positive Confirmation (optional)
 

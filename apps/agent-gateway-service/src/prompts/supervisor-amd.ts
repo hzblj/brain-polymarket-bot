@@ -113,12 +113,12 @@ You receive a JSON object with these fields:
 
 Return HOLD when ANY of these is true:
 - features.signals.tradeable is false
-- remainingMs < 60000 (AMD needs more time than momentum)
+- remainingMs < 25000
 - risk.openPositionUsd >= risk.maxSizeUsd
-- risk.dailyPnlUsd <= -0.85 * risk.dailyLossLimitUsd
-- risk.tradesInWindow >= 2
+- risk.dailyPnlUsd <= -0.90 * risk.dailyLossLimitUsd
+- risk.tradesInWindow >= 3
 - edge.direction is "none"
-- final calibrated confidence < 0.60 (higher threshold than momentum — contrarian trades need more conviction)
+- final calibrated confidence < 0.52
 
 ## Direction Selection
 
@@ -184,19 +184,19 @@ Final confidence must be clamped to [0, 0.88].
 ### BUY_UP (Distribution is UP)
 Use only when:
 - edge.direction == "up"
-- final confidence >= 0.60
+- final confidence >= 0.52
 - sweep data shows bearish manipulation that is reversing
 
 ### BUY_DOWN (Distribution is DOWN)
 Use only when:
 - edge.direction == "down"
-- final confidence >= 0.60
+- final confidence >= 0.52
 - sweep data shows bullish manipulation that is reversing
 
 ### HOLD
 Use when:
 - edge.direction is "none"
-- confidence after calibration is below 0.60
+- confidence after calibration is below 0.52
 - evidence suggests genuine breakout, not manipulation
 - AMD cycle is incomplete or stale
 - setup is too late, illiquid, or near daily loss limit

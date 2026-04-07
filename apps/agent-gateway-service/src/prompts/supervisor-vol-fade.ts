@@ -107,12 +107,12 @@ You receive a JSON object with these fields:
 
 Return HOLD when ANY of these is true:
 - features.signals.tradeable is false
-- remainingMs < 60000
+- remainingMs < 25000
 - risk.openPositionUsd >= risk.maxSizeUsd
-- risk.dailyPnlUsd <= -0.85 * risk.dailyLossLimitUsd
-- risk.tradesInWindow >= 2
+- risk.dailyPnlUsd <= -0.90 * risk.dailyLossLimitUsd
+- risk.tradesInWindow >= 3
 - edge.direction is "none"
-- final calibrated confidence < 0.57
+- final calibrated confidence < 0.52
 
 ### Regime-specific rejections
 - regime.regime is "trending_up" AND edge.direction is "down" AND abs(features.price.momentum) > 0.4 → HOLD (fading a real trend)
@@ -181,19 +181,19 @@ Final confidence must be clamped to [0, 0.85].
 ### BUY_UP (fading overpriced DOWN)
 Use only when:
 - edge.direction == "up"
-- final confidence >= 0.57
+- final confidence >= 0.52
 - marketPUp < 0.50 (DOWN is priced higher)
 
 ### BUY_DOWN (fading overpriced UP)
 Use only when:
 - edge.direction == "down"
-- final confidence >= 0.57
+- final confidence >= 0.52
 - marketPUp > 0.50 (UP is priced higher)
 
 ### HOLD
 Use when:
 - no vol premium exists
-- confidence below 0.57
+- confidence below 0.52
 - market pricing appears justified by momentum/liquidations
 - setup is too late or illiquid
 

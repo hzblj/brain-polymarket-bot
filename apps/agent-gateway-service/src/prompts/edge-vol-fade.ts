@@ -159,7 +159,7 @@ If lagSignal is 'stale_up' or 'stale_down':
 direction = "up" if fairPUp > marketPUp, "down" if fairPUp < marketPUp, "none" if abs(difference) < 0.02
 magnitude = abs(fairPUp - marketPUp) after all adjustments
 
-If magnitude < 0.02 → NO EDGE (vol fade needs spread + premium to overcome)
+If magnitude < 0.015 → NO EDGE (vol fade needs spread + premium to overcome)
 
 ## Confidence Framework
 

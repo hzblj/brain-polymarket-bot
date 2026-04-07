@@ -282,8 +282,8 @@ export class DashboardService {
     const REGIME_TO_STRATEGY: Record<string, string> = {
       trending_up: 'Momentum',
       trending_down: 'Momentum',
-      volatile: 'AMD',
-      mean_reverting: 'AMD',
+      volatile: 'Momentum',
+      mean_reverting: 'Vol Fade',
       quiet: 'Vol Fade',
     };
     const routedStrategy = regimeValue ? REGIME_TO_STRATEGY[regimeValue] ?? null : null;
@@ -297,7 +297,6 @@ export class DashboardService {
     const edgeOutput = extractOutput(edge);
     const edgeProfile = edge ? str(edge.agentProfile as string) || str(edge.model as string) : null;
     const edgeLabelMap: Record<string, string> = {
-      'AMD': 'Edge (AMD)',
       'Vol Fade': 'Edge (VF)',
       'Momentum': 'Edge',
     };

@@ -51,14 +51,14 @@ const DEFAULT_STRATEGY_VERSION_CONFIG: StrategyVersionConfig = {
   },
   decisionPolicy: {
     allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'],
-    minConfidence: 0.6,
+    minConfidence: 0.52,
   },
   filters: {
-    maxSpreadBps: 150,
-    minDepthScore: 0.4,
-    minTimeToCloseSec: 30,
-    maxTimeToCloseSec: 120,
-    allowedRegimes: ['trending_up', 'trending_down'],
+    maxSpreadBps: 200,
+    minDepthScore: 0.3,
+    minTimeToCloseSec: 25,
+    maxTimeToCloseSec: 150,
+    allowedRegimes: ['trending_up', 'trending_down', 'volatile'],
   },
   riskProfile: {
     maxSizeUsd: 0.5,
@@ -100,11 +100,11 @@ const MEAN_REVERSION_VERSION_CONFIG: StrategyVersionConfig = {
   },
   decisionPolicy: {
     allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'],
-    minConfidence: 0.58,
+    minConfidence: 0.52,
   },
   filters: {
-    maxSpreadBps: 180,
-    minDepthScore: 0.35,
+    maxSpreadBps: 250,
+    minDepthScore: 0.25,
     minTimeToCloseSec: 40,
     maxTimeToCloseSec: 180,
     allowedRegimes: ['mean_reverting', 'quiet'],
@@ -197,11 +197,11 @@ const VOL_FADE_VERSION_CONFIG: StrategyVersionConfig = {
   },
   decisionPolicy: {
     allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'],
-    minConfidence: 0.57,
+    minConfidence: 0.52,
   },
   filters: {
-    maxSpreadBps: 300,
-    minDepthScore: 0.3,
+    maxSpreadBps: 400,
+    minDepthScore: 0.2,
     minTimeToCloseSec: 60,
     maxTimeToCloseSec: 180,
     allowedRegimes: ['quiet', 'mean_reverting', 'volatile'],
@@ -295,11 +295,11 @@ const AMD_VERSION_CONFIG: StrategyVersionConfig = {
   },
   decisionPolicy: {
     allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'],
-    minConfidence: 0.60,
+    minConfidence: 0.52,
   },
   filters: {
-    maxSpreadBps: 350,
-    minDepthScore: 0.30,
+    maxSpreadBps: 400,
+    minDepthScore: 0.2,
     minTimeToCloseSec: 60,
     maxTimeToCloseSec: 210,
     allowedRegimes: ['trending_up', 'trending_down', 'mean_reverting'],
@@ -323,7 +323,7 @@ const ADDITIONAL_STRATEGIES = [
   { key: BASIS_ARB_STRATEGY_KEY, identity: BASIS_ARB_STRATEGY_IDENTITY, config: BASIS_ARB_VERSION_CONFIG, active: false },
   { key: VOL_FADE_STRATEGY_KEY, identity: VOL_FADE_STRATEGY_IDENTITY, config: VOL_FADE_VERSION_CONFIG, active: true },
   { key: SWEEP_STRATEGY_KEY, identity: SWEEP_STRATEGY_IDENTITY, config: SWEEP_VERSION_CONFIG, active: true },
-  { key: AMD_STRATEGY_KEY, identity: AMD_STRATEGY_IDENTITY, config: AMD_VERSION_CONFIG, active: true },
+  { key: AMD_STRATEGY_KEY, identity: AMD_STRATEGY_IDENTITY, config: AMD_VERSION_CONFIG, active: false },
 ];
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
