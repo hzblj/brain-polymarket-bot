@@ -80,7 +80,13 @@ export class OpenAIClient implements LlmClient {
         );
 
         if (!functionCall) {
-          throw new Error('OpenAI did not return expected function_call output');
+          const outputTypes = response.output.map((item) => item.type).join(', ');
+          const textContent = response.output
+            .filter((item): item is Extract<typeof item, { type: 'message' }> => item.type === 'message')
+            .map((item) => item.content?.map((c: Record<string, unknown>) => c.text).join(''))
+            .join('\n');
+          this.logger.error('OpenAI did not return function_call', { outputTypes, textContent: textContent?.slice(0, 500) });
+          throw new Error(`OpenAI did not return expected function_call output. Got: [${outputTypes}]`);
         }
 
         const rawOutput = JSON.parse(functionCall.arguments);
