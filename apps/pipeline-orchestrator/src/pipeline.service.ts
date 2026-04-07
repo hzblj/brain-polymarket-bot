@@ -908,8 +908,8 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
 
     this.logger.debug(`Strategy routing: ${allStrategies.length} strategies, regime=${regime}, available regimes: ${allStrategies.map((s: ServiceResponse) => `${s.strategyKey}:[${s.filters?.allowedRegimes?.join(',') ?? 'any'}]`).join(', ')}`);
 
-    // Explicit priority order: AMD → Vol Fade → Momentum → others
-    const STRATEGY_PRIORITY = [
+    // Priority order: AMD → Vol Fade → Momentum → others
+    const REGIME_PRIORITY = [
       'btc-5m-amd',
       'btc-5m-vol-fade',
       'btc-5m-momentum',
@@ -928,8 +928,8 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    // Priority 2: Walk the priority list, pick the first whose allowedRegimes matches
-    for (const key of STRATEGY_PRIORITY) {
+    // Priority 2: Walk the regime priority list, pick the first whose allowedRegimes matches
+    for (const key of REGIME_PRIORITY) {
       const strat = findStrategy(key);
       if (!strat) continue;
       const regimes = strat.filters?.allowedRegimes;
@@ -942,7 +942,7 @@ export class PipelineService implements OnModuleInit, OnModuleDestroy {
     // Priority 3: Any remaining strategy that matches this regime
     const matched = allStrategies.find(
       (s: ServiceResponse) =>
-        !STRATEGY_PRIORITY.includes(s.strategyKey) &&
+        !REGIME_PRIORITY.includes(s.strategyKey) &&
         s.filters?.allowedRegimes?.includes(regime),
     );
     if (matched) {

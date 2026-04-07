@@ -302,7 +302,7 @@ const AMD_VERSION_CONFIG: StrategyVersionConfig = {
     minDepthScore: 0.30,
     minTimeToCloseSec: 60,
     maxTimeToCloseSec: 210,
-    allowedRegimes: ['trending_up', 'trending_down', 'volatile', 'mean_reverting'],
+    allowedRegimes: ['trending_up', 'trending_down', 'mean_reverting'],
   },
   riskProfile: {
     maxSizeUsd: 0.45,
