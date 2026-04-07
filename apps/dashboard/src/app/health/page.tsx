@@ -123,9 +123,9 @@ export default function HealthPage() {
                     </span>
                   </div>
                   <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-text-muted">
-                    <span>Last msg: {feed.lastMessageAge ?? '—'}s ago</span>
+                    <span>Last msg: {(feed as Record<string, unknown>).lastMessageAge as string ?? '—'}s ago</span>
                     <span>Rate: {feed.messageRate != null ? `${Number(feed.messageRate).toFixed(1)}/s` : '—'}</span>
-                    <span>Reconnects: {feed.reconnectCount ?? 0}</span>
+                    <span>Reconnects: {(feed as Record<string, unknown>).reconnectCount as number ?? 0}</span>
                   </div>
                 </div>
               ))}

@@ -127,11 +127,11 @@ function LogEntry({ trace }: { trace: TraceEntry }) {
       {expanded && (
         <div className="mt-3 space-y-3">
           {/* Reasoning */}
-          {output.reasoning && (
+          {Boolean(output.reasoning) && (
             <div className="rounded bg-surface-0/50 p-2">
               <p className="text-xs font-medium text-text-secondary mb-1">Reasoning</p>
               <p className="text-xs text-text-primary leading-relaxed">
-                {output.reasoning as string}
+                {String(output.reasoning)}
               </p>
             </div>
           )}

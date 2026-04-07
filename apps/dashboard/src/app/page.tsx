@@ -549,7 +549,7 @@ export default function OverviewPage() {
               {
                 key: "side",
                 label: "Side",
-                render: (row) => <SideBadge side={row.side} />,
+                render: (row) => <SideBadge side={row.side as "buy_up" | "buy_down"} />,
               },
               { key: "strategy", label: "Strategy" },
               {
@@ -598,7 +598,7 @@ export default function OverviewPage() {
               {
                 key: "side",
                 label: "Side",
-                render: (row) => <SideBadge side={row.side} />,
+                render: (row) => <SideBadge side={row.side as "buy_up" | "buy_down"} />,
               },
               {
                 key: "result",

@@ -10,7 +10,8 @@ interface PipelineStepProps {
   value?: string;
   confidence?: number;
   timestamp?: string;
-  detail?: Record<string, unknown> | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  detail?: Record<string, any> | null;
 }
 
 const statusIcon: Record<StepStatus, { icon: typeof Check; color: string }> = {

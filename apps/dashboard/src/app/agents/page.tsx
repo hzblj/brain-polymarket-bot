@@ -200,9 +200,9 @@ function TraceRow({
       {/* Summary line */}
       {!expanded && output && (
         <div className="px-4 pb-2 flex gap-4 text-xs text-text-secondary">
-          {output.regime && <span>Regime: <b className="text-text-primary">{String(output.regime)}</b></span>}
-          {output.direction && <span>Direction: <b className="text-text-primary">{String(output.direction)}</b></span>}
-          {output.action && <span>Action: <b className="text-text-primary">{String(output.action)}</b></span>}
+          {Boolean(output.regime) && <span>Regime: <b className="text-text-primary">{String(output.regime)}</b></span>}
+          {Boolean(output.direction) && <span>Direction: <b className="text-text-primary">{String(output.direction)}</b></span>}
+          {Boolean(output.action) && <span>Action: <b className="text-text-primary">{String(output.action)}</b></span>}
           {output.confidence != null && <span>Confidence: <b className="text-text-primary">{(Number(output.confidence) * 100).toFixed(0)}%</b></span>}
           {output.magnitude != null && <span>Magnitude: <b className="text-text-primary">{Number(output.magnitude).toFixed(3)}</b></span>}
         </div>
