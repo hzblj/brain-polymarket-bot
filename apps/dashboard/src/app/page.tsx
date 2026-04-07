@@ -35,6 +35,7 @@ import {
   useDerivativesFeatures,
   usePriceHistory,
   useLlmCosts,
+  useTopWallets,
 } from "@/lib/hooks";
 
 import {
@@ -215,6 +216,7 @@ export default function OverviewPage() {
   const llmCosts = useLlmCosts().data;
   const bc = useBlockchainActivity().data;
   const deriv = useDerivativesFeatures().data;
+  const topWallets = useTopWallets().data;
   const ttc = useCountdown(m?.timeToCloseMs);
 
   const totalUnrealized =
@@ -688,6 +690,51 @@ export default function OverviewPage() {
           </div>
         )}
       </div>
+
+      {/* ── Top 10 Wallets ──────────────────────────────────────── */}
+      {topWallets && topWallets.length > 0 && (
+        <div className="rounded-lg border border-border bg-surface-1 p-4">
+          <h2 className="mb-3 text-sm font-semibold text-text-secondary uppercase tracking-wider">
+            Top 10 Active Wallets (1h)
+          </h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-[10px] uppercase tracking-wider text-text-muted border-b border-border">
+                  <th className="py-1 pr-2 text-left">#</th>
+                  <th className="py-1 pr-2 text-left">Exchange</th>
+                  <th className="py-1 pr-2 text-left">Address</th>
+                  <th className="py-1 pr-2 text-right">Volume</th>
+                  <th className="py-1 pr-2 text-right">USD</th>
+                  <th className="py-1 pr-2 text-right">Net Flow</th>
+                  <th className="py-1 text-right">Txs</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topWallets.map((w, idx) => {
+                  const flowColor = w.netFlowBtc > 0.01 ? 'text-negative' : w.netFlowBtc < -0.01 ? 'text-positive' : 'text-text-muted';
+                  const isRecent = Date.now() - w.lastSeenTime < 60_000;
+                  return (
+                    <tr key={w.address} className={isRecent ? 'bg-accent/5' : ''}>
+                      <td className="py-1.5 pr-2 text-text-muted font-mono">{idx + 1}</td>
+                      <td className="py-1.5 pr-2 font-medium truncate max-w-[5rem]">{w.exchange}</td>
+                      <td className="py-1.5 pr-2 font-mono text-accent truncate max-w-[7rem]">
+                        {w.address.slice(0, 6)}...{w.address.slice(-4)}
+                      </td>
+                      <td className="py-1.5 pr-2 text-right tabular-nums">{formatPrice(w.volumeBtc, 2)}</td>
+                      <td className="py-1.5 pr-2 text-right tabular-nums text-text-muted">${formatPrice(w.volumeUsd, 0)}</td>
+                      <td className={`py-1.5 pr-2 text-right tabular-nums ${flowColor}`}>
+                        {w.netFlowBtc >= 0 ? '+' : ''}{formatPrice(w.netFlowBtc, 2)}
+                      </td>
+                      <td className="py-1.5 text-right tabular-nums text-text-secondary">{w.txCount}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* ── Health Summary ────────────────────────────────────────── */}
       <div className="rounded-lg border border-border bg-surface-1 p-4">
