@@ -217,12 +217,62 @@ const VOL_FADE_VERSION_CONFIG: StrategyVersionConfig = {
   },
 };
 
+// ─── Liquidity Sweep Strategy ──────────────────────────────────────────────
+
+const SWEEP_STRATEGY_KEY = 'btc-5m-sweep';
+
+const SWEEP_STRATEGY_IDENTITY = {
+  key: SWEEP_STRATEGY_KEY,
+  name: 'BTC 5m Liquidity Sweep',
+  description:
+    'Detects stop-hunt sweeps beyond swing highs/lows and trades the reversal, amplified by Poly lag and volume spikes.',
+  status: 'active' as const,
+  isDefault: false,
+};
+
+const SWEEP_VERSION_CONFIG: StrategyVersionConfig = {
+  id: 'btc-5m-sweep-v1',
+  label: 'BTC 5m Liquidity Sweep v1',
+  marketSelector: {
+    asset: 'BTC',
+    marketType: 'UP_DOWN',
+    windowSec: 300,
+  },
+  agentProfile: {
+    regimeAgentProfile: 'regime-default-v1',
+    edgeAgentProfile: 'edge-sweep-v1',
+    supervisorAgentProfile: 'supervisor-momentum-v1',
+  },
+  decisionPolicy: {
+    allowedDecisions: ['TRADE_LONG', 'TRADE_SHORT', 'NO_TRADE'],
+    minConfidence: 0.58,
+  },
+  filters: {
+    maxSpreadBps: 400,
+    minDepthScore: 0.25,
+    minTimeToCloseSec: 60,
+    maxTimeToCloseSec: 240,
+    allowedRegimes: ['trending_up', 'trending_down', 'volatile', 'mean_reverting'],
+  },
+  riskProfile: {
+    maxSizeUsd: 0.4,
+    dailyLossLimitUsd: 10,
+    maxTradesPerWindow: 1,
+  },
+  executionPolicy: {
+    entryWindowStartSec: 240,
+    entryWindowEndSec: 60,
+    mode: 'paper',
+  },
+};
+
 // ─── All Additional Strategies ──────────────────────────────────────────────
 
 const ADDITIONAL_STRATEGIES = [
   { key: MEAN_REVERSION_STRATEGY_KEY, identity: MEAN_REVERSION_STRATEGY_IDENTITY, config: MEAN_REVERSION_VERSION_CONFIG, active: true },
   { key: BASIS_ARB_STRATEGY_KEY, identity: BASIS_ARB_STRATEGY_IDENTITY, config: BASIS_ARB_VERSION_CONFIG, active: false },
   { key: VOL_FADE_STRATEGY_KEY, identity: VOL_FADE_STRATEGY_IDENTITY, config: VOL_FADE_VERSION_CONFIG, active: false },
+  { key: SWEEP_STRATEGY_KEY, identity: SWEEP_STRATEGY_IDENTITY, config: SWEEP_VERSION_CONFIG, active: true },
 ];
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
