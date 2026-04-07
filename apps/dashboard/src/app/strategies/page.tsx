@@ -51,7 +51,7 @@ type StrategyVersion = {
 const API_BASE =
   typeof window !== 'undefined'
     ? `http://${window.location.hostname}:3000`
-    : 'http://localhost:3000';
+    : 'http://api-gateway:3000';
 
 const FLAG_LABELS: Record<string, string> = {
   agentRegimeEnabled: 'Agent Regime',

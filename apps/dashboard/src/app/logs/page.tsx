@@ -39,9 +39,8 @@ interface PipelineStatus {
 // ─── Fetch functions ────────────────────────────────────────────────────────
 
 function getApiBase(): string {
-  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
   if (typeof window !== 'undefined') return `http://${window.location.hostname}:3000`;
-  return 'http://localhost:3000';
+  return 'http://api-gateway:3000';
 }
 
 async function fetchTraces(limit: number): Promise<TraceEntry[]> {

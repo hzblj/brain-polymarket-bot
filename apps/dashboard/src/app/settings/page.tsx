@@ -222,9 +222,9 @@ export default function SettingsPage() {
 
   // ── Computed ────────────────────────────────────────────────────────────
 
-  const [apiUrl, setApiUrl] = useState(process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000");
+  const [apiUrl, setApiUrl] = useState("http://localhost:3000");
   useEffect(() => {
-    if (!process.env.NEXT_PUBLIC_API_URL && typeof window !== "undefined") {
+    if (typeof window !== "undefined") {
       setApiUrl(`http://${window.location.hostname}:3000`);
     }
   }, []);

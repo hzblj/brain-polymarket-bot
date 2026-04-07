@@ -1,7 +1,7 @@
 function getApiBase(): string {
-  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
   if (typeof window !== 'undefined') return `http://${window.location.hostname}:3000`;
-  return 'http://localhost:3000';
+  // SSR: use internal Docker network name
+  return process.env.INTERNAL_API_URL || 'http://api-gateway:3000';
 }
 
 class ApiError extends Error {
